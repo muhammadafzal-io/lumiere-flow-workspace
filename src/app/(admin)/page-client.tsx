@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useStore } from "@/lib/store";
 import {
@@ -40,6 +40,35 @@ function StatusDot({ s }: { s: string }) {
 }
 
 export default function Dashboard() {
+  const [realMetrics, setRealMetrics] = useState<{
+    totalCustomers?: number;
+    messagesSentThisMonth?: number;
+    appointmentsThisWeek?: number;
+  } | null>(null);
+
+  useEffect(() => {
+    async function fetchDashboardData() {
+      try {
+        const res = await fetch("/api/dashboard");
+        if (res.ok) {
+          const data = await res.json();
+          setRealMetrics(data.metrics);
+
+
+        }
+      } catch (err) {
+        console.error("Failed to fetch dashboard data:", err);
+      }
+    }
+
+    // 1. Fetch immediately on mount
+    fetchDashboardData();
+
+    const intervalId = setInterval(fetchDashboardData, 30000);
+
+    return () => clearInterval(intervalId);
+  }, []);
+
   const customers = useStore((s) => s.customers);
   const rules = useStore((s) => s.rules);
   const activity = useStore((s) => s.activity);
@@ -74,11 +103,18 @@ export default function Dashboard() {
       : Math.round(((apptsThisWeek.length - apptsLastWeek.length) / apptsLastWeek.length) * 100);
 
   const kpis = [
-    { label: "Total customers", value: customers.length || 847, icon: Users },
+    {
+      label: "Total customers",
+      value: realMetrics?.totalCustomers ?? (customers.length || 847),
+      icon: Users,
+    },
     { label: "Active rules", value: activeRules.length || 6, icon: Zap },
     {
       label: "Messages sent this month",
-      value: (activity.length * 15 || 1243).toLocaleString(),
+      value: (
+        realMetrics?.messagesSentThisMonth ??
+        (activity.length * 15 || 1243)
+      ).toLocaleString(),
       icon: MessageSquare,
     },
     {
@@ -90,7 +126,7 @@ export default function Dashboard() {
     },
     {
       label: "Appointments this week",
-      value: apptsThisWeek.length,
+      value: realMetrics?.appointmentsThisWeek ?? apptsThisWeek.length,
       icon: CalendarIcon,
       delta: `${weekDelta >= 0 ? "+" : ""}${weekDelta}% vs last week`,
       positive: weekDelta >= 0,
@@ -299,28 +335,28 @@ export default function Dashboard() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="text-xs text-muted-foreground bg-muted/40">
-              <tr>
-                <th className="text-left font-medium px-5 py-2.5">Rule</th>
-                <th className="text-left font-medium px-5 py-2.5">Trigger</th>
-                <th className="text-right font-medium px-5 py-2.5">Audience</th>
-                <th className="text-right font-medium px-5 py-2.5">Sent (30d)</th>
-                <th className="text-right font-medium px-5 py-2.5">Reply rate</th>
-                <th className="text-right font-medium px-5 py-2.5">Revenue</th>
-              </tr>
+            <tr>
+              <th className="text-left font-medium px-5 py-2.5">Rule</th>
+              <th className="text-left font-medium px-5 py-2.5">Trigger</th>
+              <th className="text-right font-medium px-5 py-2.5">Audience</th>
+              <th className="text-right font-medium px-5 py-2.5">Sent (30d)</th>
+              <th className="text-right font-medium px-5 py-2.5">Reply rate</th>
+              <th className="text-right font-medium px-5 py-2.5">Revenue</th>
+            </tr>
             </thead>
             <tbody className="divide-y">
-              {activeRules.map((r) => (
-                <tr key={r.id}>
-                  <td className="px-5 py-3 font-medium">{r.name}</td>
-                  <td className="px-5 py-3 text-muted-foreground">{r.trigger_type}</td>
-                  <td className="px-5 py-3 text-right">{r.audience_size}</td>
-                  <td className="px-5 py-3 text-right">{r.sent_30d}</td>
-                  <td className="px-5 py-3 text-right">{(r.reply_rate * 100).toFixed(0)}%</td>
-                  <td className="px-5 py-3 text-right font-medium">
-                    ${r.revenue.toLocaleString()}
-                  </td>
-                </tr>
-              ))}
+            {activeRules.map((r) => (
+              <tr key={r.id}>
+                <td className="px-5 py-3 font-medium">{r.name}</td>
+                <td className="px-5 py-3 text-muted-foreground">{r.trigger_type}</td>
+                <td className="px-5 py-3 text-right">{r.audience_size}</td>
+                <td className="px-5 py-3 text-right">{r.sent_30d}</td>
+                <td className="px-5 py-3 text-right">{(r.reply_rate * 100).toFixed(0)}%</td>
+                <td className="px-5 py-3 text-right font-medium">
+                  ${r.revenue.toLocaleString()}
+                </td>
+              </tr>
+            ))}
             </tbody>
           </table>
         </div>

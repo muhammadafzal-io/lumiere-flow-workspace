@@ -131,11 +131,12 @@ export function RuleModal({ open, onOpenChange, editing }: Props) {
     if (!parsed) return;
   }, [triggerType]);
 
-  const save = (status: "active" | "draft") => {
+  const save = async (status: "active" | "draft") => {
     if (!name.trim()) {
       toast.error("Name your rule first");
       return;
     }
+
     const rule: Rule = {
       id: editing?.id || `r_${Date.now()}`,
       name,
@@ -153,8 +154,36 @@ export function RuleModal({ open, onOpenChange, editing }: Props) {
       reply_rate: editing?.reply_rate || 0,
       revenue: editing?.revenue || 0,
     };
+
     store.upsertRule(rule);
-    toast.success(status === "active" ? "Rule activated" : "Saved as draft");
+
+    const triggerConditionValue =
+      cfg.days || cfg.days_before || cfg.days_after || cfg.hours_after || cfg.date || 0;
+
+    try {
+      const response = await fetch("/api/rule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ruleName: name,
+          triggerType: triggerType,
+          triggerCondition: triggerConditionValue,
+          channel: channel,
+          messageTemplate: message,
+          incentiveCode: offer,
+          status: status === "active" ? "Active" : "Draft",
+          aiPrompt: nl,
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to sync to API");
+
+      toast.success(status === "active" ? "Rule activated & synced" : "Saved as draft & synced");
+    } catch (error) {
+      console.error(error);
+      toast.error("Saved locally, but failed to sync to database");
+    }
+
     onOpenChange(false);
   };
 
@@ -349,10 +378,10 @@ function defaultCfg(t: TriggerType): Record<string, any> {
 }
 
 function TriggerDetails({
-  t,
-  cfg,
-  setCfg,
-}: {
+                          t,
+                          cfg,
+                          setCfg,
+                        }: {
   t: TriggerType;
   cfg: Record<string, any>;
   setCfg: (c: Record<string, any>) => void;
