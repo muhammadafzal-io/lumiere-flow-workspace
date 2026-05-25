@@ -1,17 +1,18 @@
+/* eslint-disable prettier/prettier */
 import { google } from "googleapis";
-import type { AvailableSlot, Appointment } from "@/types";
+import type { AvailableSlot, CalendarEvent, Appointment } from "@/types";
 
 const BUSINESS_START_HOUR = 9;
 const BUSINESS_END_HOUR = 19;
 const TIMEZONE = "America/Chicago";
+const DEFAULT_ROOMS = ["Room 1", "Room 2"];
 
-// Returns today's date string (YYYY-MM-DD) in Austin CT
+// Returns today's date string (YYYY-MM-DD) in Chicago CT
 function todayInChicago(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: TIMEZONE });
 }
 
 // Converts a Chicago local hour on a given date to a UTC Date.
-// e.g. chicagoHourToUtc('2026-05-16', 9) → 14:00Z when CDT (UTC-5) is active
 function chicagoHourToUtc(dateStr: string, hour: number): Date {
   const probe = new Date(`${dateStr}T${String(hour).padStart(2, "0")}:00:00Z`);
   const localHour =
@@ -48,11 +49,33 @@ function calendarId() {
   return process.env.GOOGLE_CALENDAR_ID ?? "primary";
 }
 
+// Parses Room, Practitioner, Contact, Notes from a GCal event description.
+// Returns null for room/practitioner if not present (legacy events without these fields).
+function parseDesc(description: string): {
+  room: string | null;
+  practitioner: string | null;
+  contact: string;
+  notes: string;
+} {
+  const lines = description.split("\n");
+  const find = (prefix: string) =>
+    lines.find((l) => l.startsWith(prefix))?.slice(prefix.length).trim() ?? "";
+  return {
+    room: find("Room:") || null,
+    practitioner: find("Practitioner:") || null,
+    contact: find("Contact:"),
+    notes: find("Notes:"),
+  };
+}
+
+// ── Available slots (per-room, per-practitioner aware) ───────────────────────
+
 export async function getAvailableSlots(
   date: string,
   durationMinutes = 60,
+  rooms: string[] = DEFAULT_ROOMS,
+  practitionerNames: string[] = [],
 ): Promise<AvailableSlot[]> {
-  // Never return slots for past dates (Austin CT)
   if (date < todayInChicago()) return [];
 
   const calendar = getCalendarClient();
@@ -69,17 +92,23 @@ export async function getAvailableSlots(
     orderBy: "startTime",
   });
 
-  const busyBlocks: Array<{ start: Date; end: Date }> = (res.data.items ?? [])
+  type BusyEvent = { start: Date; end: Date; room: string | null; practitioner: string | null };
+
+  const busyEvents: BusyEvent[] = (res.data.items ?? [])
     .filter((e) => e.start?.dateTime && e.end?.dateTime)
-    .map((e) => ({
-      start: new Date(e.start!.dateTime!),
-      end: new Date(e.end!.dateTime!),
-    }));
+    .map((e) => {
+      const { room, practitioner } = parseDesc(e.description ?? "");
+      return {
+        start: new Date(e.start!.dateTime!),
+        end: new Date(e.end!.dateTime!),
+        room,
+        practitioner,
+      };
+    });
 
   const now = new Date();
   const slots: AvailableSlot[] = [];
 
-  // For today, start the cursor at the next 30-min boundary after now
   let cursor = new Date(dayStart);
   if (date === todayInChicago() && now > cursor) {
     const elapsed = now.getTime() - dayStart.getTime();
@@ -90,9 +119,26 @@ export async function getAvailableSlots(
   while (cursor.getTime() + durationMinutes * 60_000 <= dayEnd.getTime()) {
     const slotEnd = new Date(cursor.getTime() + durationMinutes * 60_000);
 
-    const overlaps = busyBlocks.some((b) => cursor < b.end && slotEnd > b.start);
+    // Events that overlap this candidate slot
+    const overlapping = busyEvents.filter((b) => cursor < b.end && slotEnd > b.start);
 
-    if (!overlaps) {
+    // A "global" event (no room AND no practitioner stored) is a legacy event
+    // that blocks everything — treat conservatively.
+    const hasGlobalEvent = overlapping.some((e) => e.room === null && e.practitioner === null);
+
+    // Rooms busy = rooms explicitly claimed by an overlapping event
+    const busyRoomSet = new Set(overlapping.filter((e) => e.room !== null).map((e) => e.room!));
+    const freeRooms = hasGlobalEvent ? [] : rooms.filter((r) => !busyRoomSet.has(r));
+
+    // Practitioners busy = practitioners explicitly claimed by an overlapping event
+    const busyPracSet = new Set(overlapping.filter((e) => e.practitioner !== null).map((e) => e.practitioner!));
+    const freePractitioners = hasGlobalEvent ? [] : practitionerNames.filter((p) => !busyPracSet.has(p));
+
+    const roomAvailable = freeRooms.length > 0;
+    // Skip practitioner gating if caller didn't supply practitioner names
+    const pracAvailable = practitionerNames.length === 0 || freePractitioners.length > 0;
+
+    if (roomAvailable && pracAvailable) {
       slots.push({
         startTime: cursor.toISOString(),
         endTime: slotEnd.toISOString(),
@@ -106,6 +152,8 @@ export async function getAvailableSlots(
           hour12: true,
           timeZoneName: "short",
         }),
+        availableRooms: freeRooms,
+        availablePractitioners: freePractitioners,
       });
     }
 
@@ -114,6 +162,91 @@ export async function getAvailableSlots(
 
   return slots;
 }
+
+// ── Admin booking with per-room + per-practitioner conflict check ────────────
+
+export async function bookAdminAppointment(booking: {
+  startTime: string;
+  endTime: string;
+  clientName: string;
+  clientContact?: string;
+  treatment: string;
+  room: string;
+  practitionerName: string;
+  notes?: string;
+}): Promise<{ id: string }> {
+  if (new Date(booking.startTime) < new Date()) {
+    throw new Error("Cannot book an appointment in the past");
+  }
+
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+
+  // Fetch all events that overlap the requested window
+  const res = await calendar.events.list({
+    calendarId: calId,
+    timeMin: booking.startTime,
+    timeMax: booking.endTime,
+    singleEvents: true,
+  });
+
+  const bStart = new Date(booking.startTime);
+  const bEnd = new Date(booking.endTime);
+
+  const conflict = (res.data.items ?? []).find((e) => {
+    if (!e.start?.dateTime || !e.end?.dateTime) return false;
+    const eStart = new Date(e.start.dateTime);
+    const eEnd = new Date(e.end.dateTime);
+    if (eStart >= bEnd || eEnd <= bStart) return false;
+
+    const { room: evRoom, practitioner: evPrac } = parseDesc(e.description ?? "");
+
+    // Legacy event (no metadata) blocks everything
+    if (evRoom === null && evPrac === null) return true;
+
+    // Conflict if new booking shares the same room OR the same practitioner
+    const roomConflict = evRoom === null || evRoom === booking.room;
+    const pracConflict = evPrac === null || evPrac === booking.practitionerName;
+    return roomConflict && pracConflict;
+  });
+
+  if (conflict) {
+    const { room: evRoom, practitioner: evPrac } = parseDesc(conflict.description ?? "");
+    if (evRoom === booking.room && evPrac === booking.practitionerName) {
+      throw new Error(`${booking.room} with ${booking.practitionerName} is already booked at this time`);
+    } else if (evRoom === booking.room) {
+      throw new Error(`${booking.room} is already booked — try a different room`);
+    } else if (evPrac === booking.practitionerName) {
+      throw new Error(`${booking.practitionerName} is already booked — try a different practitioner`);
+    } else {
+      throw new Error("This time slot is unavailable — try a different room or practitioner");
+    }
+  }
+
+  const event = await calendar.events.insert({
+    calendarId: calId,
+    requestBody: {
+      summary: `${booking.treatment} — ${booking.clientName}`,
+      description: [
+        `Treatment: ${booking.treatment}`,
+        `Client: ${booking.clientName}`,
+        `Contact: ${booking.clientContact ?? ""}`,
+        `Room: ${booking.room}`,
+        `Practitioner: ${booking.practitionerName}`,
+        booking.notes ? `Notes: ${booking.notes}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      start: { dateTime: booking.startTime, timeZone: TIMEZONE },
+      end: { dateTime: booking.endTime, timeZone: TIMEZONE },
+      colorId: "11",
+    },
+  });
+
+  return { id: event.data.id! };
+}
+
+// ── Legacy AI-agent booking (unchanged) ─────────────────────────────────────
 
 export async function createAppointment(appt: Omit<Appointment, "id">): Promise<Appointment> {
   if (new Date(appt.startTime) < new Date()) {
@@ -144,6 +277,44 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
   return { ...appt, id: event.data.id! };
 }
 
+// ── Fetch events by date range ───────────────────────────────────────────────
+
+export async function getEventsByRange(from: string, to: string): Promise<CalendarEvent[]> {
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+  const timeMin = chicagoHourToUtc(from, 0).toISOString();
+  const timeMax = chicagoHourToUtc(to, 24).toISOString();
+
+  const res = await calendar.events.list({
+    calendarId: calId,
+    timeMin,
+    timeMax,
+    singleEvents: true,
+    orderBy: "startTime",
+  });
+
+  return (res.data.items ?? [])
+    .filter((e) => e.start?.dateTime)
+    .map((e) => {
+      const summary = e.summary ?? "";
+      const dashIdx = summary.indexOf(" — ");
+      const treatment = dashIdx >= 0 ? summary.slice(0, dashIdx).trim() : "";
+      const clientName = dashIdx >= 0 ? summary.slice(dashIdx + 3).trim() : summary.trim();
+      const { room, practitioner, contact, notes } = parseDesc(e.description ?? "");
+      return {
+        id: e.id!,
+        treatment,
+        clientName,
+        startTime: e.start!.dateTime!,
+        endTime: e.end!.dateTime ?? e.start!.dateTime!,
+        clientContact: contact,
+        notes,
+        room: room ?? "",
+        practitioner: practitioner ?? "",
+      };
+    });
+}
+
 export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointment[]> {
   const calendar = getCalendarClient();
   const calId = calendarId();
@@ -163,12 +334,7 @@ export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointmen
     .filter((e) => e.start?.dateTime)
     .map((e) => {
       const [treatment, clientName] = (e.summary ?? "").split(" — ");
-      const descLines = (e.description ?? "").split("\n");
-      const contact =
-        descLines
-          .find((l) => l.startsWith("Contact:"))
-          ?.replace("Contact:", "")
-          .trim() ?? "";
+      const { contact } = parseDesc(e.description ?? "");
       return {
         id: e.id!,
         treatment: treatment?.trim() ?? "",

@@ -80,6 +80,8 @@ export interface AiTranscriptMsg {
 export interface Appointment {
   id: string;
   customer_id: string;
+  clientName?: string;
+  clientContact?: string;
   treatment: Treatment;
   duration_minutes: number;
   start_time: string;

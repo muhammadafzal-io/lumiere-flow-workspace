@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -37,6 +38,7 @@ import { toast } from "sonner";
 import { useStore, store } from "@/lib/store";
 import type { Appointment, Practitioner, Customer, Treatment } from "@/lib/types";
 import {
+  BUSSINESS_TZ,
   HOUR_START,
   HOUR_END,
   SLOT_MIN,
@@ -56,8 +58,8 @@ import {
   practitionerById,
   slotIdFor,
   parseSlotId,
+  chicagoSlotDate,
 } from "@/lib/calendar-utils";
-import { TREATMENT_DURATIONS, TREATMENT_PRICES } from "@/lib/seed";
 import {
   AppointmentSlideOver,
   RescheduleModal,
@@ -70,7 +72,8 @@ type ViewMode = "day" | "week" | "agenda";
 export default function CalendarPage() {
   const customers = useStore((s) => s.customers);
   const practitioners = useStore((s) => s.practitioners);
-  const appointments = useStore((s) => s.appointments);
+  const [calEvents, setCalEvents] = useState<Appointment[]>([]);
+  const [calLoading, setCalLoading] = useState(false);
 
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "week";
@@ -92,8 +95,6 @@ export default function CalendarPage() {
 
   const [pauseLive, setPauseLive] = useState(false);
   const [syncedAt, setSyncedAt] = useState<Date>(new Date(Date.now() - 2 * 60000));
-  const [syncing, setSyncing] = useState(false);
-
   const [selectedAptId, setSelectedAptId] = useState<string | null>(null);
   const [reschedAptId, setReschedAptId] = useState<string | null>(null);
   const [reschedNewStart, setReschedNewStart] = useState<Date | null>(null);
@@ -104,9 +105,15 @@ export default function CalendarPage() {
 
   const customerMap = useMemo(() => new Map(customers.map((c) => [c.id, c])), [customers]);
 
+  const appointments = calEvents;
+
   const visibleAppointments = useMemo(
     () =>
-      appointments.filter((a) => selectedPracs.has(a.practitioner_id) && a.status !== "cancelled"),
+      appointments.filter(
+        (a) =>
+          (selectedPracs.has(a.practitioner_id) || a.practitioner_id === "") &&
+          a.status !== "cancelled",
+      ),
     [appointments, selectedPracs],
   );
 
@@ -119,7 +126,8 @@ export default function CalendarPage() {
 
   const dateRangeLabel = useMemo(() => {
     if (view === "day")
-      return anchor.toLocaleDateString(undefined, {
+      return anchor.toLocaleDateString("en-US", {
+        timeZone: BUSSINESS_TZ,
         weekday: "long",
         month: "short",
         day: "numeric",
@@ -127,24 +135,80 @@ export default function CalendarPage() {
       });
     const start = days[0];
     const end = days[days.length - 1];
-    const sameMonth = start.getMonth() === end.getMonth();
+    const sameMonth = fmtDateShort(start).split(" ")[0] === fmtDateShort(end).split(" ")[0];
     return sameMonth
-      ? `${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${end.getDate()}, ${end.getFullYear()}`
-      : `${fmtDateShort(start)} – ${fmtDateShort(end)}, ${end.getFullYear()}`;
+      ? `${fmtDateShort(start)} – ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, day: "numeric" })}, ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, year: "numeric" })}`
+      : `${fmtDateShort(start)} – ${fmtDateShort(end)}, ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, year: "numeric" })}`;
   }, [days, view, anchor]);
 
   const goPrev = () => setAnchor((d) => addDays(d, view === "day" ? -1 : -7));
   const goNext = () => setAnchor((d) => addDays(d, view === "day" ? 1 : 7));
   const goToday = () => setAnchor(new Date());
 
-  const triggerSync = () => {
-    setSyncing(true);
-    setTimeout(() => {
-      setSyncing(false);
+  const fetchCalEvents = async (from: Date, to: Date) => {
+    setCalLoading(true);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    try {
+      const res = await fetch(`/api/calendar/events?from=${fmt(from)}&to=${fmt(to)}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      console.log("Fetched calendar events", data);
+      const events: Appointment[] = (data.events ?? []).map(
+        (e: {
+          id: string;
+          treatment: string;
+          clientName: string;
+          clientContact: string;
+          startTime: string;
+          endTime: string;
+          notes: string;
+          room: string;
+          practitioner: string;
+        }) => {
+          const matchedPrac = practitioners.find((p) => p.name === e.practitioner);
+          return {
+            id: e.id,
+            customer_id: "",
+            clientName: e.clientName || undefined,
+            clientContact: e.clientContact || undefined,
+            treatment: (e.treatment || "HydraFacial") as Appointment["treatment"],
+            duration_minutes: Math.round(
+              (new Date(e.endTime).getTime() - new Date(e.startTime).getTime()) / 60000,
+            ),
+            start_time: e.startTime,
+            end_time: e.endTime,
+            practitioner_id: matchedPrac?.id ?? practitioners[0]?.id ?? "",
+            room: e.room || "",
+            status: "confirmed" as const,
+            source: "manual" as const,
+            notes: e.notes ?? "",
+            price: 0,
+            created_at: e.startTime,
+            reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
+          };
+        },
+      );
+      setCalEvents(events);
       setSyncedAt(new Date());
-    }, 900);
+    } catch (err) {
+      console.error("[calendar sync]", err);
+      toast.error("Could not sync calendar");
+    } finally {
+      setCalLoading(false);
+    }
+  };
+
+  const triggerSync = () => {
+    if (days.length === 0) return;
+    fetchCalEvents(days[0], days[days.length - 1]);
   };
   const syncedAgo = useRelativeTime(syncedAt);
+
+  useEffect(() => {
+    if (days.length === 0) return;
+    fetchCalEvents(days[0], days[days.length - 1]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -169,25 +233,6 @@ export default function CalendarPage() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [view]);
-
-  const aiTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (pauseLive) return;
-    const schedule = () => {
-      const delay = 45000 + Math.random() * 45000;
-      aiTimerRef.current = window.setTimeout(() => {
-        triggerAiBooking(customers, practitioners, store.get().appointments, (id) => {
-          setAiPulseId(id);
-          setTimeout(() => setAiPulseId(null), 2400);
-        });
-        schedule();
-      }, delay);
-    };
-    schedule();
-    return () => {
-      if (aiTimerRef.current) window.clearTimeout(aiTimerRef.current);
-    };
-  }, [pauseLive, customers, practitioners]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
   const handleDragEnd = (e: DragEndEvent) => {
@@ -289,7 +334,7 @@ export default function CalendarPage() {
                     onClick={triggerSync}
                     className="text-muted-foreground hover:text-foreground ml-1"
                   >
-                    <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+                    <RefreshCw className={`h-3 w-3 ${calLoading ? "animate-spin" : ""}`} />
                   </button>
                 </div>
               </TooltipTrigger>
@@ -400,6 +445,44 @@ export default function CalendarPage() {
   );
 }
 
+// ============= Overlap layout =============
+
+function computeOverlapLayout(
+  apts: Appointment[],
+): Map<string, { col: number; totalCols: number }> {
+  const layout = new Map<string, { col: number; totalCols: number }>();
+  if (apts.length === 0) return layout;
+
+  const sorted = [...apts].sort(
+    (a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
+  );
+
+  // Greedily assign each appointment to the earliest free column
+  const columnEnds: Date[] = [];
+  const aptCol = new Map<string, number>();
+
+  for (const apt of sorted) {
+    const start = new Date(apt.start_time);
+    const end = new Date(apt.end_time);
+    let col = columnEnds.findIndex((e) => e <= start);
+    if (col === -1) col = columnEnds.length;
+    columnEnds[col] = end;
+    aptCol.set(apt.id, col);
+  }
+
+  // totalCols for each apt = max column index among all appointments that overlap it, + 1
+  for (const apt of sorted) {
+    const start = new Date(apt.start_time);
+    const end = new Date(apt.end_time);
+    const maxCol = sorted
+      .filter((o) => new Date(o.start_time) < end && new Date(o.end_time) > start)
+      .reduce((m, o) => Math.max(m, aptCol.get(o.id)!), 0);
+    layout.set(apt.id, { col: aptCol.get(apt.id)!, totalCols: maxCol + 1 });
+  }
+
+  return layout;
+}
+
 // ============= Calendar grid =============
 
 function CalendarGrid({
@@ -426,8 +509,23 @@ function CalendarGrid({
   const dayApts = view === "day" ? appointmentsOnDate(appointments, days[0]) : [];
   const dayRevenue = dayApts.reduce((sum, a) => sum + a.price, 0);
 
+  // Scroll to current time (or 9 am) on first mount
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const now = new Date();
+    const nowHour = parseInt(
+      new Intl.DateTimeFormat("en-US", { timeZone: BUSSINESS_TZ, hour: "2-digit", hour12: false }).format(now),
+      10,
+    ) % 24;
+    const targetHour = Math.max(HOUR_START, Math.min(nowHour, HOUR_END - 1));
+    const scrollPx = (targetHour - HOUR_START) * slotsPerHourPx();
+    el.scrollTop = Math.max(0, scrollPx - 56); // show 1 hour above current
+  }, []);
+
   return (
-    <div className="rounded-lg border bg-card overflow-hidden">
+    <div ref={scrollRef} className="rounded-lg border bg-card overflow-hidden max-h-[calc(100vh-200px)] overflow-y-auto">
       {view === "day" && (
         <div className="px-4 py-2.5 border-b flex items-center justify-between bg-muted/20 text-xs">
           <span className="text-muted-foreground">{dayApts.length} appointments</span>
@@ -524,21 +622,18 @@ function DayColumn({
   onSlotClick: (d: Date) => void;
 }) {
   const today = sameDay(day, new Date());
-  const dow = day.getDay();
-  const closedDay = dow === 0 || dow === 1;
+  const closedDay = !isClinicOpen(chicagoSlotDate(day, 12, 0)); // check midday to determine closed day
 
   const slots: { hour: number; minute: number; date: Date }[] = [];
   for (const h of hours) {
     for (let m = 0; m < 60; m += SLOT_MIN) {
-      const d = new Date(day);
-      d.setHours(h, m, 0, 0);
-      slots.push({ hour: h, minute: m, date: d });
+      slots.push({ hour: h, minute: m, date: chicagoSlotDate(day, h, m) });
     }
   }
 
   return (
     <div
-      className={`relative border-l ${today ? "bg-primary/[0.025]" : ""}`}
+      className={`relative border-l overflow-hidden ${today ? "bg-primary/[0.025]" : ""}`}
       style={{ height: gridHeight }}
     >
       {hours.map((h, i) => (
@@ -562,16 +657,24 @@ function DayColumn({
           />
         );
       })}
-      {appointments.map((a) => (
-        <DraggableAppointment
-          key={a.id}
-          appointment={a}
-          customer={customerMap.get(a.customer_id) || null}
-          practitioner={practitionerById(practitioners, a.practitioner_id) || null}
-          isAiPulse={aiPulseId === a.id}
-          onClick={() => onSelect(a.id)}
-        />
-      ))}
+      {(() => {
+        const layout = computeOverlapLayout(appointments);
+        return appointments.map((a) => {
+          const { col, totalCols } = layout.get(a.id) ?? { col: 0, totalCols: 1 };
+          return (
+            <DraggableAppointment
+              key={a.id}
+              appointment={a}
+              customer={customerMap.get(a.customer_id) || null}
+              practitioner={practitionerById(practitioners, a.practitioner_id) || null}
+              isAiPulse={aiPulseId === a.id}
+              col={col}
+              totalCols={totalCols}
+              onClick={() => onSelect(a.id)}
+            />
+          );
+        });
+      })()}
     </div>
   );
 }
@@ -620,12 +723,16 @@ function DraggableAppointment({
   customer,
   practitioner,
   isAiPulse,
+  col,
+  totalCols,
   onClick,
 }: {
   appointment: Appointment;
   customer: Customer | null;
   practitioner: Practitioner | null;
   isAiPulse: boolean;
+    col: number;
+    totalCols: number;
   onClick: () => void;
 }) {
   const a = appointment;
@@ -635,10 +742,13 @@ function DraggableAppointment({
   const h = Math.max(heightPx(a.duration_minutes) - 2, SLOT_PX - 2);
   const color = practitioner?.color || "#0F766E";
 
+  const pct = 100 / totalCols;
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: a.id });
   const style: React.CSSProperties = {
     top,
     height: h,
+    left: `calc(${col * pct}% + 4px)`,
+    right: `calc(${(totalCols - col - 1) * pct}% + 4px)`,
     transform: transform ? `translate3d(${transform.x}px, ${transform.y}px, 0)` : undefined,
     borderColor: color,
     backgroundColor: hexToRgba(color, 0.08),
@@ -653,7 +763,11 @@ function DraggableAppointment({
       : a.status === "pending"
         ? "bg-warning"
         : "bg-destructive";
-  const compact = h < 50;
+  const veryCompact = h < 34; // 30-min slot — time only
+  const compact = !veryCompact && h < 58; // 45-min slot — one-line summary
+
+  const displayName = customer?.name || a.clientName || "Client";
+  const displayTreatment = a.treatment || "";
 
   return (
     <div
@@ -665,24 +779,25 @@ function DraggableAppointment({
         onClick();
       }}
       style={style}
-      className={`absolute left-1 right-1 rounded-md border-l-[3px] border bg-card px-2 py-1 text-[11px] cursor-grab active:cursor-grabbing overflow-hidden transition-shadow hover:shadow-md ${isAiPulse ? "ring-2 ring-primary animate-pulse" : ""}`}
+      className={`absolute rounded-md border-l-[3px] border bg-card px-2 py-1 text-[11px] cursor-grab active:cursor-grabbing overflow-hidden transition-shadow hover:shadow-md ${isAiPulse ? "ring-2 ring-primary animate-pulse" : ""}`}
     >
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0 flex-1">
-          <div className="font-semibold truncate" style={{ color: "inherit" }}>
+          <div className="font-semibold truncate leading-tight" style={{ color: "inherit" }}>
             {fmtTimeRange(start, end)}
           </div>
-          {!compact && (
+          {!compact && !veryCompact && (
             <>
-              <div className="truncate text-foreground font-medium mt-0.5">
-                {customer?.name || "Client"}
-              </div>
-              <div className="truncate text-muted-foreground">{a.treatment}</div>
+              <div className="truncate text-foreground font-medium mt-0.5">{displayName}</div>
+              {displayTreatment && (
+                <div className="truncate text-muted-foreground">{displayTreatment}</div>
+              )}
             </>
           )}
           {compact && (
-            <div className="truncate text-foreground">
-              {customer?.name?.split(" ")[0]} · {a.treatment}
+            <div className="truncate text-foreground leading-tight">
+              {displayName.split(" ")[0]}
+              {displayTreatment ? ` · ${displayTreatment}` : ""}
             </div>
           )}
         </div>
@@ -781,7 +896,9 @@ function AgendaView({
                     {fmtTimeRange(start, end)}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="font-medium truncate">{c?.name || "Client"}</div>
+                    <div className="font-medium truncate">
+                      {c?.name || a.clientName || "Client"}
+                    </div>
                     <div className="text-xs text-muted-foreground truncate">
                       {a.treatment} · {a.room}
                     </div>
@@ -865,83 +982,6 @@ function SourcePill({ source }: { source: string }) {
       Manual
     </span>
   );
-}
-
-// ============= AI booking simulator =============
-
-function triggerAiBooking(
-  customers: Customer[],
-  practitioners: Practitioner[],
-  existing: Appointment[],
-  onCreated: (id: string) => void,
-) {
-  if (customers.length === 0 || practitioners.length === 0) return;
-  const TREATMENTS: Treatment[] = [
-    "Botox",
-    "HydraFacial",
-    "Laser",
-    "Microneedling",
-    "IV Drip",
-    "Filler",
-  ];
-  for (let attempt = 0; attempt < 20; attempt++) {
-    const dayOffset = Math.floor(Math.random() * 14) + 1;
-    const d = new Date();
-    d.setDate(d.getDate() + dayOffset);
-    const dow = d.getDay();
-    if (dow === 0 || dow === 1) continue;
-    const hours = [10, 11, 12, 13, 14, 15, 16, 17, 18];
-    d.setHours(hours[Math.floor(Math.random() * hours.length)], Math.random() < 0.5 ? 0 : 30, 0, 0);
-    const treatment = TREATMENTS[Math.floor(Math.random() * TREATMENTS.length)];
-    const dur = TREATMENT_DURATIONS[treatment];
-    const prac = practitioners[Math.floor(Math.random() * practitioners.length)];
-    const conflict = existing.some(
-      (a) =>
-        a.practitioner_id === prac.id &&
-        a.status !== "cancelled" &&
-        Math.abs(new Date(a.start_time).getTime() - d.getTime()) < dur * 60000,
-    );
-    if (conflict) continue;
-    const cust = customers[Math.floor(Math.random() * customers.length)];
-    const end = new Date(d.getTime() + dur * 60000);
-    const id = `apt_ai_${Date.now()}`;
-    const appt: Appointment = {
-      id,
-      customer_id: cust.id,
-      treatment,
-      duration_minutes: dur,
-      start_time: d.toISOString(),
-      end_time: end.toISOString(),
-      practitioner_id: prac.id,
-      room: Math.random() < 0.5 ? "Room 1" : "Room 2",
-      status: "confirmed",
-      source: "ai_booked",
-      notes: "",
-      price: TREATMENT_PRICES[treatment],
-      created_at: new Date().toISOString(),
-      reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
-    };
-    store.upsertAppointment(appt);
-    onCreated(id);
-    const dayLabel = d.toLocaleDateString(undefined, {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-    });
-    toast(
-      <div className="flex items-start gap-2">
-        <Sparkles className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
-        <div className="flex-1">
-          <div className="font-semibold text-sm">AI just booked an appointment</div>
-          <div className="text-xs text-muted-foreground mt-0.5">
-            {cust.name} — {treatment} — {dayLabel}, {fmtTime(d)}
-          </div>
-        </div>
-      </div>,
-      { duration: 5000, className: "border-l-2 !border-l-primary" },
-    );
-    return;
-  }
 }
 
 function useRelativeTime(d: Date): string {

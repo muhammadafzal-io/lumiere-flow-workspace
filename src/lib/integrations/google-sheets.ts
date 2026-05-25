@@ -94,6 +94,37 @@ export async function appendOpsLog(entry: OpsLogEntry): Promise<void> {
   });
 }
 
+export async function readOpsLog(limit = 500): Promise<(OpsLogEntry & { id: string })[]> {
+  await ensureHeader();
+  const sheets = getSheetsClient();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: spreadsheetId(),
+    range: `${tabName()}!A:I`,
+  });
+
+  const rows = res.data.values ?? [];
+  if (rows.length <= 1) return []; // header only
+
+  // Skip header row, most-recent first
+  return rows
+    .slice(1)
+    .reverse()
+    .slice(0, limit)
+    .map((row, i) => ({
+      id: `row_${i}`,
+      timestamp: row[0] ?? "",
+      eventType: (row[1] ?? "inquiry") as OpsLogEntry["eventType"],
+      clientName: row[2] ?? "",
+      phone: row[3] ?? "",
+      email: row[4] ?? "",
+      clientId: row[5] ?? "",
+      details: row[6] ?? "",
+      status: (row[7] ?? "success") as OpsLogEntry["status"],
+      platform: row[8] ?? "",
+    }));
+}
+
 export async function logEvent(
   type: OpsLogEntry["eventType"],
   clientName: string,
