@@ -27,7 +27,6 @@ import {
   X,
   Sparkles,
   MapPin,
-  User as UserIcon,
   Phone,
   Mail,
   Calendar as CalendarIcon,
@@ -45,7 +44,7 @@ import type {
 } from "@/lib/types";
 import { TREATMENT_DURATIONS, TREATMENT_PRICES } from "@/lib/seed";
 import { store } from "@/lib/store";
-import { fmtTimeRange, fmtTime, practitionerById } from "@/lib/calendar-utils";
+import { BUSSINESS_TZ, fmtTimeRange, fmtTime, practitionerById } from "@/lib/calendar-utils";
 
 function statusPill(s: AppointmentStatus) {
   const map: Record<AppointmentStatus, string> = {
@@ -126,7 +125,7 @@ export function AppointmentSlideOver({
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <SheetTitle className="text-lg leading-tight">
-                {customer?.name || "Client"}
+                {customer?.name || a.clientName || "Client"}
               </SheetTitle>
               <div className="mt-2 flex items-center gap-2">
                 {statusPill(a.status)}
@@ -153,7 +152,8 @@ export function AppointmentSlideOver({
               <Row
                 icon={<CalendarIcon className="h-3.5 w-3.5" />}
                 label="Date"
-                value={start.toLocaleDateString(undefined, {
+                value={start.toLocaleDateString("en-US", {
+                  timeZone: BUSSINESS_TZ,
                   weekday: "long",
                   month: "long",
                   day: "numeric",
@@ -172,15 +172,15 @@ export function AppointmentSlideOver({
                 label="Source"
                 value={
                   a.source === "ai_booked"
-                    ? `Booked by AI on ${new Date(a.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}, ${fmtTime(new Date(a.created_at))}`
-                    : `Manually booked${a.created_by ? ` by ${a.created_by}` : ""} on ${new Date(a.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
+                    ? `Booked by AI on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, month: "short", day: "numeric" })}, ${fmtTime(new Date(a.created_at))}`
+                    : `Manually booked${a.created_by ? ` by ${a.created_by}` : ""} on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, month: "short", day: "numeric" })}`
                 }
               />
             </div>
           </section>
 
           {/* Client snapshot */}
-          {customer && (
+          {customer ? (
             <section>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
                 Client
@@ -219,7 +219,12 @@ export function AppointmentSlideOver({
                   <div className="rounded-md bg-muted/40 px-2.5 py-2">
                     <div className="text-muted-foreground">Last visit</div>
                     <div className="font-semibold mt-0.5">
-                      {new Date(customer.last_visit).toLocaleDateString()}
+                      {new Date(customer.last_visit).toLocaleDateString("en-US", {
+                        timeZone: BUSSINESS_TZ,
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      })}
                     </div>
                   </div>
                 </div>
@@ -228,7 +233,53 @@ export function AppointmentSlideOver({
                 </a>
               </div>
             </section>
-          )}
+          ) : a.clientName ? (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
+                Client
+              </h3>
+              <div className="rounded-lg border bg-card p-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-medium flex-shrink-0">
+                    {a.clientName
+                      .split(" ")
+                      .map((s) => s[0])
+                      .slice(0, 2)
+                      .join("")}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-semibold text-sm truncate">{a.clientName}</div>
+                    <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <Phone className="h-3 w-3" />
+                        {a.clientContact && !a.clientContact.includes("@") ? a.clientContact : "—"}
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <Mail className="h-3 w-3" />
+                        {a.clientContact && a.clientContact.includes("@") ? a.clientContact : "—"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  <div className="rounded-md bg-muted/40 px-2.5 py-2">
+                    <div className="text-muted-foreground">Total visits</div>
+                    <div className="font-semibold mt-0.5">—</div>
+                  </div>
+                  <div className="rounded-md bg-muted/40 px-2.5 py-2">
+                    <div className="text-muted-foreground">Last visit</div>
+                    <div className="font-semibold mt-0.5">—</div>
+                  </div>
+                </div>
+                <a
+                  href={`/customers?search=${encodeURIComponent(a.clientName)}`}
+                  className="block mt-3 text-xs text-primary hover:underline"
+                >
+                  View full profile →
+                </a>
+              </div>
+            </section>
+          ) : null}
 
           {/* AI transcript */}
           {a.source === "ai_booked" && a.ai_transcript && a.ai_transcript.length > 0 && (
@@ -376,7 +427,8 @@ function ReminderRow({ label, sent, when }: { label: string; sent: boolean; when
     <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
       <div className="flex-1">{label}</div>
       <div className="text-xs text-muted-foreground">
-        {when.toLocaleString(undefined, {
+        {when.toLocaleString("en-US", {
+          timeZone: BUSSINESS_TZ,
           month: "short",
           day: "numeric",
           hour: "numeric",
@@ -468,7 +520,8 @@ export function RescheduleModal({
                 <div className="text-xs text-muted-foreground">Original</div>
                 <div className="text-foreground">
                   <span className="font-medium">{customer.name}</span> — {a.treatment} —{" "}
-                  {new Date(a.start_time).toLocaleDateString(undefined, {
+                  {new Date(a.start_time).toLocaleDateString("en-US", {
+                    timeZone: BUSSINESS_TZ,
                     weekday: "short",
                     month: "short",
                     day: "numeric",
@@ -480,7 +533,8 @@ export function RescheduleModal({
                 <div className="text-xs text-muted-foreground">New</div>
                 <div className="text-primary font-medium">
                   {customer.name} — {a.treatment} —{" "}
-                  {ns.toLocaleDateString(undefined, {
+                  {ns.toLocaleDateString("en-US", {
+                    timeZone: BUSSINESS_TZ,
                     weekday: "short",
                     month: "short",
                     day: "numeric",
@@ -620,7 +674,8 @@ export function CancelModal({
                 {customer.name} — {appointment.treatment}
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
-                {new Date(appointment.start_time).toLocaleDateString(undefined, {
+                {new Date(appointment.start_time).toLocaleDateString("en-US", {
+                  timeZone: BUSSINESS_TZ,
                   weekday: "long",
                   month: "short",
                   day: "numeric",
@@ -725,6 +780,7 @@ export function NewAppointmentModal({
   const [notes, setNotes] = useState("");
   const [notify, setNotify] = useState(true);
   const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
 
   // Reset when opening
   if (open && defaultStart) {
@@ -742,50 +798,88 @@ export function NewAppointmentModal({
     ? customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())).slice(0, 6)
     : customers.slice(0, 6);
 
-  const save = () => {
+  const prac = practitioners.find((p) => p.id === practitionerId);
+
+  const save = async () => {
     if (!customerId) {
       toast.error("Please select a client");
       return;
     }
+    if (!practitionerId) {
+      toast.error("Please select a practitioner");
+      return;
+    }
+
     const dur = TREATMENT_DURATIONS[treatment];
     const start = new Date(`${date}T${time}:00`);
     const end = new Date(start.getTime() + dur * 60000);
-    const id = `apt_new_${Date.now()}`;
-    store.upsertAppointment({
-      id,
-      customer_id: customerId,
-      treatment,
-      duration_minutes: dur,
-      start_time: start.toISOString(),
-      end_time: end.toISOString(),
-      practitioner_id: practitionerId,
-      room,
-      status: "confirmed",
-      source: "manual",
-      notes,
-      price: TREATMENT_PRICES[treatment],
-      created_at: new Date().toISOString(),
-      created_by: "Sofia",
-      reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
-    });
-    if (notify && cust) {
-      store.addActivity({
-        id: `a_conf_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        customer_id: cust.id,
-        rule_id: "manual",
-        channel: "WhatsApp",
-        message_body: `Hi ${cust.name.split(" ")[0]} — your ${treatment} is confirmed for ${start.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} at ${fmtTime(start)}. See you soon.`,
-        status: "Sent",
-        kind: "confirmation",
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/calendar/book", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          startTime: start.toISOString(),
+          endTime: end.toISOString(),
+          clientName: cust?.name ?? "Client",
+          clientContact: cust?.phone ?? "",
+          treatment,
+          room,
+          practitionerName: prac?.name ?? "",
+          notes,
+        }),
       });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        toast.error(data.error ?? "Booking failed");
+        return;
+      }
+
+      // Mirror to local store for immediate UI feedback
+      store.upsertAppointment({
+        id: data.id || `apt_new_${Date.now()}`,
+        customer_id: customerId,
+        treatment,
+        duration_minutes: dur,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        practitioner_id: practitionerId,
+        room,
+        status: "confirmed",
+        source: "manual",
+        notes,
+        price: TREATMENT_PRICES[treatment],
+        created_at: new Date().toISOString(),
+        created_by: "Admin",
+        reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
+      });
+
+      if (notify && cust) {
+        store.addActivity({
+          id: `a_conf_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          customer_id: cust.id,
+          rule_id: "manual",
+          channel: "WhatsApp",
+          message_body: `Hi ${cust.name.split(" ")[0]} — your ${treatment} is confirmed for ${start.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at ${fmtTime(start)}. See you soon.`,
+          status: "Sent",
+          kind: "confirmation",
+        });
+      }
+
+      toast.success(`Appointment created.${notify ? " Confirmation sent." : ""}`);
+      onClose();
+      setCustomerId("");
+      setNotes("");
+      setSearch("");
+    } catch {
+      toast.error("Network error — could not save appointment");
+    } finally {
+      setSaving(false);
     }
-    toast.success(`Appointment created.${notify ? " Confirmation sent." : ""}`);
-    onClose();
-    // reset
-    setCustomerId("");
-    setNotes("");
-    setSearch("");
   };
 
   return (
@@ -933,10 +1027,12 @@ export function NewAppointmentModal({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={save}>Create appointment</Button>
+          <Button onClick={save} disabled={saving}>
+            {saving ? "Checking availability…" : "Create appointment"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

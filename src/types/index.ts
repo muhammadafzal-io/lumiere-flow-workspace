@@ -34,6 +34,21 @@ export interface AvailableSlot {
   startTime: string;
   endTime: string;
   displayTime: string;
+  availableRooms: string[];
+  availablePractitioners: string[];
+}
+
+// Minimal shape returned by getEventsByRange (used by admin calendar)
+export interface CalendarEvent {
+  id: string;
+  treatment: string;
+  clientName: string;
+  clientContact: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+  room: string;
+  practitioner: string;
 }
 
 export interface InboundMessage {
