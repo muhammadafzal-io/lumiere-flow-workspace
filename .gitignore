@@ -60,3 +60,5 @@ ehthumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+.vercel
