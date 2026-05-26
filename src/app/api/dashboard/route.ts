@@ -1,149 +1,156 @@
+/* eslint-disable prettier/prettier */
 import { NextResponse } from "next/server";
+import { readOpsLog } from "@/lib/integrations/google-sheets";
+import { getEventsByRange } from "@/lib/integrations/google-calendar";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const token = process.env.AIRTABLE_TOKEN;
-  const baseId =  process.env.AIRTABLE_BASE_ID;
-  const tableName = "Clients"; // Based on your previous setup
+const RULES_TABLE = "Rules";
+const CLIENTS_TABLE = "Clients";
 
-  if (!token || !baseId) {
-    return NextResponse.json(
-      { error: "Missing Airtable credentials in .env.local" },
-      { status: 500 },
+function airtableBase() {
+  const token = process.env.AIRTABLE_API_KEY;
+  const baseId = process.env.AIRTABLE_BASE_ID;
+  if (!token || !baseId) throw new Error("Missing AIRTABLE_API_KEY or AIRTABLE_BASE_ID");
+  return { token, baseId };
+}
+
+function todayStr(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
+function dateStr(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
+// ── Fetch clients from Airtable ──────────────────────────────────────────────
+async function fetchClients() {
+  const { token, baseId } = airtableBase();
+  const allRecords: any[] = [];
+  let offset: string | undefined;
+
+  do {
+    const params = new URLSearchParams({ pageSize: "100" });
+    if (offset) params.set("offset", offset);
+    const res = await fetch(
+      `https://api.airtable.com/v0/${baseId}/${CLIENTS_TABLE}?${params}`,
+      { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
     );
-  }
+    if (!res.ok) throw new Error(`Airtable clients error: ${res.status}`);
+    const data = await res.json();
+    allRecords.push(...(data.records ?? []));
+    offset = data.offset;
+  } while (offset);
 
-  try {
-    // 1. Fetch data from Airtable
-    const response = await fetch(`https://api.airtable.com/v0/${baseId}/${tableName}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      // Revalidate every 60 seconds so your dashboard isn't permanently cached
-      cache: "no-store",
-    });
+  return allRecords.map((r) => r.fields);
+}
 
-    if (!response.ok) {
-      throw new Error(`Airtable returned status: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const records = data.records || [];
-
-    const clients = records.map((record: any) => ({
+// ── Fetch rules from Airtable ─────────────────────────────────────────────────
+async function fetchRules() {
+  const { token, baseId } = airtableBase();
+  const res = await fetch(
+    `https://api.airtable.com/v0/${baseId}/${RULES_TABLE}?view=Grid%20view`,
+    { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
+  );
+  if (!res.ok) return [];
+  const data = await res.json();
+  return (data.records ?? []).map((record: any) => {
+    const f = record.fields;
+    let trigger_config: Record<string, any> = {};
+    try { trigger_config = JSON.parse(f["Trigger Config"] ?? "{}"); } catch { /* empty */ }
+    return {
       id: record.id,
-      name: record.fields["Name"] || "Unknown",
-      phone: record.fields["Phone"] || null,
-      telegramId: record.fields["Telegram ID"] || null,
-      email: record.fields["Email"] || null,
-      lastVisit: record.fields["Last Visit"] || null,
-      treatmentInterest: record.fields["Treatment Interest"] || null,
-      status: record.fields["Status"] || "Unknown", // "Active", "No-Show", etc.
-      appointments: record.fields["Appointments"] || null,
-      creditCodes: record.fields["Credit Codes"] || null,
-      birthday: record.fields["Birthday"] || null,
-      lastReminderSent: record.fields["Last Reminder Sent"] || null,
-      lastReactivationSent: record.fields["Last Reactivation Sent"] || null,
-      birthdayCreditSent: record.fields["Birthday Credit Sent"] || false,
-    }));
+      name: f["Rule Name"] ?? "",
+      status: (f["Status"] ?? "Draft").toLowerCase(),
+      trigger_type: f["Trigger Type"] ?? "Inactivity",
+      trigger_config,
+      channel: f["Channel"] ?? "WhatsApp",
+      message_template: f["Message Template"] ?? "",
+      offer_code: f["Incentive Code"] || undefined,
+      audience_filter: [],
+      created_at: record.createdTime,
+      audience_size: 0,
+      sent_30d: 0,
+      reply_rate: 0,
+      revenue: 0,
+    };
+  });
+}
 
-    const totalCustomers = clients.length;
+export async function GET() {
+  try {
+    const { token, baseId } = airtableBase();
+    void token; void baseId; // already validated in airtableBase()
 
-    const activeCustomers = clients.filter((c: any) => c.status === "Active").length;
+    // Run all fetches in parallel
+    const [clients, rules, recentActivity, calendarEvents] = await Promise.allSettled([
+      fetchClients(),
+      fetchRules(),
+      readOpsLog(8),
+      getEventsByRange(todayStr(), dateStr(7)),
+    ]);
+
+    const clientList = clients.status === "fulfilled" ? clients.value : [];
+    const ruleList   = rules.status === "fulfilled"   ? rules.value   : [];
+    const activity   = recentActivity.status === "fulfilled" ? recentActivity.value : [];
+    const events     = calendarEvents.status === "fulfilled"  ? calendarEvents.value  : [];
+
+    // ── Metrics ──────────────────────────────────────────────────────────────
+    const totalCustomers  = clientList.length;
+    const activeCustomers = clientList.filter((c: any) => c["Status"] === "Active").length;
 
     const now = new Date();
     const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
+    const currentYear  = now.getFullYear();
 
-    const isThisMonth = (dateString: any) => {
-      if (!dateString) return false;
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return false;
-      return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
-    };
-
-    const extractDateFromAppointment = (apptStr: string): string | null => {
-      if (!apptStr) return null;
-      // Match: Day Mon DD, YYYY HH:MM AM/PM  (e.g. Thu May 21, 2026 11:30 AM)
-      const match = apptStr.match(
-        /[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}\s+\d{1,2}:\d{2}\s*(?:AM|PM)/i,
-      );
-      if (match) return match[0];
-      // Fallback: if the whole string is already a valid date, use it
-      const trimmed = apptStr.trim();
-      if (!isNaN(new Date(trimmed).getTime())) return trimmed;
-      return null;
-    };
-
-    const getStartOfWeek = (date: Date) => {
-      const d = new Date(date);
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday is first day of week
-      d.setDate(diff);
-      d.setHours(0, 0, 0, 0);
-      return d.getTime();
-    };
-
-    const getEndOfWeek = (date: Date) => {
-      const d = new Date(date);
-      const day = d.getDay();
-      const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-      d.setDate(diff + 6);
-      d.setHours(23, 59, 59, 999);
-      return d.getTime();
-    };
-
-    const startOfCurrentWeek = getStartOfWeek(now);
-
-    const endOfToday = new Date(now);
-    endOfToday.setHours(23, 59, 59, 999);
-
-    const isThisWeek = (dateString: any) => {
-      if (!dateString) return false;
-      const date = new Date(dateString);
-      if (isNaN(date.getTime())) return false;
-      const time = date.getTime();
-      return time >= startOfCurrentWeek && time <= endOfToday.getTime();
+    const isThisMonth = (d: string | null) => {
+      if (!d) return false;
+      const date = new Date(d);
+      return !isNaN(date.getTime()) && date.getMonth() === currentMonth && date.getFullYear() === currentYear;
     };
 
     let messagesSentThisMonth = 0;
-    let appointmentsThisWeek = 0;
-
-    clients.forEach((c: any) => {
-      if (isThisMonth(c.lastReminderSent)) {
-        messagesSentThisMonth++;
-      }
-      if (isThisMonth(c.lastReactivationSent)) {
-        messagesSentThisMonth++;
-      }
-
-      if (Array.isArray(c.appointments)) {
-        // FIX 3: extract parseable date from each array entry
-        c.appointments.forEach((appt: any) => {
-          const dateStr = extractDateFromAppointment(String(appt));
-          if (dateStr && isThisWeek(dateStr)) appointmentsThisWeek++;
-        });
-      } else if (typeof c.appointments === "string") {
-        const apptDates = c.appointments.split(";");
-        apptDates.forEach((apptDate: string) => {
-          const dateStr = extractDateFromAppointment(apptDate.trim());
-          if (dateStr && isThisWeek(dateStr)) appointmentsThisWeek++;
-        });
-      }
+    clientList.forEach((c: any) => {
+      if (isThisMonth(c["Last Reminder Sent"])) messagesSentThisMonth++;
+      if (isThisMonth(c["Last Reactivation Sent"])) messagesSentThisMonth++;
     });
 
-    // 4. Return the structured data to your frontend
+    // This week = Mon–Sun bracket
+    const monday = new Date(now);
+    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    monday.setHours(0, 0, 0, 0);
+    const sundayEnd = new Date(monday.getTime() + 7 * 86400000 - 1);
+
+    const appointmentsThisWeek = events.filter((e) => {
+      const t = new Date(e.startTime).getTime();
+      return t >= monday.getTime() && t <= sundayEnd.getTime();
+    }).length;
+
+    // Last week for delta
+    const lastMonday    = new Date(monday.getTime() - 7 * 86400000);
+    const lastSundayEnd = new Date(monday.getTime() - 1);
+    const appointmentsLastWeek = events.filter((e) => {
+      const t = new Date(e.startTime).getTime();
+      return t >= lastMonday.getTime() && t <= lastSundayEnd.getTime();
+    }).length;
+
+    // Active rules count
+    const activeRulesCount = ruleList.filter((r: any) => r.status === "active").length;
+
     return NextResponse.json({
       metrics: {
         totalCustomers,
         activeCustomers,
+        activeRulesCount,
         messagesSentThisMonth,
         appointmentsThisWeek,
+        appointmentsLastWeek,
       },
-      clients: clients,
+      recentActivity: activity,
+      rules: ruleList,
+      calendarEvents: events,
     });
   } catch (error) {
     console.error("Dashboard API Error:", error);

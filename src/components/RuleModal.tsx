@@ -17,7 +17,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Sparkles, Loader2, Wand2 } from "lucide-react";
 import { parseNaturalLanguage, generateCopy } from "@/lib/ai-parse";
 import type { Rule, TriggerType, Channel, Treatment } from "@/lib/types";
-import { store, useStore } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import { toast } from "sonner";
 
 const TRIGGER_TYPES: TriggerType[] = [
@@ -137,37 +137,17 @@ export function RuleModal({ open, onOpenChange, editing }: Props) {
       return;
     }
 
-    const rule: Rule = {
-      id: editing?.id || `r_${Date.now()}`,
-      name,
-      trigger_type: triggerType,
-      trigger_config: cfg,
-      audience_filter: audienceTags,
-      channel,
-      message_template: message,
-      offer_code: offer || undefined,
-      status,
-      created_at: editing?.created_at || new Date().toISOString(),
-      last_run_at: editing?.last_run_at,
-      audience_size: audience.length,
-      sent_30d: editing?.sent_30d || 0,
-      reply_rate: editing?.reply_rate || 0,
-      revenue: editing?.revenue || 0,
-    };
-
-    store.upsertRule(rule);
-
-    const triggerConditionValue =
-      cfg.days || cfg.days_before || cfg.days_after || cfg.hours_after || cfg.date || 0;
+    const isEdit = !!editing?.id;
 
     try {
       const response = await fetch("/api/rule", {
-        method: "POST",
+        method: isEdit ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(isEdit && { recordId: editing.id }),
           ruleName: name,
           triggerType: triggerType,
-          triggerCondition: triggerConditionValue,
+          triggerConfig: cfg,
           channel: channel,
           messageTemplate: message,
           incentiveCode: offer,
