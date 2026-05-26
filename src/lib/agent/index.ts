@@ -8,7 +8,9 @@ import { logEvent } from "@/lib/integrations/google-sheets";
 import { postEscalation } from "@/lib/integrations/slack";
 import type { AgentResult } from "@/types";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 const MAX_TOOL_ROUNDS = 8;
 
@@ -134,7 +136,7 @@ export async function runAgent(opts: {
   let booked = false;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await openai.chat.completions.create({
+    const response = await getOpenAI().chat.completions.create({
       model: "gpt-4o",
       max_tokens: 1024,
       tools: TOOLS,

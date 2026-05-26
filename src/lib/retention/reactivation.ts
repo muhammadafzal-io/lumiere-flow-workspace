@@ -4,7 +4,9 @@ import { logEvent } from "@/lib/integrations/google-sheets";
 import { getMessagingProvider } from "@/lib/messaging";
 import type { Client, RetentionResult } from "@/types";
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function getOpenAI() {
+  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
 
 const CAMPAIGN = {
   incentive: "20% off your next visit",
@@ -29,7 +31,7 @@ Offer: ${CAMPAIGN.incentive} using code ${CAMPAIGN.incentiveCode} (valid ${CAMPA
 Sound like it's from their favourite spa — warm, personal, not salesy.
 Write ONLY the message text — no subject line, no quotes, no explanation. No emojis. Plain text only.`;
 
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model: "gpt-4o-mini",
     max_tokens: 300,
     messages: [{ role: "user", content: prompt }],
