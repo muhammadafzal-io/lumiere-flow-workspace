@@ -358,10 +358,10 @@ function defaultCfg(t: TriggerType): Record<string, any> {
 }
 
 function TriggerDetails({
-                          t,
-                          cfg,
-                          setCfg,
-                        }: {
+  t,
+  cfg,
+  setCfg,
+}: {
   t: TriggerType;
   cfg: Record<string, any>;
   setCfg: (c: Record<string, any>) => void;

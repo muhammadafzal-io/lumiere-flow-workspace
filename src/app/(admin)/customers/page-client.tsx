@@ -48,15 +48,33 @@ function SkeletonRows() {
     <>
       {Array.from({ length: 8 }).map((_, i) => (
         <tr key={i} className="animate-pulse">
-          <td className="px-4 py-3"><div className="h-3 w-3 rounded bg-muted" /></td>
-          <td className="px-4 py-3"><div className="h-3 rounded bg-muted w-28" /></td>
-          <td className="px-4 py-3"><div className="h-3 rounded bg-muted w-24" /></td>
-          <td className="px-4 py-3"><div className="h-3 rounded bg-muted w-32" /></td>
-          <td className="px-4 py-3"><div className="h-3 rounded bg-muted w-20" /></td>
-          <td className="px-4 py-3"><div className="h-3 rounded bg-muted w-8 ml-auto" /></td>
-          <td className="px-4 py-3"><div className="h-3 rounded bg-muted w-12 ml-auto" /></td>
-          <td className="px-4 py-3"><div className="h-3 rounded bg-muted w-20" /></td>
-          <td className="px-4 py-3"><div className="h-5 rounded bg-muted w-14" /></td>
+          <td className="px-4 py-3">
+            <div className="h-3 w-3 rounded bg-muted" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-3 rounded bg-muted w-28" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-3 rounded bg-muted w-24" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-3 rounded bg-muted w-32" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-3 rounded bg-muted w-20" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-3 rounded bg-muted w-8 ml-auto" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-3 rounded bg-muted w-12 ml-auto" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-3 rounded bg-muted w-20" />
+          </td>
+          <td className="px-4 py-3">
+            <div className="h-5 rounded bg-muted w-14" />
+          </td>
           <td className="px-2 py-3" />
         </tr>
       ))}
@@ -201,7 +219,8 @@ export default function CustomersPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {customers.length} total · {activeCount} active · {vipCount} VIP · {dormantCount} dormant
+            {customers.length} total · {activeCount} active · {vipCount} VIP · {dormantCount}{" "}
+            dormant
           </p>
         </div>
         <div className="flex gap-2">
@@ -212,7 +231,12 @@ export default function CustomersPage() {
             <Download className="h-4 w-4 mr-1.5" />
             Export CSV
           </Button>
-          <Button onClick={() => { setForm(EMPTY_FORM); setAddOpen(true); }}>
+          <Button
+            onClick={() => {
+              setForm(EMPTY_FORM);
+              setAddOpen(true);
+            }}
+          >
             <Plus className="h-4 w-4 mr-1.5" />
             Add customer
           </Button>
@@ -291,7 +315,11 @@ export default function CustomersPage() {
                     className="cursor-pointer hover:bg-muted/40 transition-colors"
                   >
                     <td className="px-4 py-2.5">
-                      <input type="checkbox" onClick={(e) => e.stopPropagation()} className="rounded" />
+                      <input
+                        type="checkbox"
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded"
+                      />
                     </td>
                     <td className="px-4 py-2.5 font-medium">{c.name}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{c.phone || "—"}</td>
@@ -363,12 +391,16 @@ export default function CustomersPage() {
                 <div className="rounded-md border p-3">
                   <div className="text-[11px] text-muted-foreground">Lifetime value</div>
                   <div className="text-base font-semibold mt-0.5">
-                    {selected.lifetime_value > 0 ? `$${selected.lifetime_value.toLocaleString()}` : "—"}
+                    {selected.lifetime_value > 0
+                      ? `$${selected.lifetime_value.toLocaleString()}`
+                      : "—"}
                   </div>
                 </div>
                 <div className="rounded-md border p-3">
                   <div className="text-[11px] text-muted-foreground">Visits</div>
-                  <div className="text-base font-semibold mt-0.5">{selected.total_visits || "—"}</div>
+                  <div className="text-base font-semibold mt-0.5">
+                    {selected.total_visits || "—"}
+                  </div>
                 </div>
                 <div className="rounded-md border p-3">
                   <div className="text-[11px] text-muted-foreground">Last visit</div>

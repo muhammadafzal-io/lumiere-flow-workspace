@@ -25,7 +25,14 @@ function parseAppointments(raw: string | string[] | null): string[] {
 function parseTreatments(raw: string | string[] | null): Treatment[] {
   if (!raw) return [];
   const list = Array.isArray(raw) ? raw : raw.split(/[;,]/).map((s) => s.trim());
-  const valid: Treatment[] = ["Botox", "HydraFacial", "Laser", "Microneedling", "IV Drip", "Filler"];
+  const valid: Treatment[] = [
+    "Botox",
+    "HydraFacial",
+    "Laser",
+    "Microneedling",
+    "IV Drip",
+    "Filler",
+  ];
   return list.filter((t): t is Treatment => valid.includes(t as Treatment));
 }
 
@@ -86,9 +93,7 @@ export async function GET(req: NextRequest) {
         `OR(SEARCH(LOWER("${q}"),LOWER({Name})),SEARCH(LOWER("${q}"),LOWER({Phone})),SEARCH(LOWER("${q}"),LOWER({Email})))`,
       );
     }
-    const formula = filters.length > 1 
-      ? `AND(${filters.join(",")})`
-      : filters[0] ?? "";
+    const formula = filters.length > 1 ? `AND(${filters.join(",")})` : (filters[0] ?? "");
 
     const params = new URLSearchParams({
       pageSize: String(Math.min(limit, 100)),
@@ -101,10 +106,10 @@ export async function GET(req: NextRequest) {
 
     do {
       if (offset) params.set("offset", offset);
-      const res = await fetch(
-        `https://api.airtable.com/v0/${baseId}/${TABLE}?${params}`,
-        { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
-      );
+      const res = await fetch(`https://api.airtable.com/v0/${baseId}/${TABLE}?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
       if (!res.ok) {
         const err = await res.json();
         console.error("Airtable GET Clients error:", err);
@@ -205,7 +210,8 @@ export async function PATCH(req: Request) {
     if (fields.birthday !== undefined) airtableFields["Birthday"] = fields.birthday;
     if (fields.status !== undefined) airtableFields["Status"] = fields.status;
     if (fields.notes !== undefined) airtableFields["Notes"] = fields.notes;
-    if (fields.treatmentInterest !== undefined) airtableFields["Treatment Interest"] = fields.treatmentInterest;
+    if (fields.treatmentInterest !== undefined)
+      airtableFields["Treatment Interest"] = fields.treatmentInterest;
 
     const res = await fetch(`https://api.airtable.com/v0/${baseId}/${TABLE}/${recordId}`, {
       method: "PATCH",

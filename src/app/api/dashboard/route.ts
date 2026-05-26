@@ -34,10 +34,10 @@ async function fetchClients() {
   do {
     const params = new URLSearchParams({ pageSize: "100" });
     if (offset) params.set("offset", offset);
-    const res = await fetch(
-      `https://api.airtable.com/v0/${baseId}/${CLIENTS_TABLE}?${params}`,
-      { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
-    );
+    const res = await fetch(`https://api.airtable.com/v0/${baseId}/${CLIENTS_TABLE}?${params}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
     if (!res.ok) throw new Error(`Airtable clients error: ${res.status}`);
     const data = await res.json();
     allRecords.push(...(data.records ?? []));
@@ -50,16 +50,20 @@ async function fetchClients() {
 // ── Fetch rules from Airtable ─────────────────────────────────────────────────
 async function fetchRules() {
   const { token, baseId } = airtableBase();
-  const res = await fetch(
-    `https://api.airtable.com/v0/${baseId}/${RULES_TABLE}?view=Grid%20view`,
-    { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" },
-  );
+  const res = await fetch(`https://api.airtable.com/v0/${baseId}/${RULES_TABLE}?view=Grid%20view`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
   if (!res.ok) return [];
   const data = await res.json();
   return (data.records ?? []).map((record: any) => {
     const f = record.fields;
     let trigger_config: Record<string, any> = {};
-    try { trigger_config = JSON.parse(f["Trigger Config"] ?? "{}"); } catch { /* empty */ }
+    try {
+      trigger_config = JSON.parse(f["Trigger Config"] ?? "{}");
+    } catch {
+      /* empty */
+    }
     return {
       id: record.id,
       name: f["Rule Name"] ?? "",
@@ -82,7 +86,8 @@ async function fetchRules() {
 export async function GET() {
   try {
     const { token, baseId } = airtableBase();
-    void token; void baseId; // already validated in airtableBase()
+    void token;
+    void baseId; // already validated in airtableBase()
 
     // Run all fetches in parallel
     const [clients, rules, recentActivity, calendarEvents] = await Promise.allSettled([
@@ -93,22 +98,26 @@ export async function GET() {
     ]);
 
     const clientList = clients.status === "fulfilled" ? clients.value : [];
-    const ruleList   = rules.status === "fulfilled"   ? rules.value   : [];
-    const activity   = recentActivity.status === "fulfilled" ? recentActivity.value : [];
-    const events     = calendarEvents.status === "fulfilled"  ? calendarEvents.value  : [];
+    const ruleList = rules.status === "fulfilled" ? rules.value : [];
+    const activity = recentActivity.status === "fulfilled" ? recentActivity.value : [];
+    const events = calendarEvents.status === "fulfilled" ? calendarEvents.value : [];
 
     // ── Metrics ──────────────────────────────────────────────────────────────
-    const totalCustomers  = clientList.length;
+    const totalCustomers = clientList.length;
     const activeCustomers = clientList.filter((c: any) => c["Status"] === "Active").length;
 
     const now = new Date();
     const currentMonth = now.getMonth();
-    const currentYear  = now.getFullYear();
+    const currentYear = now.getFullYear();
 
     const isThisMonth = (d: string | null) => {
       if (!d) return false;
       const date = new Date(d);
-      return !isNaN(date.getTime()) && date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+      return (
+        !isNaN(date.getTime()) &&
+        date.getMonth() === currentMonth &&
+        date.getFullYear() === currentYear
+      );
     };
 
     let messagesSentThisMonth = 0;
@@ -129,7 +138,7 @@ export async function GET() {
     }).length;
 
     // Last week for delta
-    const lastMonday    = new Date(monday.getTime() - 7 * 86400000);
+    const lastMonday = new Date(monday.getTime() - 7 * 86400000);
     const lastSundayEnd = new Date(monday.getTime() - 1);
     const appointmentsLastWeek = events.filter((e) => {
       const t = new Date(e.startTime).getTime();

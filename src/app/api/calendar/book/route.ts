@@ -23,7 +23,9 @@ export async function POST(req: NextRequest) {
 
   if (!startTime || !endTime || !clientName || !treatment || !room || !practitionerName) {
     return NextResponse.json(
-      { error: "startTime, endTime, clientName, treatment, room and practitionerName are required" },
+      {
+        error: "startTime, endTime, clientName, treatment, room and practitionerName are required",
+      },
       { status: 400 },
     );
   }
@@ -42,7 +44,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ id: result.id });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Booking failed";
-    const isConflict = message.toLowerCase().includes("already booked") || message.toLowerCase().includes("unavailable");
-    return NextResponse.json({ error: message, conflict: isConflict }, { status: isConflict ? 409 : 500 });
+    const isConflict =
+      message.toLowerCase().includes("already booked") ||
+      message.toLowerCase().includes("unavailable");
+    return NextResponse.json(
+      { error: message, conflict: isConflict },
+      { status: isConflict ? 409 : 500 },
+    );
   }
 }

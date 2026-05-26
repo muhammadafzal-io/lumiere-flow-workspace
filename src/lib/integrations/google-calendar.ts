@@ -59,7 +59,10 @@ function parseDesc(description: string): {
 } {
   const lines = description.split("\n");
   const find = (prefix: string) =>
-    lines.find((l) => l.startsWith(prefix))?.slice(prefix.length).trim() ?? "";
+    lines
+      .find((l) => l.startsWith(prefix))
+      ?.slice(prefix.length)
+      .trim() ?? "";
   return {
     room: find("Room:") || null,
     practitioner: find("Practitioner:") || null,
@@ -131,8 +134,12 @@ export async function getAvailableSlots(
     const freeRooms = hasGlobalEvent ? [] : rooms.filter((r) => !busyRoomSet.has(r));
 
     // Practitioners busy = practitioners explicitly claimed by an overlapping event
-    const busyPracSet = new Set(overlapping.filter((e) => e.practitioner !== null).map((e) => e.practitioner!));
-    const freePractitioners = hasGlobalEvent ? [] : practitionerNames.filter((p) => !busyPracSet.has(p));
+    const busyPracSet = new Set(
+      overlapping.filter((e) => e.practitioner !== null).map((e) => e.practitioner!),
+    );
+    const freePractitioners = hasGlobalEvent
+      ? []
+      : practitionerNames.filter((p) => !busyPracSet.has(p));
 
     const roomAvailable = freeRooms.length > 0;
     // Skip practitioner gating if caller didn't supply practitioner names
@@ -213,11 +220,15 @@ export async function bookAdminAppointment(booking: {
   if (conflict) {
     const { room: evRoom, practitioner: evPrac } = parseDesc(conflict.description ?? "");
     if (evRoom === booking.room && evPrac === booking.practitionerName) {
-      throw new Error(`${booking.room} with ${booking.practitionerName} is already booked at this time`);
+      throw new Error(
+        `${booking.room} with ${booking.practitionerName} is already booked at this time`,
+      );
     } else if (evRoom === booking.room) {
       throw new Error(`${booking.room} is already booked — try a different room`);
     } else if (evPrac === booking.practitionerName) {
-      throw new Error(`${booking.practitionerName} is already booked — try a different practitioner`);
+      throw new Error(
+        `${booking.practitionerName} is already booked — try a different practitioner`,
+      );
     } else {
       throw new Error("This time slot is unavailable — try a different room or practitioner");
     }

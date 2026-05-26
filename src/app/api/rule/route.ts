@@ -14,13 +14,10 @@ export async function GET() {
   try {
     const { token, baseId } = airtableHeaders();
 
-    const res = await fetch(
-      `https://api.airtable.com/v0/${baseId}/${TABLE}?view=Grid%20view`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        cache: "no-store",
-      },
-    );
+    const res = await fetch(`https://api.airtable.com/v0/${baseId}/${TABLE}?view=Grid%20view`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
 
     if (!res.ok) {
       const err = await res.json();
@@ -70,7 +67,16 @@ export async function POST(req: Request) {
   try {
     const { token, baseId } = airtableHeaders();
     const body = await req.json();
-    const { ruleName, status, triggerType, triggerConfig, channel, messageTemplate, incentiveCode, aiPrompt } = body;
+    const {
+      ruleName,
+      status,
+      triggerType,
+      triggerConfig,
+      channel,
+      messageTemplate,
+      incentiveCode,
+      aiPrompt,
+    } = body;
 
     const res = await fetch(`https://api.airtable.com/v0/${baseId}/${TABLE}`, {
       method: "POST",
@@ -100,7 +106,10 @@ export async function POST(req: Request) {
     if (!res.ok) {
       const err = await res.json();
       console.error("Airtable POST Rules error:", err);
-      return NextResponse.json({ success: false, error: "Failed to save to Airtable" }, { status: res.status });
+      return NextResponse.json(
+        { success: false, error: "Failed to save to Airtable" },
+        { status: res.status },
+      );
     }
 
     const data = await res.json();
@@ -116,7 +125,17 @@ export async function PATCH(req: Request) {
   try {
     const { token, baseId } = airtableHeaders();
     const body = await req.json();
-    const { recordId, ruleName, status, triggerType, triggerConfig, channel, messageTemplate, incentiveCode, aiPrompt } = body;
+    const {
+      recordId,
+      ruleName,
+      status,
+      triggerType,
+      triggerConfig,
+      channel,
+      messageTemplate,
+      incentiveCode,
+      aiPrompt,
+    } = body;
 
     if (!recordId) {
       return NextResponse.json({ error: "recordId is required" }, { status: 400 });
@@ -146,7 +165,10 @@ export async function PATCH(req: Request) {
     if (!res.ok) {
       const err = await res.json();
       console.error("Airtable PATCH Rules error:", err);
-      return NextResponse.json({ success: false, error: "Failed to update rule" }, { status: res.status });
+      return NextResponse.json(
+        { success: false, error: "Failed to update rule" },
+        { status: res.status },
+      );
     }
 
     const data = await res.json();
@@ -176,7 +198,10 @@ export async function DELETE(req: Request) {
     if (!res.ok) {
       const err = await res.json();
       console.error("Airtable DELETE Rules error:", err);
-      return NextResponse.json({ success: false, error: "Failed to delete rule" }, { status: res.status });
+      return NextResponse.json(
+        { success: false, error: "Failed to delete rule" },
+        { status: res.status },
+      );
     }
 
     return NextResponse.json({ success: true });

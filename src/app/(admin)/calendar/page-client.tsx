@@ -515,17 +515,25 @@ function CalendarGrid({
     const el = scrollRef.current;
     if (!el) return;
     const now = new Date();
-    const nowHour = parseInt(
-      new Intl.DateTimeFormat("en-US", { timeZone: BUSSINESS_TZ, hour: "2-digit", hour12: false }).format(now),
-      10,
-    ) % 24;
+    const nowHour =
+      parseInt(
+        new Intl.DateTimeFormat("en-US", {
+          timeZone: BUSSINESS_TZ,
+          hour: "2-digit",
+          hour12: false,
+        }).format(now),
+        10,
+      ) % 24;
     const targetHour = Math.max(HOUR_START, Math.min(nowHour, HOUR_END - 1));
     const scrollPx = (targetHour - HOUR_START) * slotsPerHourPx();
     el.scrollTop = Math.max(0, scrollPx - 56); // show 1 hour above current
   }, []);
 
   return (
-    <div ref={scrollRef} className="rounded-lg border bg-card overflow-hidden max-h-[calc(100vh-200px)] overflow-y-auto">
+    <div
+      ref={scrollRef}
+      className="rounded-lg border bg-card overflow-hidden max-h-[calc(100vh-200px)] overflow-y-auto"
+    >
       {view === "day" && (
         <div className="px-4 py-2.5 border-b flex items-center justify-between bg-muted/20 text-xs">
           <span className="text-muted-foreground">{dayApts.length} appointments</span>
@@ -731,8 +739,8 @@ function DraggableAppointment({
   customer: Customer | null;
   practitioner: Practitioner | null;
   isAiPulse: boolean;
-    col: number;
-    totalCols: number;
+  col: number;
+  totalCols: number;
   onClick: () => void;
 }) {
   const a = appointment;

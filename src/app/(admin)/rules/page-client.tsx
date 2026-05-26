@@ -118,7 +118,9 @@ export default function RulesPage() {
       });
       if (!res.ok) throw new Error();
       setRules((prev) =>
-        prev.map((x) => (x.id === r.id ? { ...x, status: newStatus.toLowerCase() as Rule["status"] } : x)),
+        prev.map((x) =>
+          x.id === r.id ? { ...x, status: newStatus.toLowerCase() as Rule["status"] } : x,
+        ),
       );
       toast.success(`Rule ${newStatus === "Paused" ? "paused" : "activated"}`);
     } catch {
@@ -204,7 +206,9 @@ export default function RulesPage() {
           ) : filtered.length === 0 ? (
             <div className="rounded-lg border border-dashed py-16 text-center">
               <Zap className="h-8 w-8 mx-auto text-muted-foreground/50" />
-                <h3 className="mt-3 text-sm font-medium">No {STATUS_COPY[tab].toLowerCase()} rules</h3>
+              <h3 className="mt-3 text-sm font-medium">
+                No {STATUS_COPY[tab].toLowerCase()} rules
+              </h3>
               <p className="text-xs text-muted-foreground mt-1">
                 Create your first rule to start automating customer messaging.
               </p>

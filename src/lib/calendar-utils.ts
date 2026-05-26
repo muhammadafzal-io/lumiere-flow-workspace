@@ -23,7 +23,13 @@ function chicagoParts(d: Date) {
     hour12: false,
   }).formatToParts(d);
   const get = (t: string) => Number(parts.find((p) => p.type === t)!.value);
-  return { year: get("year"), month: get("month"), day: get("day"), hour: get("hour") % 24, minute: get("minute") };
+  return {
+    year: get("year"),
+    month: get("month"),
+    day: get("day"),
+    hour: get("hour") % 24,
+    minute: get("minute"),
+  };
 }
 
 // UTC ms for midnight on a given Chicago calendar date (year/month 1-based).
@@ -115,7 +121,9 @@ export function appointmentsOnDate(apts: Appointment[], date: Date): Appointment
   const dp = chicagoParts(date);
   return apts.filter((a) => {
     const ap = chicagoParts(new Date(a.start_time));
-    return dp.year === ap.year && dp.month === ap.month && dp.day === ap.day && a.status !== "cancelled";
+    return (
+      dp.year === ap.year && dp.month === ap.month && dp.day === ap.day && a.status !== "cancelled"
+    );
   });
 }
 

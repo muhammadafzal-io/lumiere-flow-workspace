@@ -227,7 +227,10 @@ export default function ActivityPage() {
                   ))
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground text-xs">
+                    <td
+                      colSpan={7}
+                      className="px-4 py-12 text-center text-muted-foreground text-xs"
+                    >
                       No entries match the current filters.
                     </td>
                   </tr>
@@ -240,9 +243,7 @@ export default function ActivityPage() {
                       <td className="px-4 py-2.5">
                         <div className="font-medium">{a.clientName || "—"}</div>
                         {(a.phone || a.email) && (
-                          <div className="text-xs text-muted-foreground">
-                            {a.phone || a.email}
-                          </div>
+                          <div className="text-xs text-muted-foreground">{a.phone || a.email}</div>
                         )}
                       </td>
                       <td className="px-4 py-2.5">
