@@ -1,6 +1,7 @@
+/* eslint-disable prettier/prettier */
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -9,8 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Plus, Zap } from "lucide-react";
-import { store, useStore } from "@/lib/store";
+import { MoreHorizontal, Plus, Zap, RefreshCw } from "lucide-react";
 import type { Rule } from "@/lib/types";
 import { RuleModal } from "@/components/RuleModal";
 import { toast } from "sonner";
@@ -51,10 +51,29 @@ function timeAgo(iso: string) {
 }
 
 export default function RulesPage() {
-  const rules = useStore((s) => s.rules);
+  const [rules, setRules] = useState<Rule[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("active");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Rule | null>(null);
+
+  const fetchRules = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/rule");
+      if (!res.ok) throw new Error("Failed to fetch");
+      const data = await res.json();
+      setRules(data.rules ?? []);
+    } catch {
+      toast.error("Failed to load rules");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchRules();
+  }, [fetchRules]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -80,23 +99,65 @@ export default function RulesPage() {
   };
   const filtered = rules.filter((r) => r.status === tab);
 
-  const togglePause = (r: Rule) => {
-    store.upsertRule({ ...r, status: r.status === "active" ? "paused" : "active" });
-    toast.success(`Rule ${r.status === "active" ? "paused" : "activated"}`);
+  const togglePause = async (r: Rule) => {
+    const newStatus = r.status === "active" ? "Paused" : "Active";
+    try {
+      const res = await fetch("/api/rule", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recordId: r.id,
+          ruleName: r.name,
+          status: newStatus,
+          triggerType: r.trigger_type,
+          triggerConfig: r.trigger_config,
+          channel: r.channel,
+          messageTemplate: r.message_template,
+          incentiveCode: r.offer_code ?? "",
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setRules((prev) =>
+        prev.map((x) => (x.id === r.id ? { ...x, status: newStatus.toLowerCase() as Rule["status"] } : x)),
+      );
+      toast.success(`Rule ${newStatus === "Paused" ? "paused" : "activated"}`);
+    } catch {
+      toast.error("Failed to update rule");
+    }
   };
-  const duplicate = (r: Rule) => {
-    store.upsertRule({
-      ...r,
-      id: `r_${Date.now()}`,
-      name: `${r.name} (copy)`,
-      status: "draft",
-      created_at: new Date().toISOString(),
-    });
-    toast.success("Rule duplicated");
+
+  const duplicate = async (r: Rule) => {
+    try {
+      const res = await fetch("/api/rule", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ruleName: `${r.name} (copy)`,
+          status: "Draft",
+          triggerType: r.trigger_type,
+          triggerConfig: r.trigger_config,
+          channel: r.channel,
+          messageTemplate: r.message_template,
+          incentiveCode: r.offer_code ?? "",
+        }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Rule duplicated");
+      void fetchRules();
+    } catch {
+      toast.error("Failed to duplicate rule");
+    }
   };
-  const remove = (r: Rule) => {
-    store.deleteRule(r.id);
-    toast.success("Rule deleted");
+
+  const remove = async (r: Rule) => {
+    try {
+      const res = await fetch(`/api/rule?id=${r.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setRules((prev) => prev.filter((x) => x.id !== r.id));
+      toast.success("Rule deleted");
+    } catch {
+      toast.error("Failed to delete rule");
+    }
   };
 
   return (
@@ -109,14 +170,19 @@ export default function RulesPage() {
             <kbd className="border rounded px-1 text-[10px]">N</kbd> to create.
           </p>
         </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setModalOpen(true);
-          }}
-        >
-          <Plus className="h-4 w-4 mr-1.5" /> Create rule
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="icon" onClick={fetchRules} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setModalOpen(true);
+            }}
+          >
+            <Plus className="h-4 w-4 mr-1.5" /> Create rule
+          </Button>
+        </div>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
@@ -126,12 +192,19 @@ export default function RulesPage() {
           <TabsTrigger value="draft">Drafts ({counts.draft})</TabsTrigger>
         </TabsList>
         <TabsContent value={tab} className="mt-4">
-          {filtered.length === 0 ? (
+          {loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="rounded-lg border bg-card p-5 animate-pulse">
+                  <div className="h-4 bg-muted rounded w-1/3 mb-3" />
+                  <div className="h-3 bg-muted rounded w-1/2" />
+                </div>
+              ))}
+            </div>
+          ) : filtered.length === 0 ? (
             <div className="rounded-lg border border-dashed py-16 text-center">
               <Zap className="h-8 w-8 mx-auto text-muted-foreground/50" />
-              <h3 className="mt-3 text-sm font-medium">
-                No {STATUS_COPY[tab].toLowerCase()} rules
-              </h3>
+                <h3 className="mt-3 text-sm font-medium">No {STATUS_COPY[tab].toLowerCase()} rules</h3>
               <p className="text-xs text-muted-foreground mt-1">
                 Create your first rule to start automating customer messaging.
               </p>
@@ -166,14 +239,10 @@ export default function RulesPage() {
                       </p>
                       <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground mt-3">
                         <span>
-                          Reaches{" "}
-                          <span className="text-foreground font-medium">{r.audience_size}</span>{" "}
-                          customers
-                        </span>
-                        <span>
                           Channel: <span className="text-foreground font-medium">{r.channel}</span>
                         </span>
                         {r.last_run_at && <span>Last sent {timeAgo(r.last_run_at)}</span>}
+                        <span>Created {timeAgo(r.created_at)}</span>
                       </div>
                     </div>
                     <DropdownMenu>
@@ -208,7 +277,14 @@ export default function RulesPage() {
         </TabsContent>
       </Tabs>
 
-      <RuleModal open={modalOpen} onOpenChange={setModalOpen} editing={editing} />
+      <RuleModal
+        open={modalOpen}
+        onOpenChange={(v) => {
+          setModalOpen(v);
+          if (!v) void fetchRules();
+        }}
+        editing={editing}
+      />
     </div>
   );
 }

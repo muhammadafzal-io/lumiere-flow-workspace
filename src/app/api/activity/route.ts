@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 import { NextRequest, NextResponse } from "next/server";
 import { readOpsLog } from "@/lib/integrations/google-sheets";
 
