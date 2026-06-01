@@ -1,80 +1,51 @@
-/* eslint-disable prettier/prettier */
 import { NextResponse } from "next/server";
+import { getSupabase } from "@/lib/supabase";
 import { readOpsLog } from "@/lib/integrations/google-sheets";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 
 export const dynamic = "force-dynamic";
 
-const RULES_TABLE = "Rules";
-const CLIENTS_TABLE = "Clients";
-
-function airtableBase() {
-  const token = process.env.AIRTABLE_API_KEY;
-  const baseId = process.env.AIRTABLE_BASE_ID;
-  if (!token || !baseId) throw new Error("Missing AIRTABLE_API_KEY or AIRTABLE_BASE_ID");
-  return { token, baseId };
-}
-
-function todayStr(): string {
+function todayStr() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
-
-function dateStr(offsetDays: number): string {
+function dateStr(offsetDays: number) {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
 
-// ── Fetch clients from Airtable ──────────────────────────────────────────────
 async function fetchClients() {
-  const { token, baseId } = airtableBase();
-  const allRecords: any[] = [];
-  let offset: string | undefined;
-
-  do {
-    const params = new URLSearchParams({ pageSize: "100" });
-    if (offset) params.set("offset", offset);
-    const res = await fetch(`https://api.airtable.com/v0/${baseId}/${CLIENTS_TABLE}?${params}`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
-    if (!res.ok) throw new Error(`Airtable clients error: ${res.status}`);
-    const data = await res.json();
-    allRecords.push(...(data.records ?? []));
-    offset = data.offset;
-  } while (offset);
-
-  return allRecords.map((r) => r.fields);
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from("Clients")
+    .select("Status,Last Reminder Sent,Last Reactivation Sent");
+  if (error) throw new Error(error.message);
+  return data ?? [];
 }
 
-// ── Fetch rules from Airtable ─────────────────────────────────────────────────
 async function fetchRules() {
-  const { token, baseId } = airtableBase();
-  const res = await fetch(`https://api.airtable.com/v0/${baseId}/${RULES_TABLE}?view=Grid%20view`, {
-    headers: { Authorization: `Bearer ${token}` },
-    cache: "no-store",
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return (data.records ?? []).map((record: any) => {
-    const f = record.fields;
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from("Rules")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) return [];
+  return (data ?? []).map((r: any) => {
     let trigger_config: Record<string, any> = {};
     try {
-      trigger_config = JSON.parse(f["Trigger Config"] ?? "{}");
-    } catch {
-      /* empty */
-    }
+      trigger_config = JSON.parse(r["Trigger Config"] ?? "{}");
+    } catch {}
     return {
-      id: record.id,
-      name: f["Rule Name"] ?? "",
-      status: (f["Status"] ?? "Draft").toLowerCase(),
-      trigger_type: f["Trigger Type"] ?? "Inactivity",
+      id: r.id,
+      name: r["Rule Name"] ?? "",
+      status: (r["Status"] ?? "draft").toLowerCase(),
+      trigger_type: r["Trigger Type"] ?? "Inactivity",
       trigger_config,
-      channel: f["Channel"] ?? "WhatsApp",
-      message_template: f["Message Template"] ?? "",
-      offer_code: f["Incentive Code"] || undefined,
+      channel: r["Channel"] ?? "WhatsApp",
+      message_template: r["Message Template"] ?? "",
+      offer_code: r["Incentive Code"] || undefined,
       audience_filter: [],
-      created_at: record.createdTime,
+      created_at: r.created_at,
       audience_size: 0,
       sent_30d: 0,
       reply_rate: 0,
@@ -85,11 +56,6 @@ async function fetchRules() {
 
 export async function GET() {
   try {
-    const { token, baseId } = airtableBase();
-    void token;
-    void baseId; // already validated in airtableBase()
-
-    // Run all fetches in parallel
     const [clients, rules, recentActivity, calendarEvents] = await Promise.allSettled([
       fetchClients(),
       fetchRules(),
@@ -102,14 +68,12 @@ export async function GET() {
     const activity = recentActivity.status === "fulfilled" ? recentActivity.value : [];
     const events = calendarEvents.status === "fulfilled" ? calendarEvents.value : [];
 
-    // ── Metrics ──────────────────────────────────────────────────────────────
     const totalCustomers = clientList.length;
     const activeCustomers = clientList.filter((c: any) => c["Status"] === "Active").length;
 
     const now = new Date();
     const currentMonth = now.getMonth();
     const currentYear = now.getFullYear();
-
     const isThisMonth = (d: string | null) => {
       if (!d) return false;
       const date = new Date(d);
@@ -126,26 +90,22 @@ export async function GET() {
       if (isThisMonth(c["Last Reactivation Sent"])) messagesSentThisMonth++;
     });
 
-    // This week = Mon–Sun bracket
     const monday = new Date(now);
     monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
     monday.setHours(0, 0, 0, 0);
     const sundayEnd = new Date(monday.getTime() + 7 * 86400000 - 1);
+    const lastMonday = new Date(monday.getTime() - 7 * 86400000);
 
     const appointmentsThisWeek = events.filter((e) => {
       const t = new Date(e.startTime).getTime();
       return t >= monday.getTime() && t <= sundayEnd.getTime();
     }).length;
 
-    // Last week for delta
-    const lastMonday = new Date(monday.getTime() - 7 * 86400000);
-    const lastSundayEnd = new Date(monday.getTime() - 1);
     const appointmentsLastWeek = events.filter((e) => {
       const t = new Date(e.startTime).getTime();
-      return t >= lastMonday.getTime() && t <= lastSundayEnd.getTime();
+      return t >= lastMonday.getTime() && t < monday.getTime();
     }).length;
 
-    // Active rules count
     const activeRulesCount = ruleList.filter((r: any) => r.status === "active").length;
 
     return NextResponse.json({
