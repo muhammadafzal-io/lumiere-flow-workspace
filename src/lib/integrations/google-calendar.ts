@@ -3,7 +3,9 @@ import { google } from "googleapis";
 import type { AvailableSlot, CalendarEvent, Appointment } from "@/types";
 
 const BUSINESS_START_HOUR = 9;
-const BUSINESS_END_HOUR = 19;
+// Appointments can start up to 7 PM (last slot ends at 7:30 PM for 30-min treatments).
+// The clinic's posted closing time is 7 PM but staff close out after the last client.
+const BUSINESS_END_HOUR = 19.5;
 const TIMEZONE = "America/Chicago";
 const DEFAULT_ROOMS = ["Room 1", "Room 2"];
 

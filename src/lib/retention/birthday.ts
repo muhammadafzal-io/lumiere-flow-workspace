@@ -1,5 +1,5 @@
 import { getUpcomingBirthdays, updateClientField } from "@/lib/integrations/airtable";
-import { logEvent } from "@/lib/integrations/google-sheets";
+import { logEvent } from "@/lib/integrations/activity-log";
 import { getMessagingProvider } from "@/lib/messaging";
 import type { RetentionResult } from "@/types";
 

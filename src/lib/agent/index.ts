@@ -4,7 +4,7 @@ import { SYSTEM_PROMPT } from "./system-prompt";
 import { TOOLS } from "./tools";
 import { getAvailableSlots, createAppointment } from "@/lib/integrations/google-calendar";
 import { lookupClient, upsertClient, createAppointmentRecord } from "@/lib/integrations/airtable";
-import { logEvent } from "@/lib/integrations/google-sheets";
+import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import type { AgentResult } from "@/types";
 

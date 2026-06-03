@@ -1,6 +1,6 @@
 import { getUpcomingAppointments } from "@/lib/integrations/google-calendar";
 import { lookupClient, updateClientField } from "@/lib/integrations/airtable";
-import { logEvent } from "@/lib/integrations/google-sheets";
+import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { getMessagingProvider } from "@/lib/messaging";
 import type { RetentionResult } from "@/types";
