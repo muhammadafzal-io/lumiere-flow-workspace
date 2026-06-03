@@ -51,10 +51,10 @@ function eventBadge(t: string) {
 }
 
 function fmtTimestamp(raw: string): string {
-  // Raw value from Sheets is already a formatted string; try to parse it.
   const d = new Date(raw);
   if (!isNaN(d.getTime())) {
     return d.toLocaleString("en-US", {
+      timeZone: "America/Chicago",
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -62,8 +62,18 @@ function fmtTimestamp(raw: string): string {
       hour12: true,
     });
   }
-  // Fallback: return as-is (already formatted by google-sheets.ts)
-  return raw.replace(" CST", "").replace(" CDT", "").slice(0, 20);
+  return raw.slice(0, 20);
+}
+
+function platformBadge(p: string) {
+  const map: Record<string, string> = {
+    calendar: "bg-emerald-500/10 text-emerald-700 border-emerald-300/30",
+    widget: "bg-blue-500/10 text-blue-700 border-blue-300/30",
+    telegram: "bg-sky-500/10 text-sky-700 border-sky-300/30",
+    discord: "bg-indigo-500/10 text-indigo-700 border-indigo-300/30",
+    system: "bg-muted text-muted-foreground border-border",
+  };
+  return `inline-flex px-1.5 py-0.5 text-[10px] font-medium rounded border capitalize ${map[p.toLowerCase()] ?? map.system}`;
 }
 
 export default function ActivityPage() {
@@ -249,8 +259,8 @@ export default function ActivityPage() {
                       <td className="px-4 py-2.5">
                         <span className={eventBadge(a.eventType)}>{a.eventType}</span>
                       </td>
-                      <td className="px-4 py-2.5 text-muted-foreground capitalize text-xs">
-                        {a.platform || "—"}
+                      <td className="px-4 py-2.5">
+                        <span className={platformBadge(a.platform)}>{a.platform || "—"}</span>
                       </td>
                       <td className="px-4 py-2.5 text-muted-foreground max-w-[280px] truncate text-xs">
                         {a.details.slice(0, 70)}

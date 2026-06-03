@@ -33,16 +33,43 @@ export async function GET() {
       sb.from("Practitioners").select("*").order("Name"),
     ]);
 
-    const settingsRow = settingsRes.status === "fulfilled" ? settingsRes.value.data : null;
+    let settingsRow = settingsRes.status === "fulfilled" ? settingsRes.value.data : null;
     const teamRows = teamRes.status === "fulfilled" ? (teamRes.value.data ?? []) : [];
+
+    const DEFAULTS = {
+      "Clinic Name": "Lumière Med Spa",
+      Timezone: "America/Chicago",
+      Address: "Austin, TX",
+      "Business Hours": "Mon–Sat 9:00 AM – 7:00 PM",
+    };
+
+    if (!settingsRow) {
+      // No row at all — insert defaults
+      const { data: seeded } = await sb.from("Settings").insert(DEFAULTS).select().single();
+      settingsRow = seeded;
+    } else if (!settingsRow["Clinic Name"]) {
+      // Row exists but empty — fill in the missing defaults
+      const patch: Record<string, string> = {};
+      if (!settingsRow["Clinic Name"]) patch["Clinic Name"] = DEFAULTS["Clinic Name"];
+      if (!settingsRow["Timezone"]) patch["Timezone"] = DEFAULTS["Timezone"];
+      if (!settingsRow["Address"]) patch["Address"] = DEFAULTS["Address"];
+      if (!settingsRow["Business Hours"]) patch["Business Hours"] = DEFAULTS["Business Hours"];
+      const { data: patched } = await sb
+        .from("Settings")
+        .update(patch)
+        .eq("id", settingsRow.id)
+        .select()
+        .single();
+      if (patched) settingsRow = patched;
+    }
 
     const clinic = settingsRow
       ? {
           recordId: settingsRow.id,
-          clinicName: settingsRow["Clinic Name"] ?? "",
-          timezone: settingsRow["Timezone"] ?? "",
-          address: settingsRow["Address"] ?? "",
-          businessHours: settingsRow["Business Hours"] ?? "",
+          clinicName: settingsRow["Clinic Name"] || "Lumière Med Spa",
+          timezone: settingsRow["Timezone"] || "America/Chicago",
+          address: settingsRow["Address"] || "Austin, TX",
+          businessHours: settingsRow["Business Hours"] || "Mon–Sat 9:00 AM – 7:00 PM",
         }
       : null;
 

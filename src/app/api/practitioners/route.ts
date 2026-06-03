@@ -1,0 +1,76 @@
+import { NextResponse } from "next/server";
+import { getSupabase } from "@/lib/supabase";
+
+export const dynamic = "force-dynamic";
+
+const TABLE = "Practitioners";
+
+function mapRow(r: any) {
+  return {
+    id: r.id,
+    name: r["Name"] ?? "",
+    email: r["Email"] ?? "",
+    role: r["Role"] ?? "",
+    color: r["Color"] ?? "#6366f1",
+  };
+}
+
+export async function POST(req: Request) {
+  try {
+    const sb = getSupabase();
+    const { name, email, role, color } = await req.json();
+    if (!name?.trim()) {
+      return NextResponse.json({ error: "name is required" }, { status: 400 });
+    }
+
+    const { data, error } = await sb
+      .from(TABLE)
+      .insert({ Name: name, Email: email ?? "", Role: role ?? "", Color: color ?? "#6366f1" })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ practitioner: mapRow(data) });
+  } catch (error) {
+    console.error("POST /api/practitioners error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const sb = getSupabase();
+    const { id, name, email, role, color } = await req.json();
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+    const fields: Record<string, string> = {};
+    if (name !== undefined) fields["Name"] = name;
+    if (email !== undefined) fields["Email"] = email;
+    if (role !== undefined) fields["Role"] = role;
+    if (color !== undefined) fields["Color"] = color;
+
+    const { data, error } = await sb.from(TABLE).update(fields).eq("id", id).select().single();
+
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ practitioner: mapRow(data) });
+  } catch (error) {
+    console.error("PATCH /api/practitioners error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const sb = getSupabase();
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+    const { error } = await sb.from(TABLE).delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("DELETE /api/practitioners error:", error);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
+  }
+}

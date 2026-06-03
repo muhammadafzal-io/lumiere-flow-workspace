@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
-import { readOpsLog } from "@/lib/integrations/google-sheets";
+import { readActivityLog } from "@/lib/integrations/activity-log";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ async function fetchClients() {
   const sb = getSupabase();
   const { data, error } = await sb
     .from("Clients")
-    .select("Status,Last Reminder Sent,Last Reactivation Sent");
+    .select("*");
   if (error) throw new Error(error.message);
   return data ?? [];
 }
@@ -59,7 +59,7 @@ export async function GET() {
     const [clients, rules, recentActivity, calendarEvents] = await Promise.allSettled([
       fetchClients(),
       fetchRules(),
-      readOpsLog(8),
+      readActivityLog(8),
       getEventsByRange(todayStr(), dateStr(7)),
     ]);
 

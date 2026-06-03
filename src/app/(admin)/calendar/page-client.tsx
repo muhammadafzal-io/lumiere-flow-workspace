@@ -544,7 +544,7 @@ function CalendarGrid({
         </div>
       )}
       <div
-        className="grid border-b sticky top-14 bg-card z-10"
+        className="grid border-b sticky top-0 bg-card z-10"
         style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
       >
         <div></div>
@@ -553,7 +553,7 @@ function CalendarGrid({
           return (
             <div
               key={d.toISOString()}
-              className={`px-2 py-2 text-center border-l ${today ? "bg-primary/5" : ""}`}
+              className={`px-2 py-3 text-center border-l ${today ? "bg-primary/5" : ""}`}
             >
               <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {fmtWeekday(d)}
@@ -566,7 +566,7 @@ function CalendarGrid({
         })}
       </div>
       <div
-        className="grid relative"
+        className="grid relative pt-2"
         style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0,1fr))` }}
       >
         <div className="relative" style={{ height: gridHeight }}>
