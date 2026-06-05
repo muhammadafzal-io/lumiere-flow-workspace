@@ -88,7 +88,7 @@ export async function DELETE(req: NextRequest) {
       {
         error: message,
         code,
-        details: process.env.NODE_ENV === "development" ? error?.message : undefined
+        details: process.env.NODE_ENV === "development" ? error?.message : undefined,
       },
       { status: statusCode },
     );

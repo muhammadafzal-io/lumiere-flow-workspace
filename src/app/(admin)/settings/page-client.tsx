@@ -96,7 +96,10 @@ const SPECIALTIES = [
 
 function parseSpecialties(raw: string | undefined): string[] {
   if (!raw) return [];
-  return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function formatSpecialties(arr: string[]): string {
@@ -508,10 +511,18 @@ function TeamTab({
           <tbody className="divide-y">
             {Array.from({ length: 3 }).map((_, i) => (
               <tr key={i} className="animate-pulse">
-                <td className="px-4 py-3"><div className="h-3 bg-muted rounded w-32" /></td>
-                <td className="px-4 py-3"><div className="h-5 bg-muted rounded w-20" /></td>
-                <td className="px-4 py-3"><div className="h-3 bg-muted rounded w-28" /></td>
-                <td className="px-4 py-3"><div className="h-5 bg-muted rounded w-16" /></td>
+                <td className="px-4 py-3">
+                  <div className="h-3 bg-muted rounded w-32" />
+                </td>
+                <td className="px-4 py-3">
+                  <div className="h-5 bg-muted rounded w-20" />
+                </td>
+                <td className="px-4 py-3">
+                  <div className="h-3 bg-muted rounded w-28" />
+                </td>
+                <td className="px-4 py-3">
+                  <div className="h-5 bg-muted rounded w-16" />
+                </td>
                 <td className="px-4 py-3" />
               </tr>
             ))}
@@ -533,9 +544,7 @@ function TeamTab({
           </span>
           <div>
             <div className="leading-tight">{m.name}</div>
-            {m.email && (
-              <div className="text-xs text-muted-foreground font-normal">{m.email}</div>
-            )}
+            {m.email && <div className="text-xs text-muted-foreground font-normal">{m.email}</div>}
           </div>
         </div>
       </td>
@@ -577,20 +586,11 @@ function TeamTab({
               onClick={() => handleReactivate(m)}
               disabled={actionId === m.id}
             >
-              {actionId === m.id ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                "Reactivate"
-              )}
+              {actionId === m.id ? <Loader2 className="h-3 w-3 animate-spin" /> : "Reactivate"}
             </Button>
           ) : (
             <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7"
-                onClick={() => onEdit(m)}
-              >
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(m)}>
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
               <Button
@@ -646,7 +646,9 @@ function TeamTab({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {active.map((m) => <MemberRow key={m.id} m={m} />)}
+              {active.map((m) => (
+                <MemberRow key={m.id} m={m} />
+              ))}
               {showInactive && inactive.map((m) => <MemberRow key={m.id} m={m} isInactive />)}
             </tbody>
           </table>
@@ -656,7 +658,8 @@ function TeamTab({
                 onClick={() => setShowInactive((v) => !v)}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                {showInactive ? "Hide" : "Show"} {inactive.length} inactive member{inactive.length > 1 ? "s" : ""}
+                {showInactive ? "Hide" : "Show"} {inactive.length} inactive member
+                {inactive.length > 1 ? "s" : ""}
               </button>
             </div>
           )}
@@ -671,7 +674,8 @@ function TeamTab({
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
             <span className="font-medium text-foreground">{confirmMember?.name}</span> will be
-            marked as inactive and removed from appointment scheduling. You can reactivate them any time.
+            marked as inactive and removed from appointment scheduling. You can reactivate them any
+            time.
           </p>
           <DialogFooter className="mt-2">
             <Button variant="outline" onClick={() => setConfirmMember(null)}>
@@ -688,13 +692,7 @@ function TeamTab({
 }
 
 // ── Rooms tab ────────────────────────────────────────────────────────────────
-function RoomsTab({
-  rooms,
-  onSaved,
-}: {
-  rooms: string[];
-  onSaved: (rooms: string[]) => void;
-}) {
+function RoomsTab({ rooms, onSaved }: { rooms: string[]; onSaved: (rooms: string[]) => void }) {
   const [form, setForm] = useState<string[]>(rooms);
   const [saving, setSaving] = useState(false);
   const [newRoom, setNewRoom] = useState("");
@@ -742,7 +740,8 @@ function RoomsTab({
       <div className="rounded-lg border bg-card p-5">
         <h3 className="font-medium mb-3">Clinic Rooms</h3>
         <p className="text-xs text-muted-foreground mb-4">
-          Define which rooms are available for appointments. Rooms must be unique and will be used across the booking system.
+          Define which rooms are available for appointments. Rooms must be unique and will be used
+          across the booking system.
         </p>
 
         {form.length > 0 && (
@@ -750,7 +749,10 @@ function RoomsTab({
             <label className="text-xs text-muted-foreground block mb-2">Active rooms</label>
             <div className="space-y-2">
               {form.map((room) => (
-                <div key={room} className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md">
+                <div
+                  key={room}
+                  className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md"
+                >
                   <span className="text-sm font-medium">{room}</span>
                   <button
                     onClick={() => removeRoom(room)}
@@ -871,8 +873,9 @@ export default function SettingsPage() {
   };
 
   const handleStatusChange = (id: string, newStatus: string) => {
-    setData((d) =>
-      d && { ...d, team: d.team.map((m) => m.id === id ? { ...m, status: newStatus } : m) },
+    setData(
+      (d) =>
+        d && { ...d, team: d.team.map((m) => (m.id === id ? { ...m, status: newStatus } : m)) },
     );
   };
 

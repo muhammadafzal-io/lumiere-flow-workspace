@@ -46,7 +46,13 @@ import type {
 } from "@/lib/types";
 import { TREATMENT_DURATIONS, TREATMENT_PRICES } from "@/lib/seed";
 import { store } from "@/lib/store";
-import { BUSSINESS_TZ, fmtTimeRange, fmtTime, practitionerById, chicagoParts } from "@/lib/calendar-utils";
+import {
+  BUSSINESS_TZ,
+  fmtTimeRange,
+  fmtTime,
+  practitionerById,
+  chicagoParts,
+} from "@/lib/calendar-utils";
 
 function statusPill(s: AppointmentStatus) {
   const map: Record<AppointmentStatus, string> = {
@@ -463,7 +469,7 @@ export function RescheduleModal({
   const open = !!appointment && !!newStart;
   const a = appointment;
   const initialNs = newStart;
-  const first = customer?.name.split(" ")[0] || (a?.clientName?.split(" ")[0]) || "there";
+  const first = customer?.name.split(" ")[0] || a?.clientName?.split(" ")[0] || "there";
 
   const [editDate, setEditDate] = useState("");
   const [editTime, setEditTime] = useState("");
@@ -490,10 +496,7 @@ export function RescheduleModal({
 
   // Build the actual new start time from date/time inputs
   const ns = useMemo(
-    () =>
-      editDate && editTime
-        ? new Date(`${editDate}T${editTime}:00`)
-        : initialNs,
+    () => (editDate && editTime ? new Date(`${editDate}T${editTime}:00`) : initialNs),
     [editDate, editTime, initialNs],
   );
 
@@ -653,7 +656,8 @@ export function RescheduleModal({
               <div className="grid grid-cols-[80px_1fr] gap-2 items-center">
                 <div className="text-xs text-muted-foreground">Original</div>
                 <div className="text-foreground">
-                  <span className="font-medium">{customer?.name || a.clientName}</span> — {a.treatment} —{" "}
+                  <span className="font-medium">{customer?.name || a.clientName}</span> —{" "}
+                  {a.treatment} —{" "}
                   {new Date(a.start_time).toLocaleDateString("en-US", {
                     timeZone: BUSSINESS_TZ,
                     weekday: "short",
@@ -671,7 +675,9 @@ export function RescheduleModal({
                   <Label className="text-sm font-medium">New appointment time</Label>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <Label htmlFor="resch-date" className="text-xs text-muted-foreground">Date</Label>
+                      <Label htmlFor="resch-date" className="text-xs text-muted-foreground">
+                        Date
+                      </Label>
                       <Input
                         id="resch-date"
                         type="date"
@@ -682,7 +688,9 @@ export function RescheduleModal({
                       />
                     </div>
                     <div>
-                      <Label htmlFor="resch-time" className="text-xs text-muted-foreground">Time</Label>
+                      <Label htmlFor="resch-time" className="text-xs text-muted-foreground">
+                        Time
+                      </Label>
                       <Input
                         id="resch-time"
                         type="time"
@@ -700,7 +708,13 @@ export function RescheduleModal({
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground bg-blue-50/50 border border-blue-200/50 p-2 rounded">
-                      Will be: {customer?.name || a.clientName} — {a.treatment} — {ns.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}, {fmtTime(ns)}
+                      Will be: {customer?.name || a.clientName} — {a.treatment} —{" "}
+                      {ns.toLocaleDateString("en-US", {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                      })}
+                      , {fmtTime(ns)}
                     </div>
                   )}
                 </div>
@@ -741,7 +755,13 @@ export function RescheduleModal({
                 <div className="rounded-lg border bg-muted/30 p-3">
                   <div className="text-xs text-muted-foreground mb-2">New time:</div>
                   <div className="text-primary font-medium">
-                    {customer?.name || a.clientName} — {a.treatment} — {ns.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}, {fmtTime(ns)}
+                    {customer?.name || a.clientName} — {a.treatment} —{" "}
+                    {ns.toLocaleDateString("en-US", {
+                      weekday: "short",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                    , {fmtTime(ns)}
                   </div>
                 </div>
                 <div className="rounded-lg border border-amber-200/50 bg-amber-50/50 p-3">
@@ -1005,9 +1025,12 @@ export function CancelModal({
             ) : (
               <div className="space-y-3 py-2">
                 <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
-                  <p className="text-sm font-medium text-destructive mb-2">⚠️ This action cannot be undone</p>
+                  <p className="text-sm font-medium text-destructive mb-2">
+                    ⚠️ This action cannot be undone
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    Once cancelled, this appointment will be removed from the calendar. The client will be notified
+                    Once cancelled, this appointment will be removed from the calendar. The client
+                    will be notified
                     {notify ? ` with the message: "${msg}"` : ""}.
                   </p>
                 </div>
@@ -1113,7 +1136,7 @@ export function NewAppointmentModal({
     });
 
     fetch(`/api/calendar/slots?${params}`)
-      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((data) => {
         const rooms = new Set<string>();
         (data.slots ?? []).forEach((slot: any) => {
@@ -1336,7 +1359,11 @@ export function NewAppointmentModal({
               <Label className="text-xs text-muted-foreground mb-1.5 block">
                 Room {loadingSlots && <span className="text-xs">checking…</span>}
               </Label>
-              <Select value={room} onValueChange={setRoom} disabled={loadingSlots || availableRooms.length === 0}>
+              <Select
+                value={room}
+                onValueChange={setRoom}
+                disabled={loadingSlots || availableRooms.length === 0}
+              >
                 <SelectTrigger className="h-9">
                   <SelectValue />
                 </SelectTrigger>
@@ -1348,7 +1375,9 @@ export function NewAppointmentModal({
                       </SelectItem>
                     ))
                   ) : (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">No rooms available</div>
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
+                      No rooms available
+                    </div>
                   )}
                 </SelectContent>
               </Select>
