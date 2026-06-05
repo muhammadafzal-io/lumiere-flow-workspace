@@ -241,7 +241,7 @@ export function seedRules(): Rule[] {
       trigger_type: "Inactivity",
       trigger_config: { days: 90 },
       audience_filter: [],
-      channel: "Both",
+      channel: "Discord",
       message_template:
         "We miss you, {first_name}. Come back for any treatment with 20% off — use {credit_code} within 30 days.",
       offer_code: "COMEBACK20",
@@ -276,7 +276,7 @@ export function seedRules(): Rule[] {
       trigger_type: "Treatment-based",
       trigger_config: { treatment: "Any", days_after: 1 },
       audience_filter: [],
-      channel: "Email",
+      channel: "Telegram",
       message_template:
         "Welcome to Lumière, {first_name}. Here's your aftercare guide and a few tips for the next 48 hours.",
       status: "active",
@@ -293,7 +293,7 @@ export function seedRules(): Rule[] {
       trigger_type: "Date-based",
       trigger_config: { date: "2026-03-15" },
       audience_filter: ["Laser history"],
-      channel: "Both",
+      channel: "Discord",
       message_template:
         "Spring is here. Get 30% off full body laser this weekend only — book with code {credit_code}.",
       offer_code: "SPRING30",
@@ -353,7 +353,7 @@ export function seedActivity(customers: Customer[], rules: Rule[]): Activity[] {
       timestamp: d.toISOString(),
       customer_id: cust.id,
       rule_id: rule.id,
-      channel: rule.channel === "Email" ? "Email" : "WhatsApp",
+      channel: rule.channel,
       message_body: body,
       status,
       reply:

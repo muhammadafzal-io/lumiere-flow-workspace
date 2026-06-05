@@ -59,7 +59,7 @@ export interface Activity {
   timestamp: string;
   customer_id: string;
   rule_id: string;
-  channel: "WhatsApp" | "Email";
+  channel: Channel;
   message_body: string;
   status: MsgStatus;
   reply?: string;
