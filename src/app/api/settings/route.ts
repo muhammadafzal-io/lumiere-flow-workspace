@@ -28,13 +28,15 @@ export async function GET() {
   try {
     const sb = getSupabase();
 
-    const [settingsRes, teamRes] = await Promise.allSettled([
+    const [settingsRes, teamRes, roomsRes] = await Promise.allSettled([
       sb.from("Settings").select("*").limit(1).maybeSingle(),
       sb.from("Practitioners").select("*").order("Name"),
+      sb.from("Rooms").select("Name").order("Name"),
     ]);
 
     let settingsRow = settingsRes.status === "fulfilled" ? settingsRes.value.data : null;
     const teamRows = teamRes.status === "fulfilled" ? (teamRes.value.data ?? []) : [];
+    const roomRows = roomsRes.status === "fulfilled" ? (roomsRes.value.data ?? []) : [];
 
     const DEFAULTS = {
       "Clinic Name": "Lumière Med Spa",
@@ -84,7 +86,9 @@ export async function GET() {
       status: r["Status"] ?? "Active",
     }));
 
-    return NextResponse.json({ clinic, team, channels: getChannelStatus() });
+    const rooms = roomRows.length > 0 ? roomRows.map((r: any) => r.Name) : ["Room 1", "Room 2"];
+
+    return NextResponse.json({ clinic, team, channels: getChannelStatus(), rooms });
   } catch (error) {
     console.error("GET /api/settings error:", error);
     return NextResponse.json({ error: "Failed to load settings" }, { status: 500 });
