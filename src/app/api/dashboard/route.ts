@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { readActivityLog } from "@/lib/integrations/activity-log";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
+import type { OpsLogEntry } from "@/types";
 
 export const dynamic = "force-dynamic";
+
+type LogRow = OpsLogEntry & { id: string };
 
 function todayStr() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -12,6 +15,44 @@ function dateStr(offsetDays: number) {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
   return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
+function calEventToLogRow(e: {
+  id: string;
+  treatment: string;
+  clientName: string;
+  clientContact: string;
+  startTime: string;
+  endTime: string;
+  notes: string;
+  room: string;
+  practitioner: string;
+}): LogRow {
+  const parts: string[] = [];
+  if (e.treatment) parts.push(e.treatment);
+  if (e.practitioner) parts.push(`with ${e.practitioner}`);
+  if (e.room) parts.push(`in ${e.room}`);
+  const apptTime = new Date(e.startTime).toLocaleString("en-US", {
+    timeZone: "America/Chicago",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  parts.push(`on ${apptTime}`);
+  return {
+    id: `cal_${e.id}`,
+    timestamp: e.startTime,
+    eventType: "booking",
+    clientName: e.clientName || "Unknown",
+    phone: e.clientContact || "",
+    email: "",
+    clientId: "",
+    details: parts.join(" "),
+    status: "success",
+    platform: "calendar",
+  };
 }
 
 async function fetchClients() {
@@ -59,14 +100,37 @@ export async function GET() {
     const [clients, rules, recentActivity, calendarEvents] = await Promise.allSettled([
       fetchClients(),
       fetchRules(),
-      readActivityLog(8),
-      getEventsByRange(todayStr(), dateStr(7)),
+      readActivityLog(50),
+      getEventsByRange(dateStr(-60), dateStr(7)),
     ]);
 
     const clientList = clients.status === "fulfilled" ? clients.value : [];
     const ruleList = rules.status === "fulfilled" ? rules.value : [];
-    const activity = recentActivity.status === "fulfilled" ? recentActivity.value : [];
+    const logEntries: LogRow[] = recentActivity.status === "fulfilled" ? recentActivity.value : [];
     const events = calendarEvents.status === "fulfilled" ? calendarEvents.value : [];
+
+    // Convert past+upcoming calendar events to log rows and merge
+    const calEntries: LogRow[] = events.map(calEventToLogRow);
+    const logSet = new Set(
+      logEntries
+        .filter((e) => e.eventType === "booking")
+        .map((e) => {
+          const t = new Date(e.timestamp).getTime();
+          return `${e.clientName.toLowerCase()}_${Math.round(t / 300000)}`;
+        }),
+    );
+    const uniqueCalEntries = calEntries.filter((e) => {
+      const t = new Date(e.timestamp).getTime();
+      return !logSet.has(`${e.clientName.toLowerCase()}_${Math.round(t / 300000)}`);
+    });
+    const activity = [...logEntries, ...uniqueCalEntries]
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 8);
+
+    // Only upcoming events for the mini calendar
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const upcomingEvents = events.filter((e) => new Date(e.startTime) >= today);
 
     const totalCustomers = clientList.length;
     const activeCustomers = clientList.filter((c: any) => c["Status"] === "Active").length;
@@ -106,6 +170,12 @@ export async function GET() {
       return t >= lastMonday.getTime() && t < monday.getTime();
     }).length;
 
+    // Filter events to only the next 7 days for the mini calendar
+    const calendarEvents7 = upcomingEvents.filter((e) => {
+      const t = new Date(e.startTime).getTime();
+      return t <= new Date(today.getTime() + 7 * 86400000).getTime();
+    });
+
     const activeRulesCount = ruleList.filter((r: any) => r.status === "active").length;
 
     return NextResponse.json({
@@ -119,7 +189,7 @@ export async function GET() {
       },
       recentActivity: activity,
       rules: ruleList,
-      calendarEvents: events,
+      calendarEvents: calendarEvents7,
     });
   } catch (error) {
     console.error("Dashboard API Error:", error);

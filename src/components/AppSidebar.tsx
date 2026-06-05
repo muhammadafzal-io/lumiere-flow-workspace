@@ -20,6 +20,8 @@ import {
   SidebarMenuItem,
   SidebarHeader,
 } from "@/components/ui/sidebar";
+import { useAuth } from "@/lib/auth-context";
+import { canAccessPage } from "@/lib/permissions";
 
 const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -32,7 +34,10 @@ const items = [
 
 export function AppSidebar() {
   const path = usePathname();
+  const { userRole } = useAuth();
   const isActive = (url: string) => (url === "/" ? path === "/" : path.startsWith(url));
+
+  const visibleItems = items.filter((item) => canAccessPage(userRole, item.url));
 
   return (
     <Sidebar collapsible="icon">
@@ -50,7 +55,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {items.map((it) => (
+              {visibleItems.map((it) => (
                 <SidebarMenuItem key={it.url}>
                   <SidebarMenuButton asChild isActive={isActive(it.url)} tooltip={it.title}>
                     <Link href={it.url} className="flex items-center gap-2.5">

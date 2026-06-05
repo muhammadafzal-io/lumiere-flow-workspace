@@ -166,9 +166,15 @@ export default function CalendarPage() {
           practitioner: string;
         }) => {
           const matchedPrac = practitioners.find((p) => p.name === e.practitioner);
+          // Try to find customer by contact info
+          const matchedCustomer = customers.find(
+            (c) =>
+              c.phone === e.clientContact ||
+              c.name.toLowerCase() === (e.clientName || "").toLowerCase(),
+          );
           return {
             id: e.id,
-            customer_id: "",
+            customer_id: matchedCustomer?.id || "",
             clientName: e.clientName || undefined,
             clientContact: e.clientContact || undefined,
             treatment: (e.treatment || "HydraFacial") as Appointment["treatment"],
@@ -243,6 +249,21 @@ export default function CalendarPage() {
     const apt = appointments.find((a) => a.id === aptId);
     if (!slot || !apt) return;
     if (slot.date.getTime() === new Date(apt.start_time).getTime()) return;
+
+    // Validate business hours: 9 AM - 7 PM, no Sundays
+    const dayOfWeek = slot.date.getDay();
+    const hours = slot.date.getHours();
+
+    if (dayOfWeek === 0) {
+      toast.error("Cannot reschedule on Sundays — clinic is closed");
+      return;
+    }
+
+    if (hours < 9 || hours >= 19) {
+      toast.error("Can only reschedule between 9:00 AM and 7:00 PM");
+      return;
+    }
+
     setReschedAptId(aptId);
     setReschedNewStart(slot.date);
   };

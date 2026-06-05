@@ -1,6 +1,7 @@
+/* eslint-disable prettier/prettier */
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Dialog,
@@ -33,6 +34,7 @@ import {
   Bell,
   CheckCheck,
   Clock,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import type {
@@ -44,7 +46,7 @@ import type {
 } from "@/lib/types";
 import { TREATMENT_DURATIONS, TREATMENT_PRICES } from "@/lib/seed";
 import { store } from "@/lib/store";
-import { BUSSINESS_TZ, fmtTimeRange, fmtTime, practitionerById } from "@/lib/calendar-utils";
+import { BUSSINESS_TZ, fmtTimeRange, fmtTime, practitionerById, chicagoParts } from "@/lib/calendar-utils";
 
 function statusPill(s: AppointmentStatus) {
   const map: Record<AppointmentStatus, string> = {
@@ -371,9 +373,6 @@ export function AppointmentSlideOver({
         <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t px-6 py-3 flex items-center justify-end gap-2">
           {a.status !== "completed" && a.status !== "cancelled" && (
             <>
-              <Button variant="outline" size="sm" onClick={() => onReschedule(a)}>
-                Reschedule
-              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -463,40 +462,170 @@ export function RescheduleModal({
 }) {
   const open = !!appointment && !!newStart;
   const a = appointment;
-  const ns = newStart;
-  const first = customer?.name.split(" ")[0] || "there";
+  const initialNs = newStart;
+  const first = customer?.name.split(" ")[0] || (a?.clientName?.split(" ")[0]) || "there";
+
+  const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [notify, setNotify] = useState(true);
+  const [msg, setMsg] = useState("");
+  const [showMsg, setShowMsg] = useState(false);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [step, setStep] = useState<"review" | "confirm">("review");
+
+  // Initialize date/time when modal opens
+  useEffect(() => {
+    if (initialNs) {
+      // Get Chicago timezone date components
+      const parts = chicagoParts(initialNs);
+
+      // Format as YYYY-MM-DD for HTML date input
+      const dateStr = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+      const timeStr = `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+
+      setEditDate(dateStr);
+      setEditTime(timeStr);
+    }
+  }, [initialNs]);
+
+  // Build the actual new start time from date/time inputs
+  const ns = useMemo(
+    () =>
+      editDate && editTime
+        ? new Date(`${editDate}T${editTime}:00`)
+        : initialNs,
+    [editDate, editTime, initialNs],
+  );
+
+  // Validation: Check if time is valid
+  const getTimeError = (): string | null => {
+    if (!ns) return null;
+
+    const dayOfWeek = ns.getDay();
+    const hours = ns.getHours();
+
+    // Check for Sunday (dayOfWeek === 0)
+    if (dayOfWeek === 0) {
+      return "Cannot reschedule on Sundays — clinic is closed";
+    }
+
+    // Check for before 9 AM or after 7 PM (19:00)
+    if (hours < 9) {
+      return "Cannot reschedule before 9:00 AM";
+    }
+    if (hours >= 19) {
+      return "Cannot reschedule after 7:00 PM";
+    }
+
+    return null;
+  };
+
+  const timeError = getTimeError();
+  const isValidTime = !timeError;
+
   const defaultMsg =
     a && ns
       ? `Hi ${first} — Sofia here from Lumière. We've moved your ${a.treatment} to ${ns.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" })} at ${fmtTime(ns)}. The new confirmation link is below. Let me know if this doesn't work for you.`
       : "";
-  const [notify, setNotify] = useState(true);
-  const [msg, setMsg] = useState(defaultMsg);
-  const [showMsg, setShowMsg] = useState(false);
 
   // Reset message when appointment changes
-  if (a && ns && msg === "") setMsg(defaultMsg);
+  useEffect(() => {
+    if (a && ns && msg === "" && step === "review") setMsg(defaultMsg);
+  }, [a, ns, step, msg, defaultMsg]);
 
-  const confirm = () => {
-    if (!a || !ns || !customer) return;
-    const newEnd = new Date(ns.getTime() + a.duration_minutes * 60000);
-    store.upsertAppointment({ ...a, start_time: ns.toISOString(), end_time: newEnd.toISOString() });
-    if (notify) {
-      store.addActivity({
-        id: `a_resch_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        customer_id: customer.id,
-        rule_id: "manual",
-        channel: "WhatsApp",
-        message_body: msg,
-        status: "Sent",
-        kind: "reschedule_notification",
-      });
+  const confirm = async () => {
+    if (step === "review") {
+      // Move to confirmation step
+      setStep("confirm");
+      return;
     }
-    toast.success(
-      `Appointment rescheduled. ${notify ? `Notification sent to ${customer.name}.` : ""}`,
-    );
-    onConfirmed();
-    setMsg("");
+
+    if (!a || !ns) {
+      console.error("[Reschedule] Missing appointment or new time");
+      toast.error("Missing appointment or new time");
+      return;
+    }
+
+    if (!a.id) {
+      console.error("[Reschedule] Appointment ID missing");
+      toast.error("Cannot reschedule: appointment ID missing");
+      return;
+    }
+
+    if (!customer && !a.clientName) {
+      console.error("[Reschedule] Missing both customer and clientName");
+      toast.error("Cannot identify customer");
+      return;
+    }
+
+    setRescheduling(true);
+    try {
+      console.log("[Reschedule] Sending update request for appointment:", a.id);
+
+      const newEnd = new Date(ns.getTime() + a.duration_minutes * 60000);
+
+      // Update Google Calendar
+      const res = await fetch("/api/calendar/reschedule", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          eventId: a.id,
+          newStartTime: ns.toISOString(),
+          newEndTime: newEnd.toISOString(),
+        }),
+      });
+
+      console.log("[Reschedule] API Response status:", res.status);
+
+      if (!res.ok) {
+        let errorMsg = "Failed to reschedule appointment";
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.error || errorMsg;
+          console.log("[Reschedule] API Error:", errorData);
+        } catch {
+          console.log("[Reschedule] Could not parse error response");
+        }
+        throw new Error(errorMsg);
+      }
+
+      const data = await res.json();
+      console.log("[Reschedule] Success response:", data);
+
+      // Update local store
+      store.upsertAppointment({
+        ...a,
+        start_time: ns.toISOString(),
+        end_time: newEnd.toISOString(),
+      });
+
+      // Send notification
+      if (notify && customer?.id) {
+        store.addActivity({
+          id: `a_resch_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          customer_id: customer.id,
+          rule_id: "manual",
+          channel: "WhatsApp",
+          message_body: msg,
+          status: "Sent",
+          kind: "reschedule_notification",
+        });
+      }
+
+      toast.success(
+        `Appointment rescheduled. ${notify && customer ? `Notification sent to ${customer.name}.` : ""}`,
+      );
+      onConfirmed();
+      setMsg("");
+      setStep("review");
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to reschedule appointment";
+      console.error("[Reschedule] Error:", errorMsg, err);
+      toast.error(errorMsg);
+    } finally {
+      setRescheduling(false);
+    }
   };
 
   return (
@@ -506,20 +635,25 @@ export function RescheduleModal({
         if (!o) {
           onClose();
           setMsg("");
+          setStep("review");
+          setEditDate("");
+          setEditTime("");
         }
       }}
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Reschedule appointment?</DialogTitle>
+          <DialogTitle>
+            {step === "review" ? "Reschedule appointment?" : "Confirm reschedule?"}
+          </DialogTitle>
         </DialogHeader>
-        {a && ns && customer && (
+        {a && ns && (customer || a.clientName) && (
           <div className="space-y-4 text-sm">
             <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
               <div className="grid grid-cols-[80px_1fr] gap-2 items-center">
                 <div className="text-xs text-muted-foreground">Original</div>
                 <div className="text-foreground">
-                  <span className="font-medium">{customer.name}</span> — {a.treatment} —{" "}
+                  <span className="font-medium">{customer?.name || a.clientName}</span> — {a.treatment} —{" "}
                   {new Date(a.start_time).toLocaleDateString("en-US", {
                     timeZone: BUSSINESS_TZ,
                     weekday: "short",
@@ -529,44 +663,98 @@ export function RescheduleModal({
                   , {fmtTime(new Date(a.start_time))}
                 </div>
               </div>
-              <div className="grid grid-cols-[80px_1fr] gap-2 items-center">
-                <div className="text-xs text-muted-foreground">New</div>
-                <div className="text-primary font-medium">
-                  {customer.name} — {a.treatment} —{" "}
-                  {ns.toLocaleDateString("en-US", {
-                    timeZone: BUSSINESS_TZ,
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                  , {fmtTime(ns)}
+            </div>
+
+            {step === "review" ? (
+              <>
+                <div className="space-y-3">
+                  <Label className="text-sm font-medium">New appointment time</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label htmlFor="resch-date" className="text-xs text-muted-foreground">Date</Label>
+                      <Input
+                        id="resch-date"
+                        type="date"
+                        value={editDate}
+                        onChange={(e) => setEditDate(e.target.value)}
+                        disabled={rescheduling}
+                        className="text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="resch-time" className="text-xs text-muted-foreground">Time</Label>
+                      <Input
+                        id="resch-time"
+                        type="time"
+                        value={editTime}
+                        onChange={(e) => setEditTime(e.target.value)}
+                        disabled={rescheduling}
+                        className="text-sm"
+                      />
+                    </div>
+                  </div>
+                  {timeError ? (
+                    <div className="text-xs text-red-700 bg-red-50/50 border border-red-200/50 p-2 rounded flex items-start gap-2">
+                      <span className="mt-0.5">⚠️</span>
+                      <span>{timeError}</span>
+                    </div>
+                  ) : (
+                    <div className="text-xs text-muted-foreground bg-blue-50/50 border border-blue-200/50 p-2 rounded">
+                      Will be: {customer?.name || a.clientName} — {a.treatment} — {ns.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}, {fmtTime(ns)}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <Label htmlFor="notify-resch" className="text-sm cursor-pointer">
+                    Send automated reschedule notification via WhatsApp
+                  </Label>
+                  <Switch
+                    id="notify-resch"
+                    checked={notify}
+                    onCheckedChange={setNotify}
+                    disabled={rescheduling}
+                  />
+                </div>
+
+                {notify && (
+                  <Collapsible open={showMsg} onOpenChange={setShowMsg}>
+                    <CollapsibleTrigger className="text-xs text-primary hover:underline flex items-center gap-1">
+                      {showMsg ? "Hide" : "Show"} message preview{" "}
+                      <ChevronDown
+                        className={`h-3 w-3 transition-transform ${showMsg ? "rotate-180" : ""}`}
+                      />
+                    </CollapsibleTrigger>
+                    <CollapsibleContent className="mt-2">
+                      <Textarea
+                        value={msg}
+                        onChange={(e) => setMsg(e.target.value)}
+                        className="text-sm min-h-[100px]"
+                        disabled={rescheduling}
+                      />
+                    </CollapsibleContent>
+                  </Collapsible>
+                )}
+              </>
+            ) : (
+              <div className="space-y-3 py-2">
+                <div className="rounded-lg border bg-muted/30 p-3">
+                  <div className="text-xs text-muted-foreground mb-2">New time:</div>
+                  <div className="text-primary font-medium">
+                    {customer?.name || a.clientName} — {a.treatment} — {ns.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}, {fmtTime(ns)}
+                  </div>
+                </div>
+                <div className="rounded-lg border border-amber-200/50 bg-amber-50/50 p-3">
+                  <p className="text-sm font-medium text-amber-900 mb-2">
+                    ⚠️ Reschedule will update the calendar
+                  </p>
+                  <p className="text-xs text-amber-800">
+                    The appointment will be moved to the new date and time. The client will be
+                    notified
+                    {notify ? ` with the message: "${msg}"` : ""}.
+                  </p>
                 </div>
               </div>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <Label htmlFor="notify-resch" className="text-sm cursor-pointer">
-                Send automated reschedule notification via WhatsApp
-              </Label>
-              <Switch id="notify-resch" checked={notify} onCheckedChange={setNotify} />
-            </div>
-
-            {notify && (
-              <Collapsible open={showMsg} onOpenChange={setShowMsg}>
-                <CollapsibleTrigger className="text-xs text-primary hover:underline flex items-center gap-1">
-                  {showMsg ? "Hide" : "Show"} message preview{" "}
-                  <ChevronDown
-                    className={`h-3 w-3 transition-transform ${showMsg ? "rotate-180" : ""}`}
-                  />
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-2">
-                  <Textarea
-                    value={msg}
-                    onChange={(e) => setMsg(e.target.value)}
-                    className="text-sm min-h-[100px]"
-                  />
-                </CollapsibleContent>
-              </Collapsible>
             )}
           </div>
         )}
@@ -574,13 +762,26 @@ export function RescheduleModal({
           <Button
             variant="outline"
             onClick={() => {
-              onClose();
-              setMsg("");
+              if (step === "confirm") {
+                setStep("review");
+              } else {
+                onClose();
+                setMsg("");
+                setStep("review");
+              }
             }}
+            disabled={rescheduling}
           >
-            Cancel
+            {step === "confirm" ? "Back" : "Keep original time"}
           </Button>
-          <Button onClick={confirm}>Confirm reschedule</Button>
+          <Button
+            variant={step === "review" ? "outline" : "default"}
+            onClick={confirm}
+            disabled={rescheduling || (step === "review" && !isValidTime)}
+          >
+            {rescheduling && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+            {step === "review" ? "Review changes" : "Confirm reschedule"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -618,39 +819,107 @@ export function CancelModal({
   const first = customer?.name.split(" ")[0] || "there";
   const t = appointment?.treatment || "appointment";
   const [msg, setMsg] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [step, setStep] = useState<"reason" | "confirm">("reason");
 
   // reset on open
-  if (appointment && msg === "") setMsg(CANCEL_MSG[reason](first, t));
+  if (appointment && msg === "" && step === "reason") {
+    setMsg(CANCEL_MSG[reason](first, t));
+  }
 
   const setReasonAndMsg = (r: string) => {
     setReason(r);
     setMsg(CANCEL_MSG[r](first, t));
   };
 
-  const confirm = () => {
-    if (!appointment || !customer) return;
-    store.upsertAppointment({
-      ...appointment,
-      status: "cancelled",
-      notes: appointment.notes
-        ? `${appointment.notes}\nCancelled: ${reason}`
-        : `Cancelled: ${reason}`,
-    });
-    if (notify) {
-      store.addActivity({
-        id: `a_cancel_${Date.now()}`,
-        timestamp: new Date().toISOString(),
-        customer_id: customer.id,
-        rule_id: "manual",
-        channel: "WhatsApp",
-        message_body: msg,
-        status: "Sent",
-        kind: "cancellation_notification",
-      });
+  const confirm = async () => {
+    if (step === "reason") {
+      // Move to confirmation step
+      setStep("confirm");
+      return;
     }
-    toast.success(`Appointment cancelled. ${notify ? "Message sent to client." : ""}`);
-    onConfirmed();
-    setMsg("");
+
+    if (!appointment) {
+      console.error("[Cancel] Missing appointment data");
+      toast.error("Missing appointment data");
+      return;
+    }
+
+    if (!appointment.id) {
+      console.error("[Cancel] Appointment ID missing");
+      toast.error("Cannot cancel: appointment ID missing");
+      return;
+    }
+
+    // Customer data is optional for cancellation - we can work with just clientName
+    if (!customer && !appointment.clientName) {
+      console.error("[Cancel] Missing both customer and clientName");
+      toast.error("Cannot identify customer");
+      return;
+    }
+
+    setCancelling(true);
+    try {
+      console.log("[Cancel] Sending delete request for appointment:", appointment.id);
+
+      // Delete from Google Calendar
+      const res = await fetch("/api/calendar/cancel", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: appointment.id }),
+      });
+
+      console.log("[Cancel] API Response status:", res.status);
+
+      if (!res.ok) {
+        let errorMsg = "Failed to cancel appointment";
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.error || errorMsg;
+          console.log("[Cancel] API Error:", errorData);
+        } catch {
+          console.log("[Cancel] Could not parse error response");
+        }
+        throw new Error(errorMsg);
+      }
+
+      const data = await res.json();
+      console.log("[Cancel] Success response:", data);
+
+      // Update local store
+      store.upsertAppointment({
+        ...appointment,
+        status: "cancelled",
+        notes: appointment.notes
+          ? `${appointment.notes}\nCancelled: ${reason}`
+          : `Cancelled: ${reason}`,
+      });
+
+      // Send cancellation notification
+      if (notify && customer?.id) {
+        store.addActivity({
+          id: `a_cancel_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          customer_id: customer!.id,
+          rule_id: "manual",
+          channel: "WhatsApp",
+          message_body: msg,
+          status: "Sent",
+          kind: "cancellation_notification",
+        });
+      }
+
+      toast.success(`Appointment cancelled. ${notify ? "Message sent to client." : ""}`);
+      onConfirmed();
+      setMsg("");
+      setStep("reason");
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to cancel appointment";
+      console.error("[Cancel] Error:", errorMsg, err);
+      toast.error(errorMsg);
+    } finally {
+      setCancelling(false);
+    }
   };
 
   return (
@@ -660,12 +929,15 @@ export function CancelModal({
         if (!o) {
           onClose();
           setMsg("");
+          setStep("reason");
         }
       }}
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Cancel this appointment?</DialogTitle>
+          <DialogTitle>
+            {step === "reason" ? "Cancel this appointment?" : "Confirm cancellation?"}
+          </DialogTitle>
         </DialogHeader>
         {appointment && customer && (
           <div className="space-y-4 text-sm">
@@ -684,41 +956,61 @@ export function CancelModal({
               </div>
             </div>
 
-            <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">
-                Reason for cancellation
-              </Label>
-              <Select value={reason} onValueChange={setReasonAndMsg}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.keys(CANCEL_MSG).map((r) => (
-                    <SelectItem key={r} value={r}>
-                      {r}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {step === "reason" ? (
+              <>
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">
+                    Reason for cancellation
+                  </Label>
+                  <Select value={reason} onValueChange={setReasonAndMsg} disabled={cancelling}>
+                    <SelectTrigger className="h-9">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(CANCEL_MSG).map((r) => (
+                        <SelectItem key={r} value={r}>
+                          {r}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="flex items-center justify-between">
-              <Label htmlFor="notify-cancel" className="text-sm cursor-pointer">
-                Send automated cancellation message
-              </Label>
-              <Switch id="notify-cancel" checked={notify} onCheckedChange={setNotify} />
-            </div>
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="notify-cancel" className="text-sm cursor-pointer">
+                    Send automated cancellation message
+                  </Label>
+                  <Switch
+                    id="notify-cancel"
+                    checked={notify}
+                    onCheckedChange={setNotify}
+                    disabled={cancelling}
+                  />
+                </div>
 
-            {notify && (
-              <div>
-                <Label className="text-xs text-muted-foreground mb-1.5 block">
-                  Message preview
-                </Label>
-                <Textarea
-                  value={msg}
-                  onChange={(e) => setMsg(e.target.value)}
-                  className="text-sm min-h-[100px]"
-                />
+                {notify && (
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1.5 block">
+                      Message preview
+                    </Label>
+                    <Textarea
+                      value={msg}
+                      onChange={(e) => setMsg(e.target.value)}
+                      className="text-sm min-h-[100px]"
+                      disabled={cancelling}
+                    />
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="space-y-3 py-2">
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                  <p className="text-sm font-medium text-destructive mb-2">⚠️ This action cannot be undone</p>
+                  <p className="text-xs text-muted-foreground">
+                    Once cancelled, this appointment will be removed from the calendar. The client will be notified
+                    {notify ? ` with the message: "${msg}"` : ""}.
+                  </p>
+                </div>
               </div>
             )}
           </div>
@@ -727,14 +1019,25 @@ export function CancelModal({
           <Button
             variant="outline"
             onClick={() => {
-              onClose();
-              setMsg("");
+              if (step === "confirm") {
+                setStep("reason");
+              } else {
+                onClose();
+                setMsg("");
+                setStep("reason");
+              }
             }}
+            disabled={cancelling}
           >
-            Keep appointment
+            {step === "confirm" ? "Back" : "Keep appointment"}
           </Button>
-          <Button variant="destructive" onClick={confirm}>
-            Confirm cancellation
+          <Button
+            variant={step === "reason" ? "outline" : "destructive"}
+            onClick={confirm}
+            disabled={cancelling}
+          >
+            {cancelling && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+            {step === "reason" ? "Next" : "Cancel appointment"}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -781,6 +1084,8 @@ export function NewAppointmentModal({
   const [notify, setNotify] = useState(true);
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [availableRooms, setAvailableRooms] = useState<string[]>(["Room 1", "Room 2"]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
 
   // Reset when opening
   if (open && defaultStart) {
@@ -792,6 +1097,38 @@ export function NewAppointmentModal({
       );
     }
   }
+
+  // Fetch available slots (including available rooms) when date, practitioner, or treatment changes
+  useEffect(() => {
+    if (!date) return;
+
+    setLoadingSlots(true);
+    const prac = practitioners.find((p) => p.id === practitionerId);
+    const dur = TREATMENT_DURATIONS[treatment];
+
+    const params = new URLSearchParams({
+      date,
+      duration: String(dur),
+      ...(prac?.name && { practitioners: prac.name }),
+    });
+
+    fetch(`/api/calendar/slots?${params}`)
+      .then((r) => r.ok ? r.json() : Promise.reject(r))
+      .then((data) => {
+        const rooms = new Set<string>();
+        (data.slots ?? []).forEach((slot: any) => {
+          (slot.availableRooms ?? ["Room 1", "Room 2"]).forEach((r: string) => rooms.add(r));
+        });
+        const roomList = Array.from(rooms).sort();
+        setAvailableRooms(roomList.length > 0 ? roomList : ["Room 1", "Room 2"]);
+        // Ensure selected room is still available
+        if (!roomList.includes(room)) {
+          setRoom(roomList[0] || "Room 1");
+        }
+      })
+      .catch(() => setAvailableRooms(["Room 1", "Room 2"]))
+      .finally(() => setLoadingSlots(false));
+  }, [date, treatment, practitionerId, practitioners]);
 
   const cust = customers.find((c) => c.id === customerId);
   const filteredCust = search
@@ -996,16 +1333,28 @@ export function NewAppointmentModal({
               />
             </div>
             <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">Room</Label>
-              <Select value={room} onValueChange={setRoom}>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">
+                Room {loadingSlots && <span className="text-xs">checking…</span>}
+              </Label>
+              <Select value={room} onValueChange={setRoom} disabled={loadingSlots || availableRooms.length === 0}>
                 <SelectTrigger className="h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Room 1">Room 1</SelectItem>
-                  <SelectItem value="Room 2">Room 2</SelectItem>
+                  {availableRooms.length > 0 ? (
+                    availableRooms.map((r) => (
+                      <SelectItem key={r} value={r}>
+                        {r}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <div className="px-2 py-1.5 text-xs text-muted-foreground">No rooms available</div>
+                  )}
                 </SelectContent>
               </Select>
+              {availableRooms.length === 0 && (
+                <p className="text-xs text-destructive mt-1">No rooms available for this time</p>
+              )}
             </div>
           </div>
 

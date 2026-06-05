@@ -7,7 +7,16 @@ const BUSINESS_START_HOUR = 9;
 // The clinic's posted closing time is 7 PM but staff close out after the last client.
 const BUSINESS_END_HOUR = 19.5;
 const TIMEZONE = "America/Chicago";
-const DEFAULT_ROOMS = ["Room 1", "Room 2"];
+
+function getDefaultRooms(): string[] {
+  const roomsEnv = process.env.CLINIC_ROOMS;
+  if (roomsEnv) {
+    return roomsEnv.split(",").map((r) => r.trim()).filter(Boolean);
+  }
+  return ["Room 1", "Room 2"];
+}
+
+const DEFAULT_ROOMS = getDefaultRooms();
 
 // Returns today's date string (YYYY-MM-DD) in Chicago CT
 function todayInChicago(): string {

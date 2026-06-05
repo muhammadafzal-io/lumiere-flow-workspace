@@ -79,6 +79,9 @@ export async function GET() {
       email: r["Email"] ?? "",
       role: r["Role"] ?? "",
       color: r["Color"] ?? "#6366f1",
+      specialty: r["Specialty"] ?? "",
+      bio: r["Bio"] ?? "",
+      status: r["Status"] ?? "Active",
     }));
 
     return NextResponse.json({ clinic, team, channels: getChannelStatus() });

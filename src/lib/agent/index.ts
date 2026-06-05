@@ -2,7 +2,11 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { TOOLS } from "./tools";
-import { getAvailableSlots, createAppointment } from "@/lib/integrations/google-calendar";
+import {
+  checkAvailability,
+  bookAppointment,
+  suggestSlot,
+} from "@/lib/services/booking-service";
 import { lookupClient, upsertClient, createAppointmentRecord } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
@@ -21,12 +25,23 @@ async function executeTool(
 ): Promise<{ result: unknown; escalated?: boolean; booked?: boolean }> {
   switch (toolName) {
     case "check_availability": {
-      const slots = await getAvailableSlots(
-        input.date as string,
-        (input.duration_minutes as number) ?? 60,
-      );
-      const trimmed = slots.slice(0, 6);
-      return { result: trimmed };
+      const availability = await checkAvailability({
+        date: input.date as string,
+        durationMinutes: (input.duration_minutes as number) ?? 60,
+        practitionerName: input.preferred_practitioner as string | undefined,
+        room: input.preferred_room as string | undefined,
+      });
+
+      return {
+        result: {
+          date: availability.date,
+          durationMinutes: availability.durationMinutes,
+          slots: availability.slots.slice(0, 6), // Limit to top 6 slots
+          availablePractitioners: availability.availablePractitioners,
+          availableRooms: availability.availableRooms,
+          summary: `Found ${availability.slots.length} available slots on ${availability.date}. Available practitioners: ${availability.availablePractitioners.join(", ")}. Available rooms: ${availability.availableRooms.join(", ")}`,
+        },
+      };
     }
 
     case "book_appointment": {
@@ -34,20 +49,55 @@ async function executeTool(
       const startTime = input.date_time as string;
       const endTime = new Date(new Date(startTime).getTime() + durationMin * 60_000).toISOString();
 
+      // If room/practitioner not specified, suggest one automatically
+      let room = input.room as string | undefined;
+      let practitioner = input.practitioner_name as string | undefined;
+
+      if (!room || !practitioner) {
+        try {
+          const suggestion = await suggestSlot({
+            date: startTime.split("T")[0],
+            durationMinutes: durationMin,
+            preferredPractitioner: practitioner,
+            preferredRoom: room,
+          });
+          room = room || suggestion.room;
+          practitioner = practitioner || suggestion.practitioner;
+        } catch (err) {
+          return {
+            result: {
+              error: err instanceof Error ? err.message : "Could not find available room/practitioner",
+            },
+          };
+        }
+      }
+
       const apptData = {
         clientName: input.client_name as string,
+        clientContact: input.client_contact as string,
         treatment: input.treatment as string,
         startTime,
         endTime,
-        clientContact: input.client_contact as string,
+        practitionerName: practitioner,
+        room,
         notes: input.notes as string | undefined,
       };
 
-      const appt = await createAppointment(apptData);
+      const appt = await bookAppointment(apptData);
 
       // Look up Airtable client ID by phone so we can link the appointment record
       const clientRecord = await lookupClient({ phone: apptData.clientContact }).catch(() => null);
-      await createAppointmentRecord(apptData, clientRecord?.id).catch(() => {
+      await createAppointmentRecord(
+        {
+          clientName: apptData.clientName,
+          treatment: apptData.treatment,
+          startTime: apptData.startTime,
+          endTime: apptData.endTime,
+          clientContact: apptData.clientContact,
+          notes: apptData.notes,
+        },
+        clientRecord?.id,
+      ).catch(() => {
         /* non-fatal */
       });
 
