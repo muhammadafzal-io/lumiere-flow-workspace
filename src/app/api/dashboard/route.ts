@@ -120,9 +120,73 @@ export async function GET() {
       const t = new Date(e.timestamp).getTime();
       return !logSet.has(`${e.clientName.toLowerCase()}_${Math.round(t / 300000)}`);
     });
-    const activity = [...logEntries, ...uniqueCalEntries]
+    let activity = [...logEntries, ...uniqueCalEntries]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
       .slice(0, 8);
+
+    // Fallback: if both Activity_Log and Google Calendar are empty (e.g. credentials
+    // not yet configured on this environment), synthesize activity from Clients table
+    // using Last Visit and Last Reminder Sent fields — always works when Supabase is up.
+    if (activity.length === 0 && clientList.length > 0) {
+      const synthetic: LogRow[] = [];
+      for (const c of clientList as any[]) {
+        const name: string = c["Name"] ?? "Client";
+        if (c["Last Visit"]) {
+          const ts = new Date(c["Last Visit"]);
+          if (!isNaN(ts.getTime())) {
+            synthetic.push({
+              id: `lv_${c.id}`,
+              timestamp: ts.toISOString(),
+              eventType: "booking",
+              clientName: name,
+              phone: c["Phone"] ?? "",
+              email: c["Email"] ?? "",
+              clientId: c.id,
+              details: c["Last Treatment"] ? `${c["Last Treatment"]} appointment` : "Appointment",
+              status: "success",
+              platform: "calendar",
+            });
+          }
+        }
+        if (c["Last Reminder Sent"]) {
+          const ts = new Date(c["Last Reminder Sent"]);
+          if (!isNaN(ts.getTime())) {
+            synthetic.push({
+              id: `rm_${c.id}`,
+              timestamp: ts.toISOString(),
+              eventType: "reminder",
+              clientName: name,
+              phone: c["Phone"] ?? "",
+              email: c["Email"] ?? "",
+              clientId: c.id,
+              details: "Appointment reminder sent",
+              status: "success",
+              platform: "whatsapp",
+            });
+          }
+        }
+        if (c["Last Reactivation Sent"]) {
+          const ts = new Date(c["Last Reactivation Sent"]);
+          if (!isNaN(ts.getTime())) {
+            synthetic.push({
+              id: `re_${c.id}`,
+              timestamp: ts.toISOString(),
+              eventType: "reactivation",
+              clientName: name,
+              phone: c["Phone"] ?? "",
+              email: c["Email"] ?? "",
+              clientId: c.id,
+              details: "Reactivation message sent",
+              status: "success",
+              platform: "whatsapp",
+            });
+          }
+        }
+      }
+      activity = synthetic
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 8);
+    }
 
     // Only upcoming events for the mini calendar
     const today = new Date();
