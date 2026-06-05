@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { NextRequest, NextResponse } from "next/server";
 import { bookAppointment } from "@/lib/services/booking-service";
 

@@ -94,7 +94,7 @@ export class DiscordProvider implements MessagingProvider {
       channelId &&
       (/^\+?[\d\s\-(). ]{7,}$/.test(msg.to) ||
         msg.to.includes("@") ||
-        !/^[A-Za-z0-9_\-]{20,}$/.test(msg.to))
+        !/^[A-Za-z0-9_-]{20,}$/.test(msg.to))
     ) {
       const channelMsg = {
         ...msg,

@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { NextRequest, NextResponse } from "next/server";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 

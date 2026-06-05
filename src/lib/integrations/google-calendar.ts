@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { google } from "googleapis";
 import type { AvailableSlot, CalendarEvent, Appointment } from "@/types";
 
