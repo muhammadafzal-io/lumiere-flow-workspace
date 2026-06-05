@@ -8,9 +8,6 @@ export const dynamic = "force-dynamic";
 
 type LogRow = OpsLogEntry & { id: string };
 
-function todayStr() {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
-}
 function dateStr(offsetDays: number) {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
@@ -57,9 +54,7 @@ function calEventToLogRow(e: {
 
 async function fetchClients() {
   const sb = getSupabase();
-  const { data, error } = await sb
-    .from("Clients")
-    .select("*");
+  const { data, error } = await sb.from("Clients").select("*");
   if (error) throw new Error(error.message);
   return data ?? [];
 }
@@ -75,7 +70,9 @@ async function fetchRules() {
     let trigger_config: Record<string, any> = {};
     try {
       trigger_config = JSON.parse(r["Trigger Config"] ?? "{}");
-    } catch {}
+    } catch (_) {
+      // ignore JSON parse errors; trigger_config stays {}
+    }
     return {
       id: r.id,
       name: r["Rule Name"] ?? "",

@@ -7,7 +7,9 @@ function mapRow(r: any) {
   let trigger_config: Record<string, any> = {};
   try {
     trigger_config = JSON.parse(r["Trigger Config"] ?? "{}");
-  } catch {}
+  } catch (_) {
+    // ignore JSON parse errors; trigger_config stays {}
+  }
   return {
     id: r.id,
     name: r["Rule Name"] ?? "",
