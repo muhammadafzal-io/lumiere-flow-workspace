@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/reminders",
+      "schedule": "0 8,14,20 * * *"
+    },
+    {
+      "path": "/api/cron/noshow",
+      "schedule": "0 21 * * *"
+    },
+    {
+      "path": "/api/cron/reactivation",
+      "schedule": "0 9 * * 1"
+    },
+    {
+      "path": "/api/cron/birthday",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}
