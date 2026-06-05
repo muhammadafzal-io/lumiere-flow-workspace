@@ -2,11 +2,7 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { TOOLS } from "./tools";
-import {
-  checkAvailability,
-  bookAppointment,
-  suggestSlot,
-} from "@/lib/services/booking-service";
+import { checkAvailability, bookAppointment, suggestSlot } from "@/lib/services/booking-service";
 import { lookupClient, upsertClient, createAppointmentRecord } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
@@ -66,7 +62,8 @@ async function executeTool(
         } catch (err) {
           return {
             result: {
-              error: err instanceof Error ? err.message : "Could not find available room/practitioner",
+              error:
+                err instanceof Error ? err.message : "Could not find available room/practitioner",
             },
           };
         }

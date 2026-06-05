@@ -67,7 +67,9 @@ export function TopBar() {
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">Switch Role (Demo)</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              Switch Role (Demo)
+            </DropdownMenuLabel>
             <DropdownMenuSeparator />
             {ROLES.map((role) => (
               <DropdownMenuItem key={role.value} onClick={() => setUserRole(role.value)}>
