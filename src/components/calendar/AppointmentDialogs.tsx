@@ -1128,7 +1128,7 @@ export function NewAppointmentModal({
       })
       .catch(() => setAvailableRooms(["Room 1", "Room 2"]))
       .finally(() => setLoadingSlots(false));
-  }, [date, treatment, practitionerId, practitioners]);
+  }, [date, treatment, practitionerId, practitioners]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cust = customers.find((c) => c.id === customerId);
   const filteredCust = search

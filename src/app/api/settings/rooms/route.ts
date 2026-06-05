@@ -17,10 +17,7 @@ export async function GET(req: NextRequest) {
     const supabase = getSupabaseClient();
 
     // Fetch all rooms from the Rooms table
-    const { data, error } = await supabase
-      .from("Rooms")
-      .select("Name")
-      .order("Name");
+    const { data, error } = await supabase.from("Rooms").select("Name").order("Name");
 
     if (error) {
       console.error("[/api/settings/rooms] GET error:", error);
@@ -51,10 +48,7 @@ export async function POST(req: NextRequest) {
     console.log("[/api/settings/rooms] Diagnostic check");
 
     // Check if Rooms table exists and has data
-    const { data: rooms, error: roomsError } = await supabase
-      .from("Rooms")
-      .select("*")
-      .limit(5);
+    const { data: rooms, error: roomsError } = await supabase.from("Rooms").select("*").limit(5);
 
     if (roomsError) {
       console.error("[Diagnostic] Error fetching rooms:", roomsError);
@@ -126,14 +120,11 @@ export async function PATCH(req: NextRequest) {
     }
 
     // Find rooms to delete (in DB but not in new list)
-    const roomsToDelete = existingRooms?.filter(
-      (r: any) => !uniqueRooms.includes(r.Name),
-    ) || [];
+    const roomsToDelete = existingRooms?.filter((r: any) => !uniqueRooms.includes(r.Name)) || [];
 
     // Find rooms to add (in new list but not in DB)
-    const roomsToAdd = uniqueRooms.filter(
-      (name) => !existingRooms?.some((r: any) => r.Name === name),
-    ) || [];
+    const roomsToAdd =
+      uniqueRooms.filter((name) => !existingRooms?.some((r: any) => r.Name === name)) || [];
 
     console.log("[/api/settings/rooms] Update plan:", {
       toAdd: roomsToAdd,

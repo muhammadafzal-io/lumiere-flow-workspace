@@ -129,7 +129,7 @@ export function RuleModal({ open, onOpenChange, editing }: Props) {
   // Update copy when trigger changes (only if not user-edited beyond simple)
   useEffect(() => {
     if (!parsed) return;
-  }, [triggerType]);
+  }, [triggerType, parsed]);
 
   const save = async (status: "active" | "draft") => {
     if (!name.trim()) {
