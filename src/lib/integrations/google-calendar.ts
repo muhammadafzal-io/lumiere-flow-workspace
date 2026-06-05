@@ -11,7 +11,10 @@ const TIMEZONE = "America/Chicago";
 function getDefaultRooms(): string[] {
   const roomsEnv = process.env.CLINIC_ROOMS;
   if (roomsEnv) {
-    return roomsEnv.split(",").map((r) => r.trim()).filter(Boolean);
+    return roomsEnv
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean);
   }
   return ["Room 1", "Room 2"];
 }
