@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { getDormantClients, updateClientField } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { getMessagingProvider } from "@/lib/messaging";
+import { trySend } from "@/lib/retention/utils";
 import type { Client, RetentionResult } from "@/types";
 
 function getOpenAI() {
@@ -101,10 +102,10 @@ export async function runReactivationFlow(): Promise<RetentionResult> {
     try {
       const message = await generatePersonalisedMessage(client, step);
 
-      await messaging.send({ to: contactId, text: message });
+      const { platform, simulated } = await trySend(messaging, { to: contactId, text: message });
 
       console.log(
-        `[reactivation] SENT → ${client.name} | step: ${step}/3 | platform: ${messaging.platform} | contact: ${contactId}`,
+        `[reactivation] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | step: ${step}/3 | platform: ${platform} | contact: ${contactId}`,
       );
 
       if (client.id) {
@@ -118,13 +119,8 @@ export async function runReactivationFlow(): Promise<RetentionResult> {
       await logEvent(
         "reactivation",
         client.name,
-        `Reactivation follow-up ${step}/3 sent. Last treatment: ${client.lastTreatment ?? "unknown"}. Incentive: ${CAMPAIGN.incentiveCode}`,
-        {
-          clientId: client.id,
-          phone: client.phone,
-          email: client.email,
-          platform: messaging.platform,
-        },
+        `Reactivation follow-up ${step}/3 ${simulated ? "queued (simulation)" : "sent"}. Last treatment: ${client.lastTreatment ?? "unknown"}. Incentive: ${CAMPAIGN.incentiveCode}`,
+        { clientId: client.id, phone: client.phone, email: client.email, platform },
       );
 
       result.sent++;
@@ -133,8 +129,8 @@ export async function runReactivationFlow(): Promise<RetentionResult> {
         clientName: client.name,
         status: "sent",
         contact: contactId,
-        platform: messaging.platform,
-        messagePreview: `[Step ${step}/3] ${message.substring(0, 80)}...`,
+        platform,
+        messagePreview: `[Step ${step}/3] ${message.substring(0, 80)}...${simulated ? " (simulated)" : ""}`,
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

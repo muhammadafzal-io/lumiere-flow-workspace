@@ -1,6 +1,7 @@
 import { getUpcomingBirthdays, updateClientField } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { getMessagingProvider } from "@/lib/messaging";
+import { trySend } from "@/lib/retention/utils";
 import type { RetentionResult } from "@/types";
 
 const CREDIT_AMOUNT = 50;
@@ -67,10 +68,10 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
       const creditCode = generateCreditCode(client.name);
       const message = buildBirthdayMessage(client.name, creditCode);
 
-      await messaging.send({ to: contactId, text: message });
+      const { platform, simulated } = await trySend(messaging, { to: contactId, text: message });
 
       console.log(
-        `[birthday] SENT → ${client.name} | platform: ${messaging.platform} | contact: ${contactId} | code: ${creditCode}`,
+        `[birthday] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | contact: ${contactId} | code: ${creditCode}`,
       );
 
       if (client.id) {
@@ -83,12 +84,12 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
       await logEvent(
         "birthday",
         client.name,
-        `Birthday credit sent. Code: ${creditCode}. Valid ${CREDIT_VALID_DAYS} days.`,
+        `Birthday credit ${simulated ? "queued (simulation)" : "sent"}. Code: ${creditCode}. Valid ${CREDIT_VALID_DAYS} days.`,
         {
           clientId: client.id,
           phone: client.phone,
           email: client.email,
-          platform: messaging.platform,
+          platform,
         },
       );
 
@@ -98,8 +99,8 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
         clientName: client.name,
         status: "sent",
         contact: contactId,
-        platform: messaging.platform,
-        messagePreview: `Code: ${creditCode} — $${CREDIT_AMOUNT} birthday credit`,
+        platform,
+        messagePreview: `Code: ${creditCode} — $${CREDIT_AMOUNT} birthday credit${simulated ? " (simulated)" : ""}`,
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

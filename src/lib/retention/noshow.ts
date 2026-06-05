@@ -2,6 +2,7 @@ import { getAllClients, updateClientField } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { getMessagingProvider } from "@/lib/messaging";
+import { trySend } from "@/lib/retention/utils";
 import type { RetentionResult } from "@/types";
 
 function buildNoshowText(clientName: string, treatment: string): string {
@@ -56,31 +57,31 @@ export async function runNoshowFlow(): Promise<RetentionResult> {
     try {
       const text = buildNoshowText(client.name, treatment);
 
-      await messaging.send({
+      const { platform, simulated } = await trySend(messaging, {
         to: contactId,
         text,
         buttons: [{ text: "Rebook Now", callbackData: "rebook:noshow" }],
       });
 
       console.log(
-        `[noshow] SENT → ${client.name} | platform: ${messaging.platform} | contact: ${contactId}`,
+        `[noshow] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | contact: ${contactId}`,
       );
 
       if (client.id) {
         await updateClientField(client.id, { Status: "Active" });
       }
 
-      await logEvent("noshow-recovery", client.name, `No-show recovery sent for ${treatment}`, {
-        clientId: client.id,
-        phone: client.phone,
-        email: client.email,
-        platform: messaging.platform,
-      });
+      await logEvent(
+        "noshow-recovery",
+        client.name,
+        `No-show recovery ${simulated ? "queued (simulation)" : "sent"} for ${treatment}`,
+        { clientId: client.id, phone: client.phone, email: client.email, platform },
+      );
 
       postEscalation({
-        reason: `No-show detected — recovery message sent`,
+        reason: `No-show detected — recovery message ${simulated ? "queued" : "sent"}`,
         clientInfo: `${client.name} (${contactId})`,
-        conversationSummary: `Client no-showed for ${treatment}. Recovery message sent via ${messaging.platform}. Status updated to Active.`,
+        conversationSummary: `Client no-showed for ${treatment}. Recovery message ${simulated ? "simulated" : `sent via ${platform}`}. Status updated to Active.`,
         platform: "noshow-flow",
       }).catch((e) => console.error("[noshow] Slack notification failed:", e));
 
@@ -90,8 +91,8 @@ export async function runNoshowFlow(): Promise<RetentionResult> {
         clientName: client.name,
         status: "sent",
         contact: contactId,
-        platform: messaging.platform,
-        messagePreview: text.substring(0, 80) + "...",
+        platform,
+        messagePreview: text.substring(0, 80) + `...${simulated ? " (simulated)" : ""}`,
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

@@ -3,6 +3,7 @@ import { lookupClient, updateClientField } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { getMessagingProvider } from "@/lib/messaging";
+import { trySend } from "@/lib/retention/utils";
 import type { RetentionResult } from "@/types";
 
 function hoursUntil(isoTime: string): number {
@@ -104,7 +105,7 @@ export async function runReminderFlow(): Promise<RetentionResult> {
     try {
       const text = buildReminderText(appt.clientName, appt.treatment, appt.startTime, window);
 
-      await messaging.send({
+      const { platform, simulated } = await trySend(messaging, {
         to: deliverTo,
         text,
         buttons: [
@@ -115,18 +116,19 @@ export async function runReminderFlow(): Promise<RetentionResult> {
       });
 
       console.log(
-        `[reminder] SENT → ${appt.clientName} | window: ${window} | platform: ${messaging.platform} | contact: ${deliverTo}`,
+        `[reminder] ${simulated ? "SIMULATED" : "SENT"} → ${appt.clientName} | window: ${window} | platform: ${platform} | contact: ${deliverTo}`,
       );
 
       if (client?.id) {
         await updateClientField(client.id, { "Last Reminder Sent": new Date().toISOString() });
       }
 
-      await logEvent("reminder", appt.clientName, `${window} reminder sent for ${appt.treatment}`, {
-        clientId: client?.id,
-        phone: appt.clientContact,
-        platform: messaging.platform,
-      });
+      await logEvent(
+        "reminder",
+        appt.clientName,
+        `${window} reminder ${simulated ? "queued (simulation)" : "sent"} for ${appt.treatment}`,
+        { clientId: client?.id, phone: appt.clientContact, platform },
+      );
 
       result.sent++;
       result.details.push({
@@ -134,8 +136,8 @@ export async function runReminderFlow(): Promise<RetentionResult> {
         clientName: appt.clientName,
         status: "sent",
         contact: deliverTo,
-        platform: messaging.platform,
-        messagePreview: `${window} reminder for ${appt.treatment}`,
+        platform,
+        messagePreview: `${window} reminder for ${appt.treatment}${simulated ? " (simulated)" : ""}`,
       });
 
       if (window === "T-2h" && appt.confirmed === "pending") {
