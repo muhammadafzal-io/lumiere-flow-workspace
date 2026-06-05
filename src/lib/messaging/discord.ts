@@ -80,26 +80,32 @@ export class DiscordProvider implements MessagingProvider {
   }
 
   async send(msg: OutboundMessage): Promise<void> {
-    // Discord snowflake user IDs are 17-20 digit numbers.
-    // Interaction tokens are long alphanumeric strings that expire after 15 minutes.
-    // Retention flows pass a stored user ID, not a fresh interaction token, so we
-    // must open a DM channel and send via the Bot API instead.
+    // Discord snowflake user IDs (17-20 digits) → DM the client directly
     if (/^\d{17,20}$/.test(msg.to)) {
       await this.sendDm(msg);
       return;
     }
 
-    // Phone number or email — cannot deliver via Discord at all
-    if (/^\+?[\d\s\-(). ]{7,}$/.test(msg.to) || msg.to.includes("@")) {
-      throw new Error(
-        `No Discord ID for this client (contact is "${msg.to}"). ` +
-          `Add their Discord user ID to the Telegram ID field in Airtable, or switch MESSAGING_PROVIDER to whatsapp.`,
-      );
+    // Phone number, email, or non-snowflake handle (e.g. a username) →
+    // the client has no Discord ID yet. Post to the configured channel
+    // so staff can see the message and follow up manually.
+    const channelId = process.env.DISCORD_CHAT_CHANNEL_ID;
+    if (
+      channelId &&
+      (/^\+?[\d\s\-(). ]{7,}$/.test(msg.to) ||
+        msg.to.includes("@") ||
+        !/^[A-Za-z0-9_\-]{20,}$/.test(msg.to))
+    ) {
+      const channelMsg = {
+        ...msg,
+        text: `📋 **Outbound — ${msg.to}**\n\n${msg.text}`,
+      };
+      await this.sendToChannel(channelId, channelMsg);
+      return;
     }
 
-    // Fresh interaction token — use the webhook followup endpoint.
+    // Fresh interaction token (long alphanumeric) → webhook followup endpoint
     const body = buildDiscordBody(msg);
-
     const res = await fetch(`https://discord.com/api/v10/webhooks/${this.appId}/${msg.to}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
