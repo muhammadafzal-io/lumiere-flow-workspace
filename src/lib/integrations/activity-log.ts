@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { getSupabase } from "@/lib/supabase";
 import type { OpsLogEntry } from "@/types";
 
