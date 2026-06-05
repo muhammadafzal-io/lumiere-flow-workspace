@@ -46,9 +46,10 @@ interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   editing?: Rule | null;
+  onSaved?: (rule: Rule) => void;
 }
 
-export function RuleModal({ open, onOpenChange, editing }: Props) {
+export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
   const customers = useStore((s) => s.customers);
   const [nl, setNl] = useState("");
   const [parsing, setParsing] = useState(false);
@@ -152,19 +153,22 @@ export function RuleModal({ open, onOpenChange, editing }: Props) {
           messageTemplate: message,
           incentiveCode: offer,
           status: status === "active" ? "Active" : "Draft",
-          aiPrompt: nl,
         }),
       });
 
-      if (!response.ok) throw new Error("Failed to sync to API");
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.error ?? `Server error ${response.status}`);
+      }
 
-      toast.success(status === "active" ? "Rule activated & synced" : "Saved as draft & synced");
+      const data = await response.json();
+      toast.success(status === "active" ? "Rule activated" : "Rule saved as draft");
+      onSaved?.(data.data);
+      onOpenChange(false);
     } catch (error) {
       console.error(error);
-      toast.error("Saved locally, but failed to sync to database");
+      toast.error(error instanceof Error ? error.message : "Failed to save rule");
     }
-
-    onOpenChange(false);
   };
 
   return (

@@ -92,6 +92,13 @@ export default function RulesPage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [modalOpen]);
 
+  const handleSaved = (rule: Rule) => {
+    setRules((prev) => {
+      const exists = prev.some((r) => r.id === rule.id);
+      return exists ? prev.map((r) => (r.id === rule.id ? rule : r)) : [rule, ...prev];
+    });
+  };
+
   const counts = {
     active: rules.filter((r) => r.status === "active").length,
     paused: rules.filter((r) => r.status === "paused").length,
@@ -283,11 +290,9 @@ export default function RulesPage() {
 
       <RuleModal
         open={modalOpen}
-        onOpenChange={(v) => {
-          setModalOpen(v);
-          if (!v) void fetchRules();
-        }}
+        onOpenChange={setModalOpen}
         editing={editing}
+        onSaved={handleSaved}
       />
     </div>
   );

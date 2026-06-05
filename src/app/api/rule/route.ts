@@ -55,7 +55,6 @@ export async function POST(req: Request) {
       channel,
       messageTemplate,
       incentiveCode,
-      aiPrompt,
     } = body;
 
     const { data, error } = await sb
@@ -68,7 +67,6 @@ export async function POST(req: Request) {
         Channel: channel,
         "Message Template": messageTemplate,
         "Incentive Code": incentiveCode || "",
-        "AI Prompt": aiPrompt || "",
       })
       .select()
       .single();
@@ -94,7 +92,6 @@ export async function PATCH(req: Request) {
       channel,
       messageTemplate,
       incentiveCode,
-      aiPrompt,
     } = body;
     if (!recordId) return NextResponse.json({ error: "recordId is required" }, { status: 400 });
 
@@ -108,7 +105,6 @@ export async function PATCH(req: Request) {
         Channel: channel,
         "Message Template": messageTemplate,
         "Incentive Code": incentiveCode || "",
-        "AI Prompt": aiPrompt || "",
       })
       .eq("id", recordId)
       .select()
