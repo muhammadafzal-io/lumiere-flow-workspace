@@ -12,7 +12,7 @@ export const SLOT_PX = 28;
 
 // ── Timezone core ────────────────────────────────────────────────────
 
-function chicagoParts(d: Date) {
+export function chicagoParts(d: Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: BUSSINESS_TZ,
     year: "numeric",

@@ -12,20 +12,32 @@ function mapRow(r: any) {
     email: r["Email"] ?? "",
     role: r["Role"] ?? "",
     color: r["Color"] ?? "#6366f1",
+    specialty: r["Specialty"] ?? "",
+    bio: r["Bio"] ?? "",
+    status: r["Status"] ?? "Active",
   };
 }
 
 export async function POST(req: Request) {
   try {
     const sb = getSupabase();
-    const { name, email, role, color } = await req.json();
+    const { name, email, role, color, specialty, bio } = await req.json();
     if (!name?.trim()) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
 
     const { data, error } = await sb
       .from(TABLE)
-      .insert({ Name: name, Email: email ?? "", Role: role ?? "", Color: color ?? "#6366f1" })
+      .insert({
+        Name: name,
+        Email: email ?? "",
+        Role: role ?? "",
+        Color: color ?? "#6366f1",
+        Specialty: specialty ?? "",
+        Bio: bio ?? "",
+        Status: "Active",
+        "Calendar ID": null,
+      })
       .select()
       .single();
 
@@ -40,7 +52,7 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const sb = getSupabase();
-    const { id, name, email, role, color } = await req.json();
+    const { id, name, email, role, color, specialty, bio, status } = await req.json();
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
     const fields: Record<string, string> = {};
@@ -48,6 +60,9 @@ export async function PATCH(req: Request) {
     if (email !== undefined) fields["Email"] = email;
     if (role !== undefined) fields["Role"] = role;
     if (color !== undefined) fields["Color"] = color;
+    if (specialty !== undefined) fields["Specialty"] = specialty;
+    if (bio !== undefined) fields["Bio"] = bio;
+    if (status !== undefined) fields["Status"] = status;
 
     const { data, error } = await sb.from(TABLE).update(fields).eq("id", id).select().single();
 

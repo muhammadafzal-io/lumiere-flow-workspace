@@ -1,6 +1,6 @@
 /* eslint-disable prettier/prettier */
 import { NextRequest, NextResponse } from "next/server";
-import { bookAdminAppointment } from "@/lib/integrations/google-calendar";
+import { bookAppointment } from "@/lib/services/booking-service";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -31,25 +31,26 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const result = await bookAdminAppointment({
+    const result = await bookAppointment({
       startTime,
       endTime,
       clientName,
-      clientContact,
+      clientContact: clientContact || "",
       treatment,
       room,
       practitionerName,
       notes,
     });
-    return NextResponse.json({ id: result.id });
+    return NextResponse.json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Booking failed";
     const isConflict =
       message.toLowerCase().includes("already booked") ||
+      message.toLowerCase().includes("not available") ||
       message.toLowerCase().includes("unavailable");
     return NextResponse.json(
-      { error: message, conflict: isConflict },
-      { status: isConflict ? 409 : 500 },
+      { error: message, code: isConflict ? "CONFLICT" : "BOOKING_ERROR" },
+      { status: isConflict ? 409 : 400 },
     );
   }
 }

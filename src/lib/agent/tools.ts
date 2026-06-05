@@ -6,7 +6,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "check_availability",
       description:
-        "Check available appointment slots in the Lumière Google Calendar for a given date. Returns a list of open time slots. ALWAYS call this before suggesting any time to a client.",
+        "Check available appointment slots in the Lumière Google Calendar for a given date, considering both room and practitioner availability. Returns available time slots and which rooms/practitioners are free. ALWAYS call this before suggesting any time to a client.",
       parameters: {
         type: "object",
         properties: {
@@ -17,6 +17,14 @@ export const TOOLS: ChatCompletionTool[] = [
           duration_minutes: {
             type: "number",
             description: "Duration of the treatment in minutes. Defaults to 60 if unknown.",
+          },
+          preferred_practitioner: {
+            type: "string",
+            description: "If the client prefers a specific practitioner, pass their full name here to filter availability",
+          },
+          preferred_room: {
+            type: "string",
+            description: "If the client prefers a specific room, pass it here (e.g. 'Room 1', 'VIP Suite')",
           },
         },
         required: ["date"],
@@ -29,7 +37,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "book_appointment",
       description:
-        "Create a confirmed appointment in the Lumière Google Calendar. Only call after the client has confirmed a specific slot from check_availability results.",
+        "Create a confirmed appointment in the Lumière Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. If room/practitioner not specified, the system will automatically assign an available one.",
       parameters: {
         type: "object",
         properties: {
@@ -38,6 +46,14 @@ export const TOOLS: ChatCompletionTool[] = [
           date_time: { type: "string", description: "Appointment start time in ISO 8601 format" },
           duration_minutes: { type: "number", description: "Duration in minutes" },
           client_contact: { type: "string", description: "Client phone number or Telegram ID" },
+          practitioner_name: {
+            type: "string",
+            description: "Name of the practitioner (from check_availability results). If omitted, system picks first available.",
+          },
+          room: {
+            type: "string",
+            description: "Room name (from check_availability results, e.g. 'Room 1'). If omitted, system picks first available.",
+          },
           notes: {
             type: "string",
             description: "Optional notes (new client, contraindication mentions, preferences)",
