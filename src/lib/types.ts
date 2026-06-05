@@ -1,6 +1,6 @@
 export type Status = "Active" | "Dormant" | "VIP" | "New";
 export type Treatment = "Botox" | "HydraFacial" | "Laser" | "Microneedling" | "IV Drip" | "Filler";
-export type Channel = "WhatsApp" | "Email" | "Both";
+export type Channel = "Discord" | "Telegram" | "WhatsApp";
 export type RuleStatus = "active" | "paused" | "draft";
 export type TriggerType =
   | "Inactivity"

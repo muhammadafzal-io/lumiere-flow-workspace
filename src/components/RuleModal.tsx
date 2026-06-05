@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,7 +17,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Sparkles, Loader2, Wand2 } from "lucide-react";
 import { parseNaturalLanguage, generateCopy } from "@/lib/ai-parse";
 import type { Rule, TriggerType, Channel, Treatment } from "@/lib/types";
-import { useStore } from "@/lib/store";
 import { toast } from "sonner";
 
 const TRIGGER_TYPES: TriggerType[] = [
@@ -50,7 +49,6 @@ interface Props {
 }
 
 export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
-  const customers = useStore((s) => s.customers);
   const [nl, setNl] = useState("");
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState(false);
@@ -58,10 +56,39 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
   const [name, setName] = useState("");
   const [triggerType, setTriggerType] = useState<TriggerType>("Inactivity");
   const [cfg, setCfg] = useState<Record<string, any>>({ days: 90 });
-  const [channel, setChannel] = useState<Channel>("WhatsApp");
+  const [channel, setChannel] = useState<Channel>("Discord");
   const [message, setMessage] = useState("");
   const [offer, setOffer] = useState("");
-  const [audienceTags, setAudienceTags] = useState<string[]>([]);
+
+  // Real customers from Supabase
+  const [customers, setCustomers] = useState<
+    { id: string; name: string; last_visit: string; treatments: Treatment[] }[]
+  >([]);
+  useEffect(() => {
+    fetch("/api/customers?limit=500")
+      .then((r) => r.json())
+      .then((d) => setCustomers(d.customers ?? []))
+      .catch(() => {});
+  }, []);
+
+  // Textarea ref for inserting template tags at cursor
+  const msgRef = useRef<HTMLTextAreaElement>(null);
+
+  const insertTag = (tag: string) => {
+    const el = msgRef.current;
+    if (!el) {
+      setMessage((m) => m + tag);
+      return;
+    }
+    const start = el.selectionStart ?? message.length;
+    const end = el.selectionEnd ?? message.length;
+    const next = message.slice(0, start) + tag + message.slice(end);
+    setMessage(next);
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + tag.length, start + tag.length);
+    }, 0);
+  };
 
   useEffect(() => {
     if (open) {
@@ -72,7 +99,6 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
         setChannel(editing.channel);
         setMessage(editing.message_template);
         setOffer(editing.offer_code || "");
-        setAudienceTags(editing.audience_filter);
         setParsed(true);
       } else {
         setNl("");
@@ -80,10 +106,9 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
         setName("");
         setTriggerType("Inactivity");
         setCfg({ days: 90 });
-        setChannel("WhatsApp");
+        setChannel("Discord");
         setMessage("");
         setOffer("");
-        setAudienceTags([]);
       }
     }
   }, [open, editing]);
@@ -272,7 +297,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
               onValueChange={(v) => setChannel(v as Channel)}
               className="flex gap-4 mt-2"
             >
-              {(["WhatsApp", "Email", "Both"] as Channel[]).map((c) => (
+              {(["Discord", "Telegram", "WhatsApp"] as Channel[]).map((c) => (
                 <label key={c} className="flex items-center gap-2 text-sm cursor-pointer">
                   <RadioGroupItem value={c} /> {c}
                 </label>
@@ -283,19 +308,27 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
           <div>
             <Label>Message preview</Label>
             <Textarea
+              ref={msgRef}
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               className="mt-1.5 min-h-[100px]"
+              placeholder="Write your message or let AI generate it above…"
             />
             <div className="flex flex-wrap gap-1.5 mt-2">
               {["{first_name}", "{last_treatment}", "{credit_code}"].map((tag) => (
-                <span
+                <button
                   key={tag}
-                  className="text-[11px] px-2 py-0.5 rounded-md bg-accent text-accent-foreground font-mono"
+                  type="button"
+                  onClick={() => insertTag(tag)}
+                  title="Click to insert at cursor"
+                  className="text-[11px] px-2 py-0.5 rounded-md bg-accent text-accent-foreground font-mono hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
                 >
                   {tag}
-                </span>
+                </button>
               ))}
+              <span className="text-[11px] text-muted-foreground self-center ml-1">
+                click to insert
+              </span>
             </div>
           </div>
 
@@ -318,11 +351,13 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
               {audience.length} customers
             </div>
             <div className="mt-3 space-y-1.5">
-              {audience.slice(0, 3).map((c) => (
+              {audience.slice(0, 3).map((c: { id: string; name: string; last_visit: string }) => (
                 <div key={c.id} className="flex items-center justify-between text-xs">
                   <span className="font-medium">{c.name}</span>
                   <span className="text-muted-foreground">
-                    Last visit {new Date(c.last_visit).toLocaleDateString()}
+                    {c.last_visit
+                      ? `Last visit ${new Date(c.last_visit).toLocaleDateString()}`
+                      : "No visits recorded"}
                   </span>
                 </div>
               ))}

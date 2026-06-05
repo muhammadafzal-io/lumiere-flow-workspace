@@ -1,4 +1,4 @@
-import type { Rule, TriggerType, Channel } from "./types";
+import type { TriggerType, Channel } from "./types";
 
 export interface ParsedRule {
   name: string;
@@ -15,7 +15,7 @@ export function parseNaturalLanguage(input: string): ParsedRule {
   let trigger_config: Record<string, any> = {};
   let name = "New rule";
   let offer_code: string | undefined;
-  let channel: Channel = "WhatsApp";
+  let channel: Channel = "Discord";
 
   // Discount detection
   const pctMatch = text.match(/(\d{1,2})\s*%/);
@@ -66,8 +66,8 @@ export function parseNaturalLanguage(input: string): ParsedRule {
     name = "Date-based campaign";
   }
 
-  if (/email/.test(text) && !/whatsapp/.test(text)) channel = "Email";
-  if (/both|email and whatsapp|whatsapp and email/.test(text)) channel = "Both";
+  if (/telegram/.test(text)) channel = "Telegram";
+  if (/whatsapp/.test(text)) channel = "WhatsApp";
 
   const message_template = generateCopy(trigger_type, trigger_config, offer_code);
   return { name, trigger_type, trigger_config, channel, message_template, offer_code };
