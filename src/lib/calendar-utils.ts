@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import type { Appointment, Practitioner } from "./types";
 
 export const BUSSINESS_TZ = "America/Chicago";

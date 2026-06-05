@@ -50,9 +50,7 @@ export interface AvailabilityResult {
  * Check availability with room and practitioner awareness
  * Returns all available room+practitioner combinations for a given date
  */
-export async function checkAvailability(
-  request: AvailabilityRequest,
-): Promise<AvailabilityResult> {
+export async function checkAvailability(request: AvailabilityRequest): Promise<AvailabilityResult> {
   const { date, durationMinutes = 60, practitionerName, room } = request;
 
   // Get all available slots, optionally filtered by practitioner/room
@@ -204,7 +202,8 @@ export async function suggestSlot(request: {
 
   // If preferred practitioner is available in this slot, suggest them
   const practitioner =
-    request.preferredPractitioner && slot.availablePractitioners?.includes(request.preferredPractitioner)
+    request.preferredPractitioner &&
+    slot.availablePractitioners?.includes(request.preferredPractitioner)
       ? request.preferredPractitioner
       : (slot.availablePractitioners?.[0] ?? "Available Practitioner");
 
