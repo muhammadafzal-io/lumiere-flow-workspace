@@ -20,11 +20,13 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           preferred_practitioner: {
             type: "string",
-            description: "If the client prefers a specific practitioner, pass their full name here to filter availability",
+            description:
+              "If the client prefers a specific practitioner, pass their full name here to filter availability",
           },
           preferred_room: {
             type: "string",
-            description: "If the client prefers a specific room, pass it here (e.g. 'Room 1', 'VIP Suite')",
+            description:
+              "If the client prefers a specific room, pass it here (e.g. 'Room 1', 'VIP Suite')",
           },
         },
         required: ["date"],
@@ -48,11 +50,13 @@ export const TOOLS: ChatCompletionTool[] = [
           client_contact: { type: "string", description: "Client phone number or Telegram ID" },
           practitioner_name: {
             type: "string",
-            description: "Name of the practitioner (from check_availability results). If omitted, system picks first available.",
+            description:
+              "Name of the practitioner (from check_availability results). If omitted, system picks first available.",
           },
           room: {
             type: "string",
-            description: "Room name (from check_availability results, e.g. 'Room 1'). If omitted, system picks first available.",
+            description:
+              "Room name (from check_availability results, e.g. 'Room 1'). If omitted, system picks first available.",
           },
           notes: {
             type: "string",

@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useState,
-  useEffect,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import type { UserRole } from "./permissions";
 
 type AuthContextType = {
@@ -30,11 +24,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.setItem("lumiere.userRole", userRole);
   }, [userRole]);
 
-  return (
-    <AuthContext.Provider value={{ userRole, setUserRole }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  return <AuthContext.Provider value={{ userRole, setUserRole }}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
@@ -44,4 +34,3 @@ export function useAuth() {
   }
   return context;
 }
-
