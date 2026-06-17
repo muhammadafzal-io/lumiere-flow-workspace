@@ -96,6 +96,10 @@ export default function RulesPage() {
       const exists = prev.some((r) => r.id === rule.id);
       return exists ? prev.map((r) => (r.id === rule.id ? rule : r)) : [rule, ...prev];
     });
+    // Switch to the tab where the saved rule lives so the user can see it
+    if (rule.status === "active" || rule.status === "paused" || rule.status === "draft") {
+      setTab(rule.status);
+    }
   };
 
   const counts = {

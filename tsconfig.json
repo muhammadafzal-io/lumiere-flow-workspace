@@ -37,5 +37,5 @@
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "src/lib/__tests__"]
 }

@@ -73,6 +73,10 @@ export interface OutboundMessage {
   text: string;
   buttons?: InlineButton[];
   parseMode?: "HTML" | "MarkdownV2";
+  /** Client email address — triggers a parallel email send via Resend */
+  email?: string;
+  /** Email subject line (falls back to a sensible default per flow) */
+  subject?: string;
 }
 
 export type ConversationMessages = ChatCompletionMessageParam[];

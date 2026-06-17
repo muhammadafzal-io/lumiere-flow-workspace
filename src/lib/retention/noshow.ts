@@ -61,6 +61,9 @@ export async function runNoshowFlow(): Promise<RetentionResult> {
         to: contactId,
         text,
         buttons: [{ text: "Rebook Now", callbackData: "rebook:noshow" }],
+        email: client.email,
+        subject: `We missed you today, ${client.name} — let's reschedule`,
+        flowType: "noshow",
       });
 
       console.log(

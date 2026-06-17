@@ -64,11 +64,14 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
   const [customers, setCustomers] = useState<
     { id: string; name: string; last_visit: string; treatments: Treatment[] }[]
   >([]);
+  const [loadingCustomers, setLoadingCustomers] = useState(true);
   useEffect(() => {
+    setLoadingCustomers(true);
     fetch("/api/customers?limit=500")
       .then((r) => r.json())
       .then((d) => setCustomers(d.customers ?? []))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setLoadingCustomers(false));
   }, []);
 
   // Textarea ref for inserting template tags at cursor
@@ -347,26 +350,38 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
 
           <div className="rounded-lg border bg-secondary/40 p-4">
             <div className="text-sm font-medium">Audience preview</div>
-            <div className="text-2xl font-semibold mt-1 tracking-tight">
-              {audience.length} customers
-            </div>
-            <div className="mt-3 space-y-1.5">
-              {audience.slice(0, 3).map((c: { id: string; name: string; last_visit: string }) => (
-                <div key={c.id} className="flex items-center justify-between text-xs">
-                  <span className="font-medium">{c.name}</span>
-                  <span className="text-muted-foreground">
-                    {c.last_visit
-                      ? `Last visit ${new Date(c.last_visit).toLocaleDateString()}`
-                      : "No visits recorded"}
-                  </span>
+            {loadingCustomers ? (
+              <div className="mt-2 space-y-2 animate-pulse">
+                <div className="h-7 bg-muted rounded w-1/4" />
+                <div className="h-3 bg-muted rounded w-1/2 mt-3" />
+                <div className="h-3 bg-muted rounded w-2/5" />
+              </div>
+            ) : (
+              <>
+                <div className="text-2xl font-semibold mt-1 tracking-tight">
+                  {audience.length} customers
                 </div>
-              ))}
-              {audience.length === 0 && (
-                <div className="text-xs text-muted-foreground">
-                  No customers match yet — adjust the trigger.
+                <div className="mt-3 space-y-1.5">
+                  {audience
+                    .slice(0, 3)
+                    .map((c: { id: string; name: string; last_visit: string }) => (
+                      <div key={c.id} className="flex items-center justify-between text-xs">
+                        <span className="font-medium">{c.name}</span>
+                        <span className="text-muted-foreground">
+                          {c.last_visit
+                            ? `Last visit ${new Date(c.last_visit).toLocaleDateString()}`
+                            : "No visits recorded"}
+                        </span>
+                      </div>
+                    ))}
+                  {audience.length === 0 && (
+                    <div className="text-xs text-muted-foreground">
+                      No customers match — adjust the trigger settings.
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </div>
 

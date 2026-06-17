@@ -68,7 +68,13 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
       const creditCode = generateCreditCode(client.name);
       const message = buildBirthdayMessage(client.name, creditCode);
 
-      const { platform, simulated } = await trySend(messaging, { to: contactId, text: message });
+      const { platform, simulated } = await trySend(messaging, {
+        to: contactId,
+        text: message,
+        email: client.email,
+        subject: `Happy Birthday from the Lumière team — your $${CREDIT_AMOUNT} gift is inside`,
+        flowType: "birthday",
+      });
 
       console.log(
         `[birthday] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | contact: ${contactId} | code: ${creditCode}`,

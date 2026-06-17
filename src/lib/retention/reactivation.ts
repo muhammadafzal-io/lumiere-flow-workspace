@@ -102,7 +102,18 @@ export async function runReactivationFlow(): Promise<RetentionResult> {
     try {
       const message = await generatePersonalisedMessage(client, step);
 
-      const { platform, simulated } = await trySend(messaging, { to: contactId, text: message });
+      const { platform, simulated } = await trySend(messaging, {
+        to: contactId,
+        text: message,
+        email: client.email,
+        subject:
+          step === 1
+            ? `We'd love to see you again, ${client.name}`
+            : step === 2
+              ? `Still thinking about us? Your offer is waiting, ${client.name}`
+              : `One last thing before we go, ${client.name}`,
+        flowType: "reactivation",
+      });
 
       console.log(
         `[reactivation] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | step: ${step}/3 | platform: ${platform} | contact: ${contactId}`,

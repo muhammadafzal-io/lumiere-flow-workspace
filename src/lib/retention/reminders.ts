@@ -37,12 +37,26 @@ function buildReminderText(
   });
 
   const intro = {
-    "T-72h": `Hi ${clientName}, just a friendly reminder that you have an upcoming appointment at Lumiere.`,
-    "T-24h": `Hi ${clientName}, your Lumiere appointment is tomorrow. We're looking forward to seeing you!`,
-    "T-2h": `Hi ${clientName}, your appointment at Lumiere is in about 2 hours.`,
+    "T-72h": `Hi ${clientName}, just a friendly reminder that you have an upcoming appointment at Lumière.`,
+    "T-24h": `Hi ${clientName}, your Lumière appointment is tomorrow. We're looking forward to seeing you!`,
+    "T-2h": `Hi ${clientName}, your appointment at Lumière is in about 2 hours.`,
   }[window];
 
   return `${intro}\n\nTreatment: ${treatment}\nTime: ${displayTime}\nLocation: 2847 S Lamar Blvd, Suite 120, Austin TX\n\nPlease confirm your attendance:`;
+}
+
+function buildReminderSubject(treatment: string, startTime: string, window: string): string {
+  const displayDate = new Date(startTime).toLocaleString("en-US", {
+    timeZone: "America/Chicago",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  const label = window === "T-2h" ? "in 2 hours" : window === "T-24h" ? "tomorrow" : "in 3 days";
+  return `Your ${treatment} appointment ${label} — ${displayDate}`;
 }
 
 export async function runReminderFlow(): Promise<RetentionResult> {
@@ -113,6 +127,9 @@ export async function runReminderFlow(): Promise<RetentionResult> {
           { text: "Reschedule", callbackData: `reschedule:${appt.id}` },
           { text: "Cancel", callbackData: `cancel:${appt.id}` },
         ],
+        email: client?.email,
+        subject: buildReminderSubject(appt.treatment, appt.startTime, window),
+        flowType: "reminder",
       });
 
       console.log(
@@ -140,7 +157,7 @@ export async function runReminderFlow(): Promise<RetentionResult> {
         messagePreview: `${window} reminder for ${appt.treatment}${simulated ? " (simulated)" : ""}`,
       });
 
-      if (window === "T-2h" && appt.confirmed === "pending") {
+      if (window === "T-2h" && !client?.lastReminderSent) {
         postEscalation({
           reason: `No confirmation received — appointment in ~2 hours`,
           clientInfo: `${appt.clientName} (${appt.clientContact})`,
