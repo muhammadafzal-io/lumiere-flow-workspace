@@ -1,4 +1,6 @@
 import { Resend } from "resend";
+import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -154,21 +156,63 @@ function buildEmailHtml(opts: SendEmailOptions): string {
 </html>`;
 }
 
+// ─── Gmail SMTP transport ────────────────────────────────────────────────────
+
+function getGmailTransport() {
+  const user = process.env.GMAIL_USER;
+  const pass = process.env.GMAIL_APP_PASSWORD;
+  if (!user || !pass) return null;
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: { user, pass },
+  });
+}
+
 // ─── public API ──────────────────────────────────────────────────────────────
 
 /**
- * Send a branded retention email via Resend.
- * Returns silently if RESEND_API_KEY is not configured (non-fatal degradation).
+ * Send a branded retention email.
+ *
+ * Priority order:
+ *   1. SendGrid  — SENDGRID_API_KEY + SENDGRID_FROM_EMAIL set → sends to anyone, no domain DNS needed
+ *   2. Gmail     — GMAIL_USER + GMAIL_APP_PASSWORD set        → sends to anyone, no domain needed
+ *   3. Resend    — RESEND_API_KEY set                         → requires verified domain for arbitrary recipients
  */
 export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> {
+  const html = buildEmailHtml(opts);
+
+  // ── 1. SendGrid (single sender verification — no domain DNS needed) ──────
+  const sgKey = process.env.SENDGRID_API_KEY;
+  const sgFrom = process.env.SENDGRID_FROM_EMAIL;
+  if (sgKey && sgFrom) {
+    sgMail.setApiKey(sgKey);
+    await sgMail.send({
+      from: { email: sgFrom, name: process.env.SENDGRID_FROM_NAME ?? "Lumiere Med Spa" },
+      to: opts.to,
+      subject: opts.subject,
+      html,
+      text: opts.text,
+    });
+    console.log(`[email] SENT via SendGrid → ${opts.to} | subject: ${opts.subject}`);
+    return;
+  }
+
+  // ── 2. Gmail SMTP (app password — no domain needed) ──────────────────────
+  const gmail = getGmailTransport();
+  if (gmail) {
+    const from = `"${process.env.GMAIL_FROM_NAME ?? "Lumiere Med Spa"}" <${process.env.GMAIL_USER}>`;
+    await gmail.sendMail({ from, to: opts.to, subject: opts.subject, html, text: opts.text });
+    console.log(`[email] SENT via Gmail → ${opts.to} | subject: ${opts.subject}`);
+    return;
+  }
+
+  // ── 3. Resend (requires verified domain for arbitrary recipients) ─────────
   if (!process.env.RESEND_API_KEY) {
-    console.log(`[email] SKIP (no RESEND_API_KEY) → ${opts.to} | subject: ${opts.subject}`);
+    console.log(`[email] SKIP (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY) → ${opts.to}`);
     return;
   }
 
   const resend = getResend();
-  const html = buildEmailHtml(opts);
-
   const { error } = await resend.emails.send({
     from: getFromAddress(),
     to: opts.to,
@@ -177,7 +221,5 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
     text: opts.text,
   });
 
-  if (error) {
-    throw new Error(`Resend error: ${error.message}`);
-  }
+  if (error) throw new Error(`Resend error: ${error.message}`);
 }
