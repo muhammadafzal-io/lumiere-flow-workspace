@@ -81,15 +81,24 @@ export async function runReminderFlow(): Promise<RetentionResult> {
     const window = reminderWindow(hours);
 
     if (!window) {
+      const displayTime = new Date(appt.startTime).toLocaleString("en-US", {
+        timeZone: "America/Chicago",
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
       console.log(
-        `[reminder] SKIP → ${appt.clientName} | reason: ${Math.round(hours)}h away — outside all reminder windows`,
+        `[reminder] SKIP → ${appt.clientName} | ${displayTime} | ${Math.round(hours)}h away — outside all reminder windows`,
       );
       result.skipped++;
       result.details.push({
         clientId: appt.id ?? "",
         clientName: appt.clientName,
         status: "skipped",
-        reason: `${Math.round(hours)}h away — outside all reminder windows (71-73h, 23-25h, 1.5-2.5h)`,
+        reason: `${Math.round(hours)}h away (appt: ${displayTime}) — outside reminder windows T-72h/T-24h/T-2h`,
       });
       continue;
     }
@@ -157,7 +166,7 @@ export async function runReminderFlow(): Promise<RetentionResult> {
         status: "sent",
         contact: deliverTo,
         platform,
-        messagePreview: `${window} reminder for ${appt.treatment}${simulated ? " (simulated)" : ""}`,
+        messagePreview: `${window} reminder for ${appt.treatment} on ${new Date(appt.startTime).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}${simulated ? " (simulated)" : ""}`,
         emailAddress: client?.email ?? null,
         emailSent,
         discordMirrored,
