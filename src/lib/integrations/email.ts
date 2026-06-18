@@ -4,7 +4,15 @@ import sgMail from "@sendgrid/mail";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
-export type EmailFlowType = "reminder" | "noshow" | "reactivation" | "birthday" | "general";
+export type EmailFlowType =
+  | "reminder"
+  | "noshow"
+  | "reactivation"
+  | "birthday"
+  | "booking"
+  | "cancellation"
+  | "reschedule"
+  | "general";
 
 export interface SendEmailOptions {
   to: string;
@@ -43,6 +51,9 @@ const FLOW_ACCENT: Record<EmailFlowType, string> = {
   noshow: "#E8956D",
   reactivation: "#7B68B5",
   birthday: "#D4A0B0",
+  booking: "#4CAF82",
+  cancellation: "#C0392B",
+  reschedule: "#E67E22",
   general: BRAND.gold,
 };
 
@@ -51,6 +62,9 @@ const FLOW_ICON: Record<EmailFlowType, string> = {
   noshow: "💛",
   reactivation: "✨",
   birthday: "🎂",
+  booking: "✅",
+  cancellation: "❌",
+  reschedule: "🔄",
   general: "💌",
 };
 

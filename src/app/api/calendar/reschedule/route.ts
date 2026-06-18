@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import { lookupClient } from "@/lib/integrations/airtable";
+import { sendRetentionEmail } from "@/lib/integrations/email";
+import { logEvent } from "@/lib/integrations/activity-log";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -21,6 +24,12 @@ function getCalendarClient() {
 
 function calendarId() {
   return process.env.GOOGLE_CALENDAR_ID ?? "primary";
+}
+
+/** Extract a field value from the GCal event description */
+function parseField(description: string, field: string): string {
+  const line = description.split("\n").find((l) => l.startsWith(`${field}:`));
+  return line?.slice(field.length + 1).trim() ?? "";
 }
 
 export async function PATCH(req: NextRequest) {
@@ -54,7 +63,6 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  // Validate business hours and day
   const newStartDate = new Date(newStartTime);
   const dayOfWeek = newStartDate.getDay();
   const hours = newStartDate.getHours();
@@ -79,15 +87,10 @@ export async function PATCH(req: NextRequest) {
 
     console.log(`[/api/calendar/reschedule] Rescheduling event ${eventId}`);
 
-    // Get the event first
-    const getRes = await calendar.events.get({
-      calendarId: calId,
-      eventId,
-    });
-
+    const getRes = await calendar.events.get({ calendarId: calId, eventId });
     const event = getRes.data;
+    const oldStartTime = event.start?.dateTime;
 
-    // Update the event with new times
     const timezone = "America/Chicago";
     const updatedEvent = await calendar.events.update({
       calendarId: calId,
@@ -101,6 +104,75 @@ export async function PATCH(req: NextRequest) {
 
     console.log(`[/api/calendar/reschedule] Successfully rescheduled event ${eventId}`);
 
+    // Fire-and-forget: send reschedule confirmation email
+    (async () => {
+      try {
+        const description = event.description ?? "";
+        const contact = parseField(description, "Contact");
+        const clientName =
+          parseField(description, "Client") || event.summary?.split(" — ")[1] || "Valued Client";
+        const treatment =
+          parseField(description, "Treatment") ||
+          event.summary?.split(" — ")[0] ||
+          "your appointment";
+
+        if (!contact) return;
+        const client = await lookupClient({ phone: contact }).catch(() => null);
+        const email = client?.email;
+        if (!email) return;
+
+        const fmtTime = (iso: string) =>
+          new Date(iso).toLocaleString("en-US", {
+            timeZone: "America/Chicago",
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+
+        await sendRetentionEmail({
+          to: email,
+          subject: `Your ${treatment} appointment has been rescheduled`,
+          flowType: "reschedule",
+          text: [
+            `Hi ${clientName}, your Lumière appointment has been rescheduled.`,
+            ``,
+            `Treatment: ${treatment}`,
+            oldStartTime ? `Old Date: ${fmtTime(oldStartTime)} CT` : "",
+            `New Date: ${fmtTime(newStartTime)} CT`,
+            `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
+            ``,
+            `Need to make further changes? Reply to this email or contact us Monday–Saturday, 9 AM–7 PM.`,
+            ``,
+            `See you soon!`,
+            `— The Lumière Team`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          cta: {
+            label: "View Location",
+            url: "https://maps.google.com/?q=2847+S+Lamar+Blvd+Suite+120+Austin+TX",
+          },
+        });
+
+        await logEvent(
+          "reschedule",
+          clientName,
+          `Reschedule email sent to ${email} for ${treatment}`,
+          {
+            phone: contact,
+            email,
+          },
+        );
+
+        console.log(`[reschedule] reschedule email sent → ${email}`);
+      } catch (err) {
+        console.error(`[reschedule] reschedule email failed:`, err);
+      }
+    })();
+
     return NextResponse.json({
       ok: true,
       eventId,
@@ -111,12 +183,11 @@ export async function PATCH(req: NextRequest) {
   } catch (err) {
     console.error("[/api/calendar/reschedule] Error:", err);
 
-    const error = err as any;
+    const error = err as { code?: number; status?: number; message?: string };
     let statusCode = 500;
     let message = "Failed to reschedule appointment";
     let code = "RESCHEDULE_ERROR";
 
-    // Handle Google Calendar API errors
     if (error?.code === 404 || error?.status === 404) {
       statusCode = 404;
       message = "Appointment not found (may have been deleted)";
