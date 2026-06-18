@@ -70,10 +70,15 @@ export async function DELETE(req: NextRequest) {
           event.summary?.split(" — ")[0] ||
           "your appointment";
         const startTime = event.start?.dateTime;
+        // Email may be in a dedicated "Email:" line or buried anywhere in description
+        const emailInDesc =
+          parseField(description, "Email") ||
+          description.match(/Email:\s*([^\s\n]+@[^\s\n]+)/i)?.[1];
 
-        if (!contact) return;
-        const client = await lookupClient({ phone: contact }).catch(() => null);
-        const email = client?.email;
+        const client = contact
+          ? await lookupClient({ phone: contact }).catch(() => null)
+          : null;
+        const email = client?.email || emailInDesc;
         if (!email) return;
 
         const displayTime = startTime

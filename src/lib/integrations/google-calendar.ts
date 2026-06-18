@@ -62,12 +62,13 @@ function calendarId() {
   return process.env.GOOGLE_CALENDAR_ID ?? "primary";
 }
 
-// Parses Room, Practitioner, Contact, Notes from a GCal event description.
+// Parses Room, Practitioner, Contact, Email, Notes from a GCal event description.
 // Returns null for room/practitioner if not present (legacy events without these fields).
 function parseDesc(description: string): {
   room: string | null;
   practitioner: string | null;
   contact: string;
+  email: string;
   notes: string;
 } {
   const lines = description.split("\n");
@@ -76,11 +77,15 @@ function parseDesc(description: string): {
       .find((l) => l.startsWith(prefix))
       ?.slice(prefix.length)
       .trim() ?? "";
+  // Also check for "Email: ..." pattern inside the Notes field as fallback
+  const rawNotes = find("Notes:");
+  const emailInNotes = rawNotes.match(/Email:\s*([^\s]+@[^\s]+)/i)?.[1] ?? "";
   return {
     room: find("Room:") || null,
     practitioner: find("Practitioner:") || null,
     contact: find("Contact:"),
-    notes: find("Notes:"),
+    email: find("Email:") || emailInNotes,
+    notes: rawNotes,
   };
 }
 
@@ -190,6 +195,7 @@ export async function bookAdminAppointment(booking: {
   endTime: string;
   clientName: string;
   clientContact?: string;
+  clientEmail?: string;
   treatment: string;
   room: string;
   practitionerName: string;
@@ -255,6 +261,7 @@ export async function bookAdminAppointment(booking: {
         `Treatment: ${booking.treatment}`,
         `Client: ${booking.clientName}`,
         `Contact: ${booking.clientContact ?? ""}`,
+        booking.clientEmail ? `Email: ${booking.clientEmail}` : "",
         `Room: ${booking.room}`,
         `Practitioner: ${booking.practitionerName}`,
         booking.notes ? `Notes: ${booking.notes}` : "",
@@ -288,6 +295,7 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
         `Treatment: ${appt.treatment}`,
         `Client: ${appt.clientName}`,
         `Contact: ${appt.clientContact}`,
+        appt.clientEmail ? `Email: ${appt.clientEmail}` : "",
         appt.notes ? `Notes: ${appt.notes}` : "",
       ]
         .filter(Boolean)

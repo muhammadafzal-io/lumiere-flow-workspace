@@ -79,6 +79,7 @@ async function executeTool(
       const apptData = {
         clientName: input.client_name as string,
         clientContact: input.client_contact as string,
+        clientEmail: (input.client_email as string | undefined) || undefined,
         treatment: input.treatment as string,
         startTime,
         endTime,

@@ -13,6 +13,7 @@ import type { AvailableSlot } from "@/types";
 export interface BookingRequest {
   clientName: string;
   clientContact: string;
+  clientEmail?: string;
   treatment: string;
   startTime: string;
   endTime: string;
@@ -152,6 +153,7 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     endTime: request.endTime,
     clientName: request.clientName,
     clientContact: request.clientContact,
+    clientEmail: request.clientEmail,
     treatment: request.treatment,
     room: request.room,
     practitionerName: request.practitionerName,

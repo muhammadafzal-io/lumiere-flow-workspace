@@ -26,6 +26,7 @@ export interface Appointment {
   startTime: string;
   endTime: string;
   clientContact: string;
+  clientEmail?: string;
   notes?: string;
   confirmed?: "yes" | "reschedule" | "cancel" | "pending";
 }

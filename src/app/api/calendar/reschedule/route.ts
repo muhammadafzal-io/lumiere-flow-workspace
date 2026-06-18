@@ -116,9 +116,14 @@ export async function PATCH(req: NextRequest) {
           event.summary?.split(" — ")[0] ||
           "your appointment";
 
-        if (!contact) return;
-        const client = await lookupClient({ phone: contact }).catch(() => null);
-        const email = client?.email;
+        // Email may be in a dedicated "Email:" line or buried anywhere in description
+        const emailInDesc =
+          parseField(description, "Email") ||
+          description.match(/Email:\s*([^\s\n]+@[^\s\n]+)/i)?.[1];
+        const client = contact
+          ? await lookupClient({ phone: contact }).catch(() => null)
+          : null;
+        const email = client?.email || emailInDesc;
         if (!email) return;
 
         const fmtTime = (iso: string) =>
