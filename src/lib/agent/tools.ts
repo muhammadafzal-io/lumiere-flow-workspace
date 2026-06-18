@@ -48,6 +48,11 @@ export const TOOLS: ChatCompletionTool[] = [
           date_time: { type: "string", description: "Appointment start time in ISO 8601 format" },
           duration_minutes: { type: "number", description: "Duration in minutes" },
           client_contact: { type: "string", description: "Client phone number or Telegram ID" },
+          client_email: {
+            type: "string",
+            description:
+              "Client email address — always include if the client provided it. Used to send booking confirmation email.",
+          },
           practitioner_name: {
             type: "string",
             description:

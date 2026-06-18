@@ -89,6 +89,17 @@ async function executeTool(
 
       const appt = await bookAppointment(apptData);
 
+      // Upsert client so email is saved before we look them up
+      if (input.client_email || apptData.clientContact) {
+        await upsertClient({
+          name: apptData.clientName,
+          phone: apptData.clientContact || undefined,
+          email: (input.client_email as string | undefined) || undefined,
+        }).catch(() => {
+          /* non-fatal */
+        });
+      }
+
       // Look up Airtable client ID by phone so we can link the appointment record
       const clientRecord = await lookupClient({ phone: apptData.clientContact }).catch(() => null);
       await createAppointmentRecord(
@@ -106,7 +117,7 @@ async function executeTool(
       });
 
       // Fire-and-forget: send booking confirmation email via widget
-      const clientEmail = clientRecord?.email ?? (input.email as string | undefined);
+      const clientEmail = (input.client_email as string | undefined) || clientRecord?.email;
       if (clientEmail) {
         const displayTime = new Date(apptData.startTime).toLocaleString("en-US", {
           timeZone: "America/Chicago",
