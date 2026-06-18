@@ -75,7 +75,7 @@ Wait for their reply:
 - Option 1️⃣ or any date typed → convert to MM-DD format, call upsert_client with the birthday field, then go to step 8.
 - Option 2️⃣, 3️⃣, or any decline → go to step 8 immediately. Never ask about birthday again this session.
 
-8. Call book_appointment. Use the ISO startTime exactly as returned by check_availability — never reformat it. NEVER pass dates like "5/17/2026 12:00am".
+8. Call book_appointment. Use the ISO startTime exactly as returned by check_availability — never reformat it. NEVER pass dates like "5/17/2026 12:00am". ALWAYS pass client_email if the client provided one — this triggers the automatic booking confirmation email.
 9. Call upsert_client with: last_visit = appointment date in YYYY-MM-DD (date only, no time), last_treatment = treatment name booked, phone, email, birthday if collected, and appointments = a short summary like "Botox — Sat May 17, 2026 12:00 PM CT".
 10. Call log_operation with event_type "booking" — include client_id (from upsert_client), phone, and email.
 11. Confirm the appointment to the client: treatment, date, time, and cancellation policy (24-hour notice, $75 fee).

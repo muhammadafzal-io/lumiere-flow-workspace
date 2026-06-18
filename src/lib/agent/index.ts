@@ -118,6 +118,11 @@ async function executeTool(
 
       // Fire-and-forget: send booking confirmation email via widget
       const clientEmail = (input.client_email as string | undefined) || clientRecord?.email;
+
+      console.log(
+        `[agent/book] email → input: ${input.client_email ?? "none"} | supabase: ${clientRecord?.email ?? "none"} → will send to: ${clientEmail ?? "NONE"}`,
+      );
+
       if (clientEmail) {
         const displayTime = new Date(apptData.startTime).toLocaleString("en-US", {
           timeZone: "America/Chicago",
