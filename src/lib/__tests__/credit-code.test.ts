@@ -17,8 +17,7 @@ describe("parseCreditCode", () => {
 
   describe("valid code with future expiry", () => {
     it("isValid and not expired when expiry is in the future", () => {
-      const future = new Date(Date.now() + 15 * 24 * 60 * 60_000)
-        .toLocaleDateString("en-CA");
+      const future = new Date(Date.now() + 15 * 24 * 60 * 60_000).toLocaleDateString("en-CA");
       const raw = `BDAY-MA-X7K2|${future}`;
       const result = parseCreditCode(raw);
       expect(result.code).toBe("BDAY-MA-X7K2");
@@ -29,8 +28,7 @@ describe("parseCreditCode", () => {
     });
 
     it("calculates daysRemaining approximately", () => {
-      const future = new Date(Date.now() + 10 * 24 * 60 * 60_000)
-        .toLocaleDateString("en-CA");
+      const future = new Date(Date.now() + 10 * 24 * 60 * 60_000).toLocaleDateString("en-CA");
       const result = parseCreditCode(`BDAY-SH-ABCD|${future}`);
       expect(result.daysRemaining).toBeGreaterThanOrEqual(9);
       expect(result.daysRemaining).toBeLessThanOrEqual(11);
@@ -56,8 +54,7 @@ describe("parseCreditCode", () => {
     });
 
     it("handles USED: prefix with expiry", () => {
-      const future = new Date(Date.now() + 20 * 24 * 60 * 60_000)
-        .toLocaleDateString("en-CA");
+      const future = new Date(Date.now() + 20 * 24 * 60 * 60_000).toLocaleDateString("en-CA");
       const result = parseCreditCode(`USED:BDAY-MA-X7K2|${future}`);
       expect(result.isUsed).toBe(true);
       expect(result.isValid).toBe(false);

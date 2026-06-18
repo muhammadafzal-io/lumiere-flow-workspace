@@ -84,6 +84,7 @@ curl http://localhost:3000/api/settings/rooms \
 ```
 
 **Expected Response:**
+
 ```json
 {
   "rooms": ["Room 1", "Room 2"]
@@ -100,6 +101,7 @@ curl -X PATCH http://localhost:3000/api/settings/rooms \
 ```
 
 **Expected Response:**
+
 ```json
 {
   "rooms": ["Room 1", "Room 2", "Treatment Pod A"],
@@ -124,7 +126,7 @@ The calendar needs to fetch rooms from the database dynamically:
 // OLD (reads from env var):
 function getDefaultRooms(): string[] {
   const roomsEnv = process.env.CLINIC_ROOMS;
-  return roomsEnv?.split(",").map(r => r.trim()) || ["Room 1", "Room 2"];
+  return roomsEnv?.split(",").map((r) => r.trim()) || ["Room 1", "Room 2"];
 }
 
 // NEW (reads from database):
@@ -156,6 +158,7 @@ export async function initializeDefaultRooms(clinicId?: string) {
 ## Step 6: Test Full Flow in UI
 
 1. **Start the dev server:**
+
    ```bash
    npm run dev
    ```
@@ -170,9 +173,11 @@ export async function initializeDefaultRooms(clinicId?: string) {
    - Should show success toast
 
 4. **Verify in database:**
+
    ```sql
    SELECT rooms FROM clinics WHERE id = 'clinic-001';
    ```
+
    Should include "Treatment Pod A"
 
 5. **Refresh the page:**
@@ -193,6 +198,7 @@ export async function initializeDefaultRooms(clinicId?: string) {
 **Cause:** `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` not set
 
 **Fix:**
+
 ```env
 # .env.local
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
@@ -210,6 +216,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_key_here
 **Cause:** API returning empty array
 
 **Fix:**
+
 1. Check `.env.local` has `DEFAULT_CLINIC_ID`
 2. Verify clinic exists in database: `SELECT * FROM clinics;`
 3. Check server logs for errors
@@ -219,6 +226,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_key_here
 **Cause:** Changes saved to in-memory array, not database
 
 **Fix:**
+
 1. Verify API PATCH worked (check for success toast)
 2. Check database directly:
    ```sql
@@ -231,8 +239,8 @@ SUPABASE_SERVICE_ROLE_KEY=your_key_here
 After migration, your clinics table should look like:
 
 ```sql
-SELECT column_name, data_type, column_default 
-FROM information_schema.columns 
+SELECT column_name, data_type, column_default
+FROM information_schema.columns
 WHERE table_name = 'clinics';
 
 -- Should include:
@@ -281,7 +289,7 @@ Currently using `DEFAULT_CLINIC_ID` from env. Later, extract clinic ID from JWT:
 async function getClinicId(req: NextRequest): Promise<string> {
   // Current (temporary):
   return req.headers.get("x-clinic-id") || process.env.DEFAULT_CLINIC_ID || "clinic-001";
-  
+
   // Future (proper JWT):
   // const token = req.headers.get("authorization")?.split(" ")[1];
   // const decoded = await verifyJWT(token);
@@ -292,11 +300,13 @@ async function getClinicId(req: NextRequest): Promise<string> {
 ## Summary
 
 ✅ **What changed:**
+
 - Added `rooms` column to `clinics` table in Supabase
 - Updated API to read/write from database
 - Rooms now persist permanently
 
 ✅ **What works:**
+
 - Add/edit/remove rooms in Settings UI
 - Changes save to database
 - Persist across server restarts
@@ -304,6 +314,7 @@ async function getClinicId(req: NextRequest): Promise<string> {
 - Booking works with new rooms
 
 ❌ **What needs work:**
+
 - Extract clinic ID from JWT (currently using header)
 - Update calendar integration to fetch from DB
 - Add room validation to booking service

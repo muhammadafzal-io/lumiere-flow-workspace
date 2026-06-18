@@ -34,6 +34,7 @@ CREATE TABLE clinics (
 ## How Data Looks
 
 **Clinics Table:**
+
 ```
 id                | name        | rooms
 ------------------+-------------+---------------------
@@ -52,7 +53,7 @@ PATCH /api/settings/rooms
 }
          ↓
 Backend Query:
-UPDATE clinics 
+UPDATE clinics
 SET rooms = ARRAY['Room 1', 'Room 2', 'Treatment Pod A']::TEXT[]
 WHERE id = 'clinic-123'
          ↓
@@ -74,7 +75,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
 );
 
 export async function GET(req: NextRequest) {
@@ -141,16 +142,16 @@ export async function PATCH(req: NextRequest) {
 
 ## Comparison: Table vs Column
 
-| Aspect | Separate Table | Column in clinics |
-|--------|---|---|
-| **Complexity** | More complex | Simple ✅ |
-| **Query** | `SELECT name FROM clinics_rooms WHERE clinic_id = ?` | `SELECT rooms FROM clinics WHERE id = ?` |
-| **Add Room** | INSERT new row | UPDATE array column |
-| **Remove Room** | DELETE row | UPDATE array (remove element) |
-| **Scalability** | Better for 1000+ rooms | Good for <100 rooms |
-| **Room Metadata** | Easy to add (capacity, description) | Complex (need JSONB) |
-| **Database Size** | More rows | Fewer rows |
-| **Performance** | Slower for many rooms | Faster for few rooms |
+| Aspect            | Separate Table                                       | Column in clinics                        |
+| ----------------- | ---------------------------------------------------- | ---------------------------------------- |
+| **Complexity**    | More complex                                         | Simple ✅                                |
+| **Query**         | `SELECT name FROM clinics_rooms WHERE clinic_id = ?` | `SELECT rooms FROM clinics WHERE id = ?` |
+| **Add Room**      | INSERT new row                                       | UPDATE array column                      |
+| **Remove Room**   | DELETE row                                           | UPDATE array (remove element)            |
+| **Scalability**   | Better for 1000+ rooms                               | Good for <100 rooms                      |
+| **Room Metadata** | Easy to add (capacity, description)                  | Complex (need JSONB)                     |
+| **Database Size** | More rows                                            | Fewer rows                               |
+| **Performance**   | Slower for many rooms                                | Faster for few rooms                     |
 
 ## Migration SQL
 
@@ -179,7 +180,7 @@ PATCH /api/settings/rooms
 }
     ↓
 Backend:
-UPDATE clinics 
+UPDATE clinics
 SET rooms = ['Room 1', 'Room 2', 'Treatment Pod A']
 WHERE id = 'clinic-123'
     ↓
@@ -203,14 +204,17 @@ SELECT rooms FROM clinics WHERE id = 'clinic-123'
 ## Files to Update
 
 ### 1. Database Schema (One-time)
+
 ```sql
 ALTER TABLE clinics ADD COLUMN rooms TEXT[];
 ```
 
 ### 2. API Endpoint
+
 `src/app/api/settings/rooms/route.ts` → See updated code above
 
 ### 3. Calendar Integration
+
 ```typescript
 // src/lib/integrations/google-calendar.ts
 async function getDefaultRooms(clinicId: string): Promise<string[]> {
@@ -223,6 +227,7 @@ async function getDefaultRooms(clinicId: string): Promise<string[]> {
 ## Example: Room Operations
 
 ### Add a Room
+
 ```typescript
 // Current rooms: ["Room 1", "Room 2"]
 // User adds: "Treatment Pod A"
@@ -238,6 +243,7 @@ const res = await fetch("/api/settings/rooms", {
 ```
 
 ### Remove a Room
+
 ```typescript
 // Current rooms: ["Room 1", "Room 2", "Treatment Pod A"]
 // User removes: "Treatment Pod A"
@@ -253,6 +259,7 @@ const res = await fetch("/api/settings/rooms", {
 ```
 
 ### Rename a Room
+
 ```typescript
 // Current: ["Room 1", "Room 2"]
 // Rename "Room 2" to "Treatment Suite"
@@ -273,10 +280,10 @@ You can always upgrade to JSONB:
 
 ```sql
 -- Later, if you need room capacity, description, etc.
-ALTER TABLE clinics 
+ALTER TABLE clinics
 DROP COLUMN rooms;
 
-ALTER TABLE clinics 
+ALTER TABLE clinics
 ADD COLUMN rooms JSONB DEFAULT '[
   {"name": "Room 1", "capacity": 1, "description": ""},
   {"name": "Room 2", "capacity": 1, "description": ""}
@@ -284,8 +291,9 @@ ADD COLUMN rooms JSONB DEFAULT '[
 ```
 
 Then query like:
+
 ```typescript
-const rooms = data?.rooms?.map(r => r.name) || [];
+const rooms = data?.rooms?.map((r) => r.name) || [];
 ```
 
 ## Summary

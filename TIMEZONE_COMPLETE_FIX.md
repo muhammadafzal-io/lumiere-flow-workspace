@@ -12,17 +12,19 @@ The 6-hour difference indicated the appointment's `start_time` was being read in
 ## Root Cause Analysis
 
 When an appointment is fetched from Google Calendar API, the `start_time` is an ISO 8601 string:
+
 - Example: `"2026-06-06T12:30:00-05:00"` (Chicago timezone)
 
 JavaScript's `Date` object correctly parses this. However:
 
 ```typescript
 // WRONG - reads in browser's local timezone
-const hours = initialNs.getHours();  // If browser ≠ Chicago TZ, wrong value
+const hours = initialNs.getHours(); // If browser ≠ Chicago TZ, wrong value
 const minutes = initialNs.getMinutes();
 ```
 
 If the user's browser is in UTC or another timezone:
+
 - Appointment: 12:30 PM Chicago time
 - Browser timezone: UTC
 - `getHours()` returns: 17 (5 PM UTC equivalent)
@@ -39,7 +41,7 @@ The utility function `chicagoParts()` was already defined but not exported. It c
 ```typescript
 export function chicagoParts(d: Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: BUSSINESS_TZ,  // "America/Chicago"
+    timeZone: BUSSINESS_TZ, // "America/Chicago"
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -59,6 +61,7 @@ export function chicagoParts(d: Date) {
 ```
 
 This function:
+
 - Takes ANY Date object (regardless of browser timezone)
 - Formats it as if it were displayed in Chicago
 - Returns the year, month, day, hour, minute in Chicago timezone
@@ -69,13 +72,21 @@ This function:
 **File:** `src/components/calendar/AppointmentDialogs.tsx` (Line 49)
 
 **From:**
+
 ```typescript
 import { BUSSINESS_TZ, fmtTimeRange, fmtTime, practitionerById } from "@/lib/calendar-utils";
 ```
 
 **To:**
+
 ```typescript
-import { BUSSINESS_TZ, fmtTimeRange, fmtTime, practitionerById, chicagoParts } from "@/lib/calendar-utils";
+import {
+  BUSSINESS_TZ,
+  fmtTimeRange,
+  fmtTime,
+  practitionerById,
+  chicagoParts,
+} from "@/lib/calendar-utils";
 ```
 
 ### Step 3: Update Date/Time Initialization ✓
@@ -83,14 +94,15 @@ import { BUSSINESS_TZ, fmtTimeRange, fmtTime, practitionerById, chicagoParts } f
 **File:** `src/components/calendar/AppointmentDialogs.tsx` (Lines 479-491)
 
 **From (WRONG):**
+
 ```typescript
 useEffect(() => {
   if (initialNs) {
     const year = initialNs.getFullYear();
     const month = String(initialNs.getMonth() + 1).padStart(2, "0");
     const day = String(initialNs.getDate()).padStart(2, "0");
-    const hours = String(initialNs.getHours()).padStart(2, "0");  // ← WRONG TIMEZONE
-    const minutes = String(initialNs.getMinutes()).padStart(2, "0");  // ← WRONG TIMEZONE
+    const hours = String(initialNs.getHours()).padStart(2, "0"); // ← WRONG TIMEZONE
+    const minutes = String(initialNs.getMinutes()).padStart(2, "0"); // ← WRONG TIMEZONE
 
     const dateStr = `${year}-${month}-${day}`;
     const timeStr = `${hours}:${minutes}`;
@@ -102,6 +114,7 @@ useEffect(() => {
 ```
 
 **To (CORRECT):**
+
 ```typescript
 useEffect(() => {
   if (initialNs) {
@@ -119,6 +132,7 @@ useEffect(() => {
 ```
 
 **Why this works:**
+
 - `chicagoParts()` uses `Intl.DateTimeFormat` with `timeZone: "America/Chicago"`
 - This forces interpretation in Chicago timezone, regardless of browser settings
 - Year, month, day, hour, minute are all correct
@@ -129,17 +143,16 @@ useEffect(() => {
 **File:** `src/components/calendar/AppointmentDialogs.tsx` (Line 4 & 495-502)
 
 **Added import:**
+
 ```typescript
 import { useState, useEffect, useMemo } from "react";
 ```
 
 **Wrapped ns creation:**
+
 ```typescript
 const ns = useMemo(
-  () =>
-    editDate && editTime
-      ? new Date(`${editDate}T${editTime}:00`)
-      : initialNs,
+  () => (editDate && editTime ? new Date(`${editDate}T${editTime}:00`) : initialNs),
   [editDate, editTime, initialNs],
 );
 ```
@@ -161,18 +174,21 @@ When user changes to 10:36 AM on Jun 8:
 ## Why This Works for All Users
 
 **Scenario 1: User in Chicago**
+
 - Browser timezone: America/Chicago
 - Appointment: 12:30 PM Chicago
 - chicagoParts(): 12:30 ✅
 - Display: 12:30 ✅
 
 **Scenario 2: User in New York**
+
 - Browser timezone: America/New_York
 - Appointment: 12:30 PM Chicago (stored as ISO with timezone)
 - chicagoParts() forces Chicago interpretation: 12:30 ✅
 - Display: 12:30 ✅
 
 **Scenario 3: User in London**
+
 - Browser timezone: Europe/London
 - Appointment: 12:30 PM Chicago
 - chicagoParts() forces Chicago interpretation: 12:30 ✅
@@ -200,17 +216,18 @@ JavaScript's `Intl.DateTimeFormat` API is the correct way to handle timezones:
 
 ```typescript
 new Intl.DateTimeFormat("en-US", {
-  timeZone: "America/Chicago",  // Force Chicago timezone
+  timeZone: "America/Chicago", // Force Chicago timezone
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
   hour: "2-digit",
   minute: "2-digit",
   hour12: false,
-}).formatToParts(dateObject)
+}).formatToParts(dateObject);
 ```
 
 This:
+
 - Takes the Date object (which is just a timestamp)
 - Interprets it as if displayed in Chicago timezone
 - Returns formatted parts with correct values
@@ -219,8 +236,8 @@ This:
 ### Why getHours() is Wrong
 
 ```javascript
-const date = new Date("2026-06-06T12:30:00-05:00");  // 12:30 PM Chicago
-console.log(date.getHours());  // Returns browser's interpretation, not Chicago's!
+const date = new Date("2026-06-06T12:30:00-05:00"); // 12:30 PM Chicago
+console.log(date.getHours()); // Returns browser's interpretation, not Chicago's!
 ```
 
 If browser is UTC, `getHours()` returns 17 (5 PM UTC).
@@ -238,12 +255,14 @@ const parts = chicagoParts(date);
 ## Business Hours Validation Still Works
 
 The business hours validation in the reschedule modal still uses:
+
 ```typescript
 const dayOfWeek = ns.getDay();
 const hours = ns.getHours();
 ```
 
 These now work correctly because:
+
 - `ns` is created from the correct date/time strings
 - The Date object is constructed properly in local timezone
 - getDay() and getHours() work on this correctly-constructed Date
@@ -265,6 +284,7 @@ To verify the fix:
 ## Summary
 
 The fix ensures that the reschedule modal always displays and handles appointment times correctly, regardless of:
+
 - User's browser timezone
 - Server timezone
 - Appointment timezone offset

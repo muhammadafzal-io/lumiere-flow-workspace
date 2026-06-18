@@ -28,7 +28,10 @@ export async function GET(req: NextRequest) {
       const results = Object.fromEntries(
         (Object.keys(FLOW_MAP) as FlowKey[]).map((key, i) => {
           const entry = entries[i];
-          return [key, entry.status === "fulfilled" ? entry.value : { error: String(entry.reason) }];
+          return [
+            key,
+            entry.status === "fulfilled" ? entry.value : { error: String(entry.reason) },
+          ];
         }),
       );
       return NextResponse.json({ ok: true, results });
@@ -39,7 +42,7 @@ export async function GET(req: NextRequest) {
     }
 
     const result = await FLOW_MAP[flow]();
-    return NextResponse.json({ ok: true, ...result as object });
+    return NextResponse.json({ ok: true, ...(result as object) });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }

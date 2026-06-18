@@ -16,7 +16,7 @@ The reschedule system is fully integrated with business hours validation at ever
 3. **Click "Reschedule" Button** → Reschedule modal opens with date/time pickers
 4. **Select New Date** → Choose a date from the date picker
 5. **Select New Time** → Choose a time from the time picker
-6. **See Real-Time Validation** → 
+6. **See Real-Time Validation** →
    - ✅ Valid time → Green preview shows: "Will be: [Customer] — [Treatment] — [Date], [Time]"
    - ❌ Invalid time → Red error shows: "Cannot reschedule on Sundays" or "Cannot reschedule after 7:00 PM"
 7. **(Optional) Toggle Notification** → Send WhatsApp message to client
@@ -103,14 +103,15 @@ Done! ✅
 ## Validation Layers
 
 ### Layer 1: Frontend Modal (UX)
+
 **File:** `src/components/calendar/AppointmentDialogs.tsx`
 
 ```typescript
 const getTimeError = (): string | null => {
   if (!ns) return null;
 
-  const dayOfWeek = ns.getDay();   // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
-  const hours = ns.getHours();     // 0-23
+  const dayOfWeek = ns.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+  const hours = ns.getHours(); // 0-23
 
   if (dayOfWeek === 0) {
     return "Cannot reschedule on Sundays — clinic is closed";
@@ -119,7 +120,8 @@ const getTimeError = (): string | null => {
   if (hours < 9) {
     return "Cannot reschedule before 9:00 AM";
   }
-  if (hours >= 19) {  // 19:00 is 7 PM
+  if (hours >= 19) {
+    // 19:00 is 7 PM
     return "Cannot reschedule after 7:00 PM";
   }
 
@@ -131,11 +133,13 @@ const isValidTime = !timeError;
 ```
 
 **Uses:**
+
 - Display error message in red alert box
 - Disable "Review changes" button when error exists
 - Prevent progression to confirmation step
 
 ### Layer 2: API Validation (Security)
+
 **File:** `src/app/api/calendar/reschedule/route.ts`
 
 ```typescript
@@ -159,11 +163,13 @@ if (hours < 9 || hours >= 19) {
 ```
 
 **Uses:**
+
 - Rejects invalid requests
 - Cannot be bypassed by direct API calls
 - Returns specific error codes for client handling
 
 ### Layer 3: Drag Handler Validation
+
 **File:** `src/app/(admin)/calendar/page-client.tsx`
 
 ```typescript
@@ -189,11 +195,13 @@ const handleDragEnd = (e: DragEndEvent) => {
 ```
 
 **Uses:**
+
 - Prevents invalid drag operations
 - Shows toast message to user
 - Prevents modal from opening with invalid time
 
 ### Layer 4: Booking Service Validation
+
 **File:** `src/lib/services/booking-service.ts`
 
 ```typescript
@@ -211,6 +219,7 @@ if (hours < 9 || hours >= 19) {
 ```
 
 **Uses:**
+
 - Prevents new bookings outside hours
 - Used by both admin UI and chatbot
 - Shared service ensures consistency
@@ -218,6 +227,7 @@ if (hours < 9 || hours >= 19) {
 ## Error Messages
 
 ### Sunday Reschedule
+
 ```
 Frontend: "Cannot reschedule on Sundays — clinic is closed"
 API: "Cannot reschedule on Sundays — clinic is closed" (code: INVALID_DAY)
@@ -225,6 +235,7 @@ Drag: "Cannot reschedule on Sundays — clinic is closed" (toast)
 ```
 
 ### Before 9 AM
+
 ```
 Frontend: "Cannot reschedule before 9:00 AM"
 API: "Can only reschedule between 9:00 AM and 7:00 PM" (code: INVALID_TIME)
@@ -232,6 +243,7 @@ Drag: "Can only reschedule between 9:00 AM and 7:00 PM" (toast)
 ```
 
 ### After 7 PM
+
 ```
 Frontend: "Cannot reschedule after 7:00 PM"
 API: "Can only reschedule between 9:00 AM and 7:00 PM" (code: INVALID_TIME)
@@ -242,37 +254,41 @@ Drag: "Can only reschedule between 9:00 AM and 7:00 PM" (toast)
 
 ### ✅ Valid Reschedules (Should Work)
 
-| From | To | Status |
-|------|----|----|
-| Mon 2 PM | Tue 10 AM | ✅ Works |
-| Wed 9 AM | Wed 6 PM | ✅ Works |
-| Thu 12 PM | Fri 5 PM | ✅ Works |
-| Sat 10 AM | Mon 3 PM | ✅ Works |
+| From      | To        | Status   |
+| --------- | --------- | -------- |
+| Mon 2 PM  | Tue 10 AM | ✅ Works |
+| Wed 9 AM  | Wed 6 PM  | ✅ Works |
+| Thu 12 PM | Fri 5 PM  | ✅ Works |
+| Sat 10 AM | Mon 3 PM  | ✅ Works |
 
 ### ❌ Invalid Reschedules (Should Fail)
 
-| From | To | Reason |
-|------|----|----|
-| Mon 2 PM | Sun 3 PM | Sunday (closed) |
-| Mon 2 PM | Mon 8 AM | Before 9 AM |
-| Mon 2 PM | Tue 8 PM | After 7 PM (19:00) |
-| Mon 2 PM | Sat 7:30 PM | After 7 PM |
+| From     | To          | Reason             |
+| -------- | ----------- | ------------------ |
+| Mon 2 PM | Sun 3 PM    | Sunday (closed)    |
+| Mon 2 PM | Mon 8 AM    | Before 9 AM        |
+| Mon 2 PM | Tue 8 PM    | After 7 PM (19:00) |
+| Mon 2 PM | Sat 7:30 PM | After 7 PM         |
 
 ### Edge Cases
 
 **Case 1: Appointment at 6 PM**
+
 - Can reschedule until 6:59 PM (still within 19:00 hour)
 - Cannot reschedule to 7:00 PM or later (hours >= 19)
 
 **Case 2: Appointment at 9:00 AM**
+
 - Can reschedule (hours === 9)
 - Is valid
 
 **Case 3: Appointment at 8:59 AM**
+
 - Cannot reschedule (hours < 9)
 - Shows error
 
 **Case 4: Saturday Evening**
+
 - Can reschedule to Sat 6 PM (not Sunday)
 - Cannot reschedule to Sun any time
 
@@ -309,13 +325,14 @@ To change business hours, update all four locations:
 ```typescript
 // Currently hardcoded as:
 BUSINESS_HOURS = {
-  START_HOUR: 9,      // 9 AM
-  END_HOUR: 19,       // 7 PM (exclusive)
-  CLOSED_DAYS: [0],   // Sunday
+  START_HOUR: 9, // 9 AM
+  END_HOUR: 19, // 7 PM (exclusive)
+  CLOSED_DAYS: [0], // Sunday
 };
 ```
 
 ### Future: Make Configurable
+
 ```typescript
 // src/lib/business-config.ts
 export const BUSINESS_HOURS = {
@@ -331,25 +348,30 @@ import { BUSINESS_HOURS } from "@/lib/business-config";
 ## Troubleshooting
 
 ### "Reschedule button doesn't work"
+
 1. Check appointment status is not "completed" or "cancelled"
 2. Verify RescheduleModal is being rendered
 3. Check browser console for JavaScript errors
 
 ### "Modal opens but shows same time"
+
 - This is correct! The modal initializes with current appointment time
 - User must change the date/time using the pickers
 
 ### "Can reschedule to invalid time"
+
 - Verify all 4 validation layers are in place
 - Check browser console for API errors
 - Check server logs for validation failures
 
 ### "Drag doesn't show error"
+
 - Verify drag handler has toast.error() calls
 - Check that toast is imported
 - Verify drag listener is active
 
 ### "API accepts invalid time"
+
 - Verify .env.local has correct timezone info
 - Check server is using correct timezone
 - Verify Date parsing is correct

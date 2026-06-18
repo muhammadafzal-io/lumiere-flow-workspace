@@ -10,13 +10,17 @@ The system now enforces strict business hours validation for all appointment boo
 ## Validation Rules
 
 ### Reschedule Operations
+
 When rescheduling an appointment, users cannot select:
+
 - ❌ Any time on **Sunday**
 - ❌ Any time **before 9:00 AM**
 - ❌ Any time **after 7:00 PM** (19:00)
 
 ### New Bookings
+
 When creating a new appointment, the system rejects:
+
 - ❌ Any time on **Sunday**
 - ❌ Any time **before 9:00 AM**
 - ❌ Any time **after 7:00 PM** (19:00)
@@ -24,9 +28,11 @@ When creating a new appointment, the system rejects:
 ## User Interface
 
 ### Reschedule Modal
+
 When selecting a new date/time:
 
 **Valid Time:**
+
 ```
 ✓ Mon-Sat, 9:00 AM - 7:00 PM
 → Shows: "Will be: [Customer] — [Treatment] — [Date], [Time]"
@@ -34,6 +40,7 @@ When selecting a new date/time:
 ```
 
 **Invalid Time:**
+
 ```
 ✗ Sunday → "Cannot reschedule on Sundays — clinic is closed"
 ✗ Before 9 AM → "Cannot reschedule before 9:00 AM"
@@ -42,6 +49,7 @@ When selecting a new date/time:
 ```
 
 **Visual Feedback:**
+
 - Error message shown in red alert box
 - "Review changes" button disabled while time is invalid
 - Real-time validation as user changes date/time
@@ -51,10 +59,12 @@ When selecting a new date/time:
 ### PATCH /api/calendar/reschedule
 
 **Request validation:**
+
 - Returns `400 Bad Request` with code `INVALID_DAY` for Sundays
 - Returns `400 Bad Request` with code `INVALID_TIME` for outside 9 AM - 7 PM
 
 **Response (Invalid Day):**
+
 ```json
 {
   "error": "Cannot reschedule on Sundays — clinic is closed",
@@ -63,6 +73,7 @@ When selecting a new date/time:
 ```
 
 **Response (Invalid Time):**
+
 ```json
 {
   "error": "Can only reschedule between 9:00 AM and 7:00 PM",
@@ -73,6 +84,7 @@ When selecting a new date/time:
 ### POST /api/calendar/book
 
 **Request validation:**
+
 - Rejects bookings on Sundays with message: "Appointments cannot be booked on Sundays — clinic is closed"
 - Rejects bookings outside 9 AM - 7 PM with message: "Appointments can only be booked between 9:00 AM and 7:00 PM"
 
@@ -108,6 +120,7 @@ const isValidTime = !timeError;
 ```
 
 Then used to:
+
 - Show error message to user
 - Disable "Review changes" button
 - Prevent progression to confirmation step
@@ -158,20 +171,24 @@ if (hours < 9 || hours >= 19) {
 ## Edge Cases Handled
 
 ### 1. User Tries to Bypass via Direct API Call
+
 - API validates independently
 - User cannot reschedule outside hours even if UI bypassed
 - Clear error message returned
 
 ### 2. User Selects Invalid Time Then Waits
+
 - Button stays disabled until valid time selected
 - No accidental submission possible
 
 ### 3. Timezone Considerations
+
 - Validation uses `getDay()` and `getHours()` on Date object
 - Times are in local browser timezone
 - Consider if clinic operates in different timezone (currently not adjusted)
 
 ### 4. End Time Validation
+
 - Only start time is validated
 - Assumption: duration is always less than closing time
 - Consider adding end-time validation if appointments can span 7 PM
@@ -200,22 +217,25 @@ if (hours < 9 || hours >= 19) {
 ## Configuration
 
 Currently business hours are hardcoded as:
+
 - **Start:** 9 AM (hour 9)
 - **End:** 7 PM (hour 19)
 - **Closed:** Sundays (dayOfWeek === 0)
 
 To change these values, update:
+
 1. `src/components/calendar/AppointmentDialogs.tsx` - `getTimeError()` function
 2. `src/app/api/calendar/reschedule/route.ts` - validation in PATCH handler
 3. `src/lib/services/booking-service.ts` - validation in `bookAppointment()`
 
 To make configurable:
+
 ```typescript
 // Create constants file: src/lib/business-config.ts
 export const BUSINESS_HOURS = {
   START_HOUR: 9,
-  END_HOUR: 19,  // exclusive (never equal to or after)
-  CLOSED_DAYS: [0],  // 0 = Sunday
+  END_HOUR: 19, // exclusive (never equal to or after)
+  CLOSED_DAYS: [0], // 0 = Sunday
 };
 ```
 

@@ -3,6 +3,7 @@
 ## Overview
 
 The appointment cancellation flow has been improved to:
+
 - Delete from Google Calendar (not just mark as cancelled locally)
 - Require explicit confirmation (two-step process)
 - Notify client with customizable message
@@ -12,6 +13,7 @@ The appointment cancellation flow has been improved to:
 ## User Flow
 
 ### Step 1: Select Cancellation Reason
+
 1. Admin clicks "Cancel" on an appointment
 2. Modal opens with appointment details
 3. Admin selects reason from dropdown:
@@ -26,6 +28,7 @@ The appointment cancellation flow has been improved to:
 7. Click "Next" to proceed to confirmation
 
 ### Step 2: Confirm Cancellation
+
 1. Modal shows warning: "This action cannot be undone"
 2. Shows which message will be sent to client (if enabled)
 3. Admin clicks "Cancel appointment" to confirm
@@ -42,6 +45,7 @@ The appointment cancellation flow has been improved to:
 ### DELETE /api/calendar/cancel
 
 **Request:**
+
 ```json
 {
   "eventId": "google_event_id_123"
@@ -49,6 +53,7 @@ The appointment cancellation flow has been improved to:
 ```
 
 **Response (Success):**
+
 ```json
 {
   "ok": true,
@@ -58,6 +63,7 @@ The appointment cancellation flow has been improved to:
 ```
 
 **Response (Error - Not Found):**
+
 ```json
 {
   "error": "Appointment not found (may have been deleted already)",
@@ -66,6 +72,7 @@ The appointment cancellation flow has been improved to:
 ```
 
 **Response (Error - System):**
+
 ```json
 {
   "error": "Failed to cancel appointment",
@@ -77,13 +84,13 @@ The appointment cancellation flow has been improved to:
 
 Messages are dynamically generated based on cancellation reason:
 
-| Reason | Message Template |
-|--------|------------------|
-| Client requested | "Hi [name] — confirming we've cancelled your appointment. Thank you for letting us know — we'll be here whenever you're ready to rebook." |
-| Clinic conflict | "Hi [name] — so sorry, we've had to cancel your [treatment] due to a clinic conflict. We'd love to offer you a priority slot to rebook — tap here to choose a new time." |
+| Reason                   | Message Template                                                                                                                                                                                                    |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client requested         | "Hi [name] — confirming we've cancelled your appointment. Thank you for letting us know — we'll be here whenever you're ready to rebook."                                                                           |
+| Clinic conflict          | "Hi [name] — so sorry, we've had to cancel your [treatment] due to a clinic conflict. We'd love to offer you a priority slot to rebook — tap here to choose a new time."                                            |
 | Practitioner unavailable | "Hi [name] — your [treatment] has been cancelled because your practitioner is no longer available. We can rebook you with another team member or with the same practitioner next week. Reply with your preference." |
-| No-show | "Hi [name] — we missed you today. No worries — tap here to rebook in one tap." |
-| Other | "Hi [name] — your appointment has been cancelled. Reach out any time to schedule a new visit." |
+| No-show                  | "Hi [name] — we missed you today. No worries — tap here to rebook in one tap."                                                                                                                                      |
+| Other                    | "Hi [name] — your appointment has been cancelled. Reach out any time to schedule a new visit."                                                                                                                      |
 
 Admin can customize the message before sending.
 
@@ -92,10 +99,12 @@ Admin can customize the message before sending.
 When an appointment is cancelled:
 
 ### Google Calendar
+
 - Event is **deleted** from the clinic's calendar
 - Cannot be recovered through the UI (must restore from trash in Google Calendar if needed)
 
 ### Local Store
+
 ```typescript
 {
   ...appointment,
@@ -105,7 +114,9 @@ When an appointment is cancelled:
 ```
 
 ### Activity Log
+
 If notification is sent:
+
 ```typescript
 {
   id: "a_cancel_<timestamp>",
@@ -122,15 +133,17 @@ If notification is sent:
 ## Technical Details
 
 ### State Management
+
 ```typescript
 const [reason, setReason] = useState<string>("Client requested");
 const [notify, setNotify] = useState(true);
 const [msg, setMsg] = useState("");
-const [cancelling, setCancelling] = useState(false);  // Loading state
-const [step, setStep] = useState<"reason" | "confirm">("reason");  // Two-step flow
+const [cancelling, setCancelling] = useState(false); // Loading state
+const [step, setStep] = useState<"reason" | "confirm">("reason"); // Two-step flow
 ```
 
 ### Process Flow
+
 ```
 CancelModal Opens
     ↓
@@ -159,10 +172,12 @@ Calendar Updates
 ### Error Handling
 
 **Google Calendar Errors:**
+
 - If event not found (already deleted): Show helpful message
 - If API fails: Show generic error with retry suggestion
 
 **Network Errors:**
+
 - Toast shows error message
 - User can try again
 - No partial state (transaction-like behavior)
@@ -170,18 +185,21 @@ Calendar Updates
 ## UX Improvements
 
 ### Safety Features
+
 ✅ **Two-step confirmation** - Prevents accidental cancellations
 ✅ **Clear warnings** - "This action cannot be undone"
 ✅ **Loading state** - Shows progress with spinner
 ✅ **Proper error messages** - User knows what went wrong
 
 ### User Comfort
+
 ✅ **Customizable messages** - Admin can adjust tone
 ✅ **Reason-based templates** - Saves time, improves consistency
 ✅ **Back button** - Can edit reason before confirming
 ✅ **Success feedback** - Toast confirms cancellation
 
 ### Data Integrity
+
 ✅ **Deletes from source** - Google Calendar is single source of truth
 ✅ **Audit trail** - Cancellation reason stored in notes
 ✅ **Activity log** - Track what was communicated to client
@@ -206,23 +224,27 @@ Calendar Updates
 ## Edge Cases Handled
 
 ### 1. Appointment Already Deleted
+
 - Another admin deleted it before this one completed
 - API returns 404
 - Message: "Appointment not found (may have been deleted already)"
 - No error toast, info message instead
 
 ### 2. Network Error During Cancellation
+
 - Delete fails, no local state change
 - Toast shows error
 - User can retry
 - No partial cancellation
 
 ### 3. Notification Disabled
+
 - No WhatsApp sent to client
 - Cancellation still processed
 - Toast confirms: "Appointment cancelled."
 
 ### 4. Modal Closed Mid-cancellation
+
 - `cancelling` state prevents button clicks
 - User must wait for operation to complete
 - Prevents race conditions
@@ -239,18 +261,21 @@ Calendar Updates
 ## Architecture
 
 ### Components
+
 - **CancelModal** - Main UI component
   - State management for multi-step flow
   - API integration
   - Error handling
 
 ### API
+
 - **DELETE /api/calendar/cancel** - Deletes from Google Calendar
   - Authentication required (future)
   - Validates event exists before deletion
   - Returns clear error messages
 
 ### Data Flow
+
 ```
 CancelModal State Changes
     ↓

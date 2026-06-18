@@ -5,6 +5,7 @@
 **Error Message:** "Missing appointment or customer data"
 
 ### Root Cause
+
 When appointments are fetched from Google Calendar via the `/api/calendar/events` endpoint, they don't have a `customer_id`. The code was setting it to an empty string:
 
 ```typescript
@@ -12,8 +13,9 @@ customer_id: "",
 ```
 
 So when the CancelModal tried to find the customer:
+
 ```typescript
-customerMap.get(cancelApt.customer_id)  // Looking for customer with id ""
+customerMap.get(cancelApt.customer_id); // Looking for customer with id ""
 ```
 
 It would always return `null` because no customer has an empty ID.
@@ -21,6 +23,7 @@ It would always return `null` because no customer has an empty ID.
 ## The Solution
 
 ### 1. Match Customer by Contact Info
+
 Updated the appointment mapping in `page-client.tsx` to try finding the customer by phone number or name:
 
 ```typescript
@@ -34,11 +37,13 @@ customer_id: matchedCustomer?.id || "",
 ```
 
 **Benefits:**
+
 - ✅ Matches customers when available
 - ✅ Gracefully handles unknown customers (empty string if not found)
 - ✅ Works with both phone-based and name-based lookups
 
 ### 2. Improve Error Handling
+
 Updated CancelModal to better handle missing data:
 
 ```typescript
@@ -50,11 +55,13 @@ if (!customer && !appointment.clientName) {
 ```
 
 **Benefits:**
+
 - ✅ More specific error messages
 - ✅ Works even if customer isn't in the system
 - ✅ Can still cancel if we have at least a client name
 
 ### 3. Handle Activity Log Safely
+
 Fixed the activity log creation to check for customer existence:
 
 ```typescript
@@ -67,6 +74,7 @@ if (notify && customer?.id) {
 ```
 
 **Benefits:**
+
 - ✅ TypeScript type safety
 - ✅ Won't create activity log if customer is missing
 - ✅ Graceful fallback
@@ -89,6 +97,7 @@ if (notify && customer?.id) {
 4. Click "Cancel appointment"
 
 **Expected outcomes:**
+
 - ✅ Modal shows appointment details
 - ✅ Cancellation reason is selected
 - ✅ Message preview shows
@@ -99,6 +108,7 @@ if (notify && customer?.id) {
 ## What Happens Now
 
 ### If Customer is Found (Best Case)
+
 ```
 Google Calendar Event
     ↓
@@ -112,6 +122,7 @@ Activity log created with customer ID
 ```
 
 ### If Customer Not Found (Graceful)
+
 ```
 Google Calendar Event
     ↓

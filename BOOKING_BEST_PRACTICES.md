@@ -7,27 +7,32 @@
 ## What We Implemented
 
 ### ✅ Unified Booking Service
+
 - **Single source of truth** for all booking logic
 - Used by both admin UI and chatbot
 - Eliminates code duplication and inconsistency
 
 ### ✅ Room Availability Checking
+
 - Rooms are managed in Settings → Rooms tab
 - Configurable via `CLINIC_ROOMS` environment variable
 - Dynamic availability per time slot
 
 ### ✅ Practitioner Availability Checking
+
 - Practitioners pulled from Google Calendar event metadata
 - Each slot shows which practitioners are available
 - Conflict detection prevents double-booking same practitioner
 
 ### ✅ Smart Conflict Detection
+
 - Prevents booking: same room + same practitioner at same time
 - Allows: different practitioners in same room
 - Allows: same practitioner in different rooms
 - Conservative handling of legacy events (blocks everything)
 
 ### ✅ Intelligent Auto-Selection
+
 - Chatbot can book without specifying room/practitioner
 - System automatically picks first available option
 - `suggestSlot()` function makes smart recommendations
@@ -37,6 +42,7 @@
 ### 1. Why Google Calendar for Room Bookings?
 
 **Pros:**
+
 - ✓ Already real-time source of truth for appointments
 - ✓ No separate database needed
 - ✓ Metadata stored in event descriptions (room, practitioner)
@@ -44,11 +50,13 @@
 - ✓ Multi-device sync (admin sees updates in real-time)
 
 **Cons:**
+
 - ✗ Metadata parsing is string-based (fragile)
 - ✗ No transactions (race condition risk at 100% load)
 - ✗ Limited filtering (must fetch all events then filter locally)
 
 **Mitigation:**
+
 - Structured metadata format (prefix-based: "Room: ", "Practitioner: ")
 - Always validate before booking (re-check at book time)
 - Comprehensive error messages for conflicts
@@ -56,10 +64,12 @@
 ### 2. Why Separate Booking Service?
 
 **Problem:** Admin UI and chatbot had different booking logic
+
 - Admin: `bookAdminAppointment()` with room+practitioner validation
 - Chatbot: `createAppointment()` without any validation
 
 **Solution:** `booking-service.ts` wraps both with unified interface
+
 - Single contract for all callers
 - Easy to change implementation (e.g., switch to Supabase)
 - Testable in isolation
@@ -70,6 +80,7 @@
 **Solution:** Admin can manage rooms without code changes
 
 **Flow:**
+
 ```
 Settings → Rooms tab → Add/Remove rooms → Persisted to API
 ```
@@ -80,18 +91,21 @@ Settings → Rooms tab → Add/Remove rooms → Persisted to API
 ## Integration Checklist
 
 ### For Admin UI
+
 - [x] NewAppointmentModal fetches available slots
 - [x] Room dropdown shows only available rooms for selected time
 - [x] Booking validates room+practitioner availability
 - [x] Error messages are helpful (suggests available times)
 
 ### For Chatbot
+
 - [x] `check_availability` returns available rooms+practitioners
 - [x] `book_appointment` validates room+practitioner before booking
 - [x] Auto-selects room/practitioner if client doesn't specify
 - [x] Agent tool descriptions updated with room/practitioner docs
 
 ### For Room Management
+
 - [x] Settings UI to add/remove rooms
 - [x] Environment variable to pre-configure rooms
 - [x] API endpoint to get/update room list
@@ -100,6 +114,7 @@ Settings → Rooms tab → Add/Remove rooms → Persisted to API
 ## Code Usage Examples
 
 ### Admin UI Booking
+
 ```typescript
 // 1. Check availability (automatic in useEffect)
 GET /api/calendar/slots?date=2026-06-15&practitioners=Dr.+Sofia&duration=60
@@ -131,20 +146,21 @@ POST /api/calendar/book {
 ```
 
 ### Chatbot Booking
+
 ```typescript
 // 1. Check availability
 const availability = await executeTool("check_availability", {
   date: "2026-06-15",
-  duration_minutes: 60
+  duration_minutes: 60,
 });
 
 // Returns: { slots, availablePractitioners, availableRooms }
 
 // 2. Agent suggests slot to client
-"I found 5 slots on Jun 15. Available with: Dr. Sofia, Maya (practitioners) and Room 1, Room 2."
+("I found 5 slots on Jun 15. Available with: Dr. Sofia, Maya (practitioners) and Room 1, Room 2.");
 
 // 3. Client confirms
-"Book me with Dr. Sofia in Room 1 at 10 AM"
+("Book me with Dr. Sofia in Room 1 at 10 AM");
 
 // 4. Agent books
 await executeTool("book_appointment", {
@@ -154,7 +170,7 @@ await executeTool("book_appointment", {
   duration_minutes: 60,
   client_contact: "+1-512-555-0101",
   practitioner_name: "Dr. Sofia",
-  room: "Room 1"
+  room: "Room 1",
 });
 
 // If practitioner_name/room omitted, system auto-selects
@@ -163,16 +179,19 @@ await executeTool("book_appointment", {
 ## Performance Considerations
 
 ### Slot Fetching
+
 **Current:** Fetches all events in business hours (9 AM - 7:30 PM)
 **Complexity:** O(n) where n = events on date
 **Optimization:** Google Calendar API batching for multiple dates
 
 ### Conflict Detection
+
 **Current:** Scans all events, checks for time overlap + room conflict
 **Complexity:** O(n) per booking attempt
 **Optimization:** Add caching if same date checked repeatedly
 
 ### Room Dropdown Updates
+
 **Current:** Refetches on every date/practitioner/treatment change
 **Complexity:** 3 API calls per modal interaction
 **Optimization:** Combine into single request with filters
@@ -180,22 +199,26 @@ await executeTool("book_appointment", {
 ## Common Issues & Solutions
 
 ### Issue: "Room X is not available"
+
 **Cause:** Room booked but `availableRooms` still showed it
 **Root:** Race condition between API response and user click
 **Solution:** Always validate at book time (✓ already implemented)
 
 ### Issue: Chatbot books wrong practitioner
+
 **Cause:** Agent called `book_appointment` without calling `check_availability` first
 **Solution:** System can't know which practitioner is available
 **Prevention:** Update agent system prompt to enforce check first
 
 ### Issue: Old legacy events blocking all slots
+
 **Cause:** Event without room/practitioner metadata = blocks everything
 **Solution:** Edit old events to add "Room: " and "Practitioner: " to description
 
 ## Testing
 
 ### Unit Tests Needed
+
 ```typescript
 // test/booking-service.test.ts
 - checkAvailability returns empty slots for past dates
@@ -208,6 +231,7 @@ await executeTool("book_appointment", {
 ```
 
 ### Integration Tests Needed
+
 ```typescript
 // test/booking-flow.test.ts
 - Admin UI flow: check → select → book
@@ -218,6 +242,7 @@ await executeTool("book_appointment", {
 ```
 
 ### Manual Testing
+
 1. **Admin UI**
    - Create new appointment
    - Verify room dropdown updates as you change date/practitioner
@@ -239,21 +264,25 @@ await executeTool("book_appointment", {
 ## Security Considerations
 
 ### Authentication
+
 - ✓ API routes should check auth (not implemented yet)
 - ✓ Only authenticated users can book/check availability
 
 ### Data Validation
+
 - ✓ Room names validated (no special chars)
 - ✓ Date format validated (YYYY-MM-DD)
 - ✓ ISO 8601 timestamps validated
 
 ### Rate Limiting
+
 - ✗ Not implemented
 - Consider: max 1 booking per minute per user
 
 ## Future Improvements
 
 ### Phase 2: Advanced Features
+
 - [ ] **Room Capacity** - multiple clients in same room simultaneously
 - [ ] **Practitioner Specialization** - only Dr. Sofia does Botox
 - [ ] **Room Features** - which rooms have lasers, etc
@@ -262,6 +291,7 @@ await executeTool("book_appointment", {
 - [ ] **Preferred Slots** - ML-based recommendations
 
 ### Phase 3: Optimization
+
 - [ ] Cache availability for frequently-checked dates
 - [ ] Batch availability checks for week view
 - [ ] Async booking with webhooks

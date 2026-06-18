@@ -3,6 +3,7 @@
 ## Overview
 
 The reschedule appointment flow has been improved to:
+
 - Update Google Calendar with the new appointment time
 - Require explicit confirmation (two-step process)
 - Notify client with customizable message
@@ -12,6 +13,7 @@ The reschedule appointment flow has been improved to:
 ## User Flow
 
 ### Step 1: Review Changes
+
 1. Admin drags appointment to new time or clicks "Reschedule"
 2. Modal opens showing:
    - Original appointment details
@@ -22,6 +24,7 @@ The reschedule appointment flow has been improved to:
 4. Click "Review changes" to proceed to confirmation
 
 ### Step 2: Confirm Reschedule
+
 1. Modal shows warning: "Reschedule will update the calendar"
 2. Shows which message will be sent to client (if enabled)
 3. Admin clicks "Confirm reschedule"
@@ -37,6 +40,7 @@ The reschedule appointment flow has been improved to:
 ### PATCH /api/calendar/reschedule
 
 **Request:**
+
 ```json
 {
   "eventId": "google_event_id_123",
@@ -46,6 +50,7 @@ The reschedule appointment flow has been improved to:
 ```
 
 **Response (Success):**
+
 ```json
 {
   "ok": true,
@@ -57,6 +62,7 @@ The reschedule appointment flow has been improved to:
 ```
 
 **Response (Error - Not Found):**
+
 ```json
 {
   "error": "Appointment not found (may have been deleted)",
@@ -65,6 +71,7 @@ The reschedule appointment flow has been improved to:
 ```
 
 **Response (Error - System):**
+
 ```json
 {
   "error": "Failed to reschedule appointment",
@@ -75,9 +82,10 @@ The reschedule appointment flow has been improved to:
 ## Default Message
 
 Auto-generated based on appointment details:
+
 ```
-Hi [first_name] — Sofia here from Lumière. We've moved your [treatment] to 
-[day], [date] at [time]. The new confirmation link is below. Let me know if 
+Hi [first_name] — Sofia here from Lumière. We've moved your [treatment] to
+[day], [date] at [time]. The new confirmation link is below. Let me know if
 this doesn't work for you.
 ```
 
@@ -88,11 +96,13 @@ Admin can customize the message before sending.
 When an appointment is rescheduled:
 
 ### Google Calendar
+
 - Event is **updated** with new start/end times
 - Event summary and description remain unchanged
 - All attendees see the updated time
 
 ### Local Store
+
 ```typescript
 {
   ...appointment,
@@ -102,7 +112,9 @@ When an appointment is rescheduled:
 ```
 
 ### Activity Log
+
 If notification is sent:
+
 ```typescript
 {
   id: "a_resch_<timestamp>",
@@ -119,15 +131,17 @@ If notification is sent:
 ## Technical Details
 
 ### State Management
+
 ```typescript
 const [notify, setNotify] = useState(true);
 const [msg, setMsg] = useState(defaultMsg);
 const [showMsg, setShowMsg] = useState(false);
-const [rescheduling, setRescheduling] = useState(false);  // Loading state
+const [rescheduling, setRescheduling] = useState(false); // Loading state
 const [step, setStep] = useState<"review" | "confirm">("review");
 ```
 
 ### Process Flow
+
 ```
 Reschedule Dragged/Selected
     ↓
@@ -155,10 +169,12 @@ Calendar Updates Immediately
 ### Error Handling
 
 **Google Calendar Errors:**
+
 - If event not found (already deleted): 404 - Show helpful message
 - If API fails: 500 - Show generic error with retry suggestion
 
 **Network Errors:**
+
 - Toast shows error message
 - User can try again
 - No partial state (transaction-like behavior)
@@ -166,18 +182,21 @@ Calendar Updates Immediately
 ## UX Improvements
 
 ### Safety Features
+
 ✅ **Two-step confirmation** - Prevents accidental rescheduling
 ✅ **Clear warnings** - Shows impact of reschedule
 ✅ **Loading state** - Shows progress with spinner
 ✅ **Proper error messages** - User knows what went wrong
 
 ### User Comfort
+
 ✅ **Customizable messages** - Admin can adjust tone
 ✅ **Auto-generated templates** - Saves time
 ✅ **Back button** - Can edit details before confirming
 ✅ **Success feedback** - Toast confirms reschedule
 
 ### Data Integrity
+
 ✅ **Updates source** - Google Calendar is single source of truth
 ✅ **Audit trail** - Rescheduling tracked in activity log
 ✅ **Notification tracking** - Know when client was notified
@@ -201,28 +220,33 @@ Calendar Updates Immediately
 ## Edge Cases Handled
 
 ### 1. Appointment Already Deleted
+
 - Another admin deleted it before this one completed
 - API returns 404
 - Message: "Appointment not found (may have been deleted)"
 - No error toast, info message instead
 
 ### 2. Network Error During Reschedule
+
 - Update fails, no local state change
 - Toast shows error
 - User can retry
 - No partial reschedule
 
 ### 3. Notification Disabled
+
 - No WhatsApp sent to client
 - Reschedule still processed
 - Toast confirms: "Appointment rescheduled."
 
 ### 4. Modal Closed Mid-reschedule
+
 - `rescheduling` state prevents button clicks
 - User must wait for operation to complete
 - Prevents race conditions
 
 ### 5. Customer Not in System
+
 - Works even without customer record in app
 - Uses clientName from appointment
 - Activity log only created if customer found
@@ -239,17 +263,20 @@ Calendar Updates Immediately
 ## Architecture
 
 ### Components
+
 - **RescheduleModal** - Main UI component
   - State management for two-step flow
   - API integration
   - Error handling
 
 ### API
+
 - **PATCH /api/calendar/reschedule** - Updates Google Calendar
   - Validates event exists before updating
   - Returns clear error messages
 
 ### Data Flow
+
 ```
 User Reschedules
     ↓
@@ -274,11 +301,11 @@ Calendar Component Refreshes
 
 ## Comparison: Reschedule vs Cancel
 
-| Aspect | Reschedule | Cancel |
-|--------|-----------|--------|
-| **Steps** | 2 (review + confirm) | 2 (reason + confirm) |
-| **API Method** | PATCH | DELETE |
-| **Event Status** | Updated time | Deleted from calendar |
-| **Reversibility** | Manual undo only | Trash recovery available |
-| **Notification** | Shows new time | Explains cancellation |
-| **Use Case** | Time conflict, client request | No-show, clinic issue |
+| Aspect            | Reschedule                    | Cancel                   |
+| ----------------- | ----------------------------- | ------------------------ |
+| **Steps**         | 2 (review + confirm)          | 2 (reason + confirm)     |
+| **API Method**    | PATCH                         | DELETE                   |
+| **Event Status**  | Updated time                  | Deleted from calendar    |
+| **Reversibility** | Manual undo only              | Trash recovery available |
+| **Notification**  | Shows new time                | Explains cancellation    |
+| **Use Case**      | Time conflict, client request | No-show, clinic issue    |

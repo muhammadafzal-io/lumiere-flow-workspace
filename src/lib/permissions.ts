@@ -1,8 +1,17 @@
 export type UserRole = "admin" | "receptionist" | "practitioner";
 
 export const ROLE_PAGES: Record<UserRole, string[]> = {
-  admin: ["/", "/rules", "/calendar", "/customers", "/activity", "/settings"],
-  receptionist: ["/", "/calendar", "/customers"],
+  admin: [
+    "/",
+    "/rules",
+    "/calendar",
+    "/customers",
+    "/activity",
+    "/flows",
+    "/checkout",
+    "/settings",
+  ],
+  receptionist: ["/", "/calendar", "/customers", "/checkout"],
   practitioner: ["/", "/calendar"],
 };
 

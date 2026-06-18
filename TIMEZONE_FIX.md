@@ -5,6 +5,7 @@
 When opening the reschedule modal, the date and time pickers were initialized incorrectly due to timezone conversion issues.
 
 **Before:**
+
 - Original appointment: Sat Jun 6, 12:30 PM
 - Date input showed: "08/06/2026"
 - Time input showed: "10:36 am"
@@ -22,6 +23,7 @@ const minutes = String(initialNs.getMinutes()).padStart(2, "0");
 ```
 
 This logic:
+
 1. Converted appointment to UTC with `toISOString()` → "2026-06-06T17:30:00Z"
 2. Extracted date: "2026-06-06" ✓ (happens to be correct)
 3. Got local hours: 12 ✓ (local time hours)
@@ -45,6 +47,7 @@ const timeStr = `${hours}:${minutes}`;
 ```
 
 This logic:
+
 1. Gets year from local date: 2026 ✓
 2. Gets month from local date: 06 ✓
 3. Gets day from local date: 06 ✓
@@ -61,6 +64,7 @@ All date/time components are now extracted consistently from the local timezone,
 **Lines 479-488** (useEffect for initializing date/time)
 
 **From:**
+
 ```typescript
 useEffect(() => {
   if (initialNs) {
@@ -74,6 +78,7 @@ useEffect(() => {
 ```
 
 **To:**
+
 ```typescript
 useEffect(() => {
   if (initialNs) {
@@ -99,12 +104,14 @@ useEffect(() => {
 Now when opening the reschedule modal:
 
 **After Fix:**
+
 - Original appointment: Sat Jun 6, 12:30 PM
 - Date input shows: "2026-06-06"
 - Time input shows: "12:30"
 - Preview shows: "Sat, Jun 6, 12:30 PM" ✅ (CORRECT!)
 
 When user changes to 10:36 am on Jun 8:
+
 - Date input: "2026-06-08"
 - Time input: "10:36"
 - Preview shows: "Mon, Jun 8, 10:36 AM" ✅ (CORRECT!)
@@ -113,15 +120,16 @@ When user changes to 10:36 am on Jun 8:
 
 The fix uses the correct JS Date methods for local time:
 
-| Method | Returns | Example |
-|--------|---------|---------|
-| `getFullYear()` | 4-digit year | 2026 |
-| `getMonth()` | 0-11 (Jan-Dec) | 5 (for June, need +1) |
-| `getDate()` | 1-31 (day of month) | 8 |
-| `getHours()` | 0-23 (local time) | 10 |
-| `getMinutes()` | 0-59 (local time) | 36 |
+| Method          | Returns             | Example               |
+| --------------- | ------------------- | --------------------- |
+| `getFullYear()` | 4-digit year        | 2026                  |
+| `getMonth()`    | 0-11 (Jan-Dec)      | 5 (for June, need +1) |
+| `getDate()`     | 1-31 (day of month) | 8                     |
+| `getHours()`    | 0-23 (local time)   | 10                    |
+| `getMinutes()`  | 0-59 (local time)   | 36                    |
 
 **Never use for local time:**
+
 - `toISOString()` - converts to UTC
 - `getUTCHours()`, `getUTCMinutes()`, etc. - UTC values
 
@@ -136,6 +144,7 @@ The fix uses the correct JS Date methods for local time:
 ## Business Hours Still Work
 
 The business hours validation still functions correctly because:
+
 - `getDay()` and `getHours()` always work in local timezone
 - Validation uses these methods (unchanged)
 - No impact on validation layer
@@ -143,6 +152,7 @@ The business hours validation still functions correctly because:
 ## Timezone Awareness
 
 The entire app uses:
+
 - **Business timezone:** `America/Chicago`
 - **All displays:** Use Chicago timezone via `fmtTime()` and `toLocaleDateString()`
 - **Date construction:** Now consistently local-time-based

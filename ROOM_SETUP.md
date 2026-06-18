@@ -5,6 +5,7 @@ This guide explains how to configure clinic rooms for appointment availability c
 ## Overview
 
 Rooms represent physical spaces where treatments can be performed. The system tracks room availability independently from practitioner availability, allowing:
+
 - Multiple practitioners to use the same room at different times
 - One practitioner to use multiple rooms simultaneously (different appointments)
 - Real-time availability checking for appointment booking
@@ -12,6 +13,7 @@ Rooms represent physical spaces where treatments can be performed. The system tr
 ## Quick Setup
 
 ### Option 1: Default Rooms (Easiest)
+
 By default, Lumière Flow ships with two rooms: **Room 1** and **Room 2**.
 
 No configuration needed — start using them immediately in the booking modal.
@@ -26,6 +28,7 @@ CLINIC_ROOMS=Room 1,Room 2,VIP Suite,Laser Room,Consultation
 ```
 
 **Notes:**
+
 - Comma-separated list (no commas within room names)
 - Each room name is trimmed of whitespace
 - Room names are case-sensitive
@@ -39,6 +42,7 @@ CLINIC_ROOMS=Room 1,Room 2,VIP Suite,Laser Room,Consultation
 4. Click **Save rooms** to persist changes
 
 > **Production Note:** The UI-based room management currently stores rooms in-memory. For production, integrate with your database:
+>
 > - Store room list in Supabase
 > - Update the `/api/settings/rooms` endpoint to persist to DB
 > - Sync room changes with Google Calendar metadata
@@ -46,7 +50,9 @@ CLINIC_ROOMS=Room 1,Room 2,VIP Suite,Laser Room,Consultation
 ## How Room Availability Works
 
 ### 1. Google Calendar Integration
+
 When an appointment is booked:
+
 - An event is created on the clinic's main calendar
 - The event description includes the room name:
   ```
@@ -59,12 +65,15 @@ When an appointment is booked:
   ```
 
 ### 2. Availability Checking
+
 When checking available slots:
+
 ```bash
 GET /api/calendar/slots?date=2026-06-15&duration=60&practitioners=Dr.+Sofia
 ```
 
 The API returns available time slots with available rooms:
+
 ```json
 {
   "slots": [
@@ -79,12 +88,15 @@ The API returns available time slots with available rooms:
 ```
 
 ### 3. Conflict Detection
+
 During booking, the system checks:
+
 - **Room conflict**: Another appointment in the same room at the same time
 - **Practitioner conflict**: The same practitioner booked twice
 - **Combo conflict**: Both room AND practitioner are in conflict
 
 Example error messages:
+
 ```
 "Room 1 is already booked — try a different room"
 "Dr. Sofia is already booked — try a different practitioner"
@@ -94,12 +106,14 @@ Example error messages:
 ## Room Naming Best Practices
 
 ✅ **Good examples:**
+
 - Room 1, Room 2, Room 3 (simple, clear)
 - VIP Suite, Luxury Room (descriptive)
 - Laser Suite, Botox Lab (treatment-specific)
 - Main, Annex, East Wing (location-based)
 
 ❌ **Avoid:**
+
 - Names with commas (breaks CSV parsing)
 - Very long names (UX clutter)
 - Special characters (may cause encoding issues)
@@ -117,6 +131,7 @@ For even finer control, you can create a separate Google Calendar for each room 
 3. The system will check both the main clinic calendar AND each room's calendar
 
 This prevents:
+
 - Cross-calendar double-booking
 - Lost events in the main calendar
 - Conflicting edits between different tools
@@ -124,28 +139,35 @@ This prevents:
 ## Troubleshooting
 
 ### Rooms aren't showing in the modal
+
 1. Check that rooms are configured in Settings → Rooms
 2. Check that a date and practitioner are selected
 3. Open browser DevTools → Network tab
 4. Check `/api/calendar/slots` response for `availableRooms`
 
 ### "No rooms available" error
+
 The system found no available room+practitioner combinations for that time.
+
 - Try a different time or date
 - Try a different practitioner
 - Check Google Calendar for existing bookings
 
 ### Changes to CLINIC_ROOMS aren't reflected
+
 The system reads `CLINIC_ROOMS` at server startup.
+
 - After updating `.env.local`, restart the development server
 - In production, redeploy to apply environment changes
 
 ## API Reference
 
 ### GET /api/settings/rooms
+
 Fetch the current list of rooms.
 
 **Response:**
+
 ```json
 {
   "rooms": ["Room 1", "Room 2", "VIP Suite"]
@@ -153,9 +175,11 @@ Fetch the current list of rooms.
 ```
 
 ### PATCH /api/settings/rooms
+
 Update the room list.
 
 **Request:**
+
 ```json
 {
   "rooms": ["Room 1", "Room 2", "VIP Suite"]
@@ -163,6 +187,7 @@ Update the room list.
 ```
 
 **Response:**
+
 ```json
 {
   "rooms": ["Room 1", "Room 2", "VIP Suite"],
@@ -171,15 +196,18 @@ Update the room list.
 ```
 
 ### GET /api/calendar/slots
+
 Check available slots with optional room filtering.
 
 **Query Parameters:**
+
 - `date` (required): YYYY-MM-DD format
 - `duration`: minutes (default 60)
 - `rooms`: comma-separated room names (optional)
 - `practitioners`: comma-separated practitioner names (optional)
 
 **Response includes:**
+
 ```json
 {
   "slots": [

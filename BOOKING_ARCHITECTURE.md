@@ -42,6 +42,7 @@ The system uses a **unified booking service** that both the admin UI and chatbot
 **Key Functions:**
 
 #### `checkAvailability(request)`
+
 Checks available slots with room/practitioner awareness.
 
 ```typescript
@@ -72,6 +73,7 @@ Checks available slots with room/practitioner awareness.
 ```
 
 #### `bookAppointment(request)`
+
 Books appointment with full validation.
 
 ```typescript
@@ -105,6 +107,7 @@ Books appointment with full validation.
 ```
 
 #### `suggestSlot(request)`
+
 AI-friendly: Recommends the best available slot (used by chatbot).
 
 ```typescript
@@ -130,6 +133,7 @@ AI-friendly: Recommends the best available slot (used by chatbot).
 **File:** `src/components/calendar/AppointmentDialogs.tsx`
 
 **Flow:**
+
 1. User selects date → `useEffect` fetches available slots via `/api/calendar/slots`
 2. User selects practitioner & treatment → updates available rooms
 3. UI shows only available rooms
@@ -138,6 +142,7 @@ AI-friendly: Recommends the best available slot (used by chatbot).
 6. Success → appointment in Google Calendar with room/practitioner metadata
 
 **Example Request:**
+
 ```bash
 POST /api/calendar/book
 {
@@ -159,6 +164,7 @@ POST /api/calendar/book
 **Agent Tools:**
 
 #### `check_availability` Tool
+
 ```typescript
 {
   name: "check_availability",
@@ -172,6 +178,7 @@ POST /api/calendar/book
 ```
 
 **Agent Flow:**
+
 1. Client says "Book me Botox next Monday"
 2. Agent calls `check_availability` with treatment duration
 3. Receives available slots + available practitioners + available rooms
@@ -180,6 +187,7 @@ POST /api/calendar/book
 6. Agent calls `book_appointment` with confirmed slot
 
 #### `book_appointment` Tool
+
 ```typescript
 {
   name: "book_appointment",
@@ -197,6 +205,7 @@ POST /api/calendar/book
 ```
 
 **Smart Auto-Selection:**
+
 - If `practitioner_name` not provided → system picks first available
 - If `room` not provided → system picks first available
 - If both missing → `suggestSlot()` auto-selects both intelligently
@@ -230,14 +239,15 @@ When checking availability or booking, the system:
 
 **Examples:**
 
-| Time | Event | Room 1 | Room 2 | Dr. Sofia | Maya |
-|------|-------|--------|--------|-----------|------|
-| 10:00 | None | ✓ | ✓ | ✓ | ✓ |
-| 11:00 | Botox w/ Dr. Sofia in Room 1 | ✗ | ✓ | ✗ | ✓ |
-| 12:00 | HydraFacial w/ Dr. Sofia in Room 2 | ✓ | ✗ | ✗ | ✓ |
-| 1:00 | None | ✓ | ✓ | ✓ | ✓ |
+| Time  | Event                              | Room 1 | Room 2 | Dr. Sofia | Maya |
+| ----- | ---------------------------------- | ------ | ------ | --------- | ---- |
+| 10:00 | None                               | ✓      | ✓      | ✓         | ✓    |
+| 11:00 | Botox w/ Dr. Sofia in Room 1       | ✗      | ✓      | ✗         | ✓    |
+| 12:00 | HydraFacial w/ Dr. Sofia in Room 2 | ✓      | ✗      | ✗         | ✓    |
+| 1:00  | None                               | ✓      | ✓      | ✓         | ✓    |
 
 **Available slots:**
+
 - 10:00: All combinations available
 - 11:00: Only Room 2 + Maya available
 - 12:00: Only Room 1 + Maya available
@@ -246,6 +256,7 @@ When checking availability or booking, the system:
 ## Data Flow: New Appointment
 
 ### Admin UI Path:
+
 ```
 1. User clicks "New Appointment"
    ↓
@@ -271,6 +282,7 @@ When checking availability or booking, the system:
 ```
 
 ### Chatbot Path:
+
 ```
 1. Client: "I want to book Botox"
    ↓
@@ -307,14 +319,17 @@ When checking availability or booking, the system:
 ## Troubleshooting
 
 ### Booking fails: "Room X is not available"
+
 - Client tried to book a room that's already occupied
 - Solution: Check `/api/calendar/slots?date=...` for actually available rooms
 
 ### Chatbot books wrong room/practitioner
+
 - Agent didn't call `check_availability` before `book_appointment`
 - Solution: Review agent logs, ensure tool order is correct
 
 ### Legacy events causing false conflicts
+
 - Old Google Calendar events without room/practitioner metadata
 - Solution: Edit old events to add metadata, or manually update if critical
 

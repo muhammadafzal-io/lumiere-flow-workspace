@@ -5,9 +5,10 @@
 ### Where Rooms Are Stored
 
 **Currently (In-Memory Only):**
+
 ```typescript
 // File: src/app/api/settings/rooms/route.ts
-let storedRooms: string[] = ["Room 1", "Room 2"];  // ← In-memory, lost on restart!
+let storedRooms: string[] = ["Room 1", "Room 2"]; // ← In-memory, lost on restart!
 ```
 
 **Problem:** Rooms are stored in memory only and lost when the server restarts. This is a temporary solution.
@@ -35,12 +36,14 @@ Rooms reset to default ["Room 1", "Room 2"] ❌
 ### Current (In-Memory) System
 
 **Step 1: User Action**
+
 1. Open Settings → Rooms tab
 2. Click "Add room" or edit room list
 3. Type new room name (e.g., "Treatment Pod A")
 4. Click "Save rooms"
 
 **Step 2: API Call**
+
 ```typescript
 PATCH /api/settings/rooms
 {
@@ -49,16 +52,19 @@ PATCH /api/settings/rooms
 ```
 
 **Step 3: In-Memory Update**
+
 ```typescript
 storedRooms = ["Room 1", "Room 2", "Treatment Pod A"];
 ```
 
 **Step 4: Available Immediately**
+
 - Calendar shows new room in dropdowns ✅
 - Availability checking includes new room ✅
 - Booking accepts new room ✅
 
 **Step 5: Server Restarts**
+
 - **All new rooms lost** ❌
 - Reset to default: `["Room 1", "Room 2"]`
 
@@ -126,20 +132,21 @@ Next Day
 
 ## Current vs. Production Architecture
 
-| Aspect | Current (In-Memory) | Production (Database) |
-|--------|-------------------|----------------------|
-| **Storage** | RAM only | Supabase/Database |
-| **Persistence** | Lost on restart ❌ | Permanent ✅ |
-| **Scaling** | Single server only | Multiple servers ✅ |
-| **API Calls** | No database hit | Fast DB query |
-| **Room History** | None | Can track changes |
-| **Room Soft Delete** | Not possible | `is_active` flag |
-| **Room Capacity** | Fixed (1) | Configurable |
-| **Room Description** | Not stored | Stored & searchable |
+| Aspect               | Current (In-Memory) | Production (Database) |
+| -------------------- | ------------------- | --------------------- |
+| **Storage**          | RAM only            | Supabase/Database     |
+| **Persistence**      | Lost on restart ❌  | Permanent ✅          |
+| **Scaling**          | Single server only  | Multiple servers ✅   |
+| **API Calls**        | No database hit     | Fast DB query         |
+| **Room History**     | None                | Can track changes     |
+| **Room Soft Delete** | Not possible        | `is_active` flag      |
+| **Room Capacity**    | Fixed (1)           | Configurable          |
+| **Room Description** | Not stored          | Stored & searchable   |
 
 ## Files Involved in Room Management
 
 ### 1. Settings API (Rooms Update)
+
 **File:** `src/app/api/settings/rooms/route.ts`
 
 ```typescript
@@ -156,8 +163,9 @@ PATCH /api/settings/rooms
 ```
 
 **Current Implementation:**
+
 ```typescript
-let storedRooms = ["Room 1", "Room 2"];  // In-memory
+let storedRooms = ["Room 1", "Room 2"]; // In-memory
 
 export async function PATCH(req) {
   // TODO: In production, persist to database
@@ -167,6 +175,7 @@ export async function PATCH(req) {
 ```
 
 ### 2. Settings Page (Rooms UI)
+
 **File:** `src/app/(admin)/settings/page-client.tsx` (Lines 542-650)
 
 ```typescript
@@ -188,32 +197,34 @@ function RoomsTab({ rooms, onSaved }) {
 ```
 
 **Features:**
+
 - Add room: Click button, type name, save
 - Remove room: Click X next to room name
 - Duplicate detection: Automatic
 - Validation: Non-empty, string type
 
 ### 3. Calendar Integration
+
 **File:** `src/lib/integrations/google-calendar.ts`
 
 ```typescript
 function getDefaultRooms(): string[] {
   const roomsEnv = process.env.CLINIC_ROOMS;
-  return roomsEnv
-    ? roomsEnv.split(",").map((r) => r.trim())
-    : ["Room 1", "Room 2"];
+  return roomsEnv ? roomsEnv.split(",").map((r) => r.trim()) : ["Room 1", "Room 2"];
 }
 
 const DEFAULT_ROOMS = getDefaultRooms();
 ```
 
 **Used for:**
+
 - Availability checking
 - Booking validation
 - Calendar event metadata
 - Dropdown options in UI
 
 ### 4. Booking Service
+
 **File:** `src/lib/services/booking-service.ts`
 
 ```typescript
@@ -237,8 +248,9 @@ When an appointment is created, the room is stored in the Google Calendar event:
 ```
 
 When appointments are fetched back, the room is extracted:
+
 ```typescript
-const room = e.room || "";  // "Treatment Pod A"
+const room = e.room || ""; // "Treatment Pod A"
 ```
 
 ## Making Rooms Persistent (Implementation Steps)
@@ -274,7 +286,7 @@ export async function GET() {
     .order("name");
 
   if (error) throw error;
-  return NextResponse.json({ rooms: data.map(r => r.name) });
+  return NextResponse.json({ rooms: data.map((r) => r.name) });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -285,19 +297,14 @@ export async function PATCH(req: NextRequest) {
   const clinicId = getClinicIdFromAuth(req);
 
   // Delete old, insert new
-  await supabase
-    .from("clinics_rooms")
-    .delete()
-    .eq("clinic_id", clinicId);
+  await supabase.from("clinics_rooms").delete().eq("clinic_id", clinicId);
 
-  await supabase
-    .from("clinics_rooms")
-    .insert(
-      rooms.map(name => ({
-        clinic_id: clinicId,
-        name: name.trim(),
-      }))
-    );
+  await supabase.from("clinics_rooms").insert(
+    rooms.map((name) => ({
+      clinic_id: clinicId,
+      name: name.trim(),
+    })),
+  );
 
   return NextResponse.json({ rooms, ok: true });
 }
@@ -322,12 +329,14 @@ const DEFAULT_ROOMS = await getDefaultRooms();
 When you add a new room:
 
 ✅ **Works:**
+
 - Room appears in UI dropdowns
 - Can book appointments with new room
 - Calendar shows availability for new room
 - Reschedule works with new room
 
 ❌ **Doesn't Work:**
+
 - Rooms not saved to database
 - Lost on server restart
 - Not accessible from other servers/deployments
@@ -356,13 +365,13 @@ This is the main work item to make rooms persistent.
 
 ## Summary
 
-| Question | Answer |
-|----------|--------|
+| Question                               | Answer                                      |
+| -------------------------------------- | ------------------------------------------- |
 | **Where do rooms go when I add them?** | In-memory array in the API, lost on restart |
-| **How do I make them permanent?** | Add to database (TODO item) |
-| **Does booking work with new rooms?** | Yes, while server is running |
-| **Are new rooms saved after restart?** | No, reset to default |
-| **How many rooms can I add?** | Unlimited (currently) |
-| **Can I delete rooms?** | Yes, from UI (but not persisted) |
-| **Do other users see new rooms?** | Yes (while server running) |
-| **What's the database model?** | Needs `clinics_rooms` table |
+| **How do I make them permanent?**      | Add to database (TODO item)                 |
+| **Does booking work with new rooms?**  | Yes, while server is running                |
+| **Are new rooms saved after restart?** | No, reset to default                        |
+| **How many rooms can I add?**          | Unlimited (currently)                       |
+| **Can I delete rooms?**                | Yes, from UI (but not persisted)            |
+| **Do other users see new rooms?**      | Yes (while server running)                  |
+| **What's the database model?**         | Needs `clinics_rooms` table                 |
