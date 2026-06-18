@@ -16,7 +16,10 @@ export async function GET(req: NextRequest) {
     | "reminder"
     | "noshow"
     | "reactivation"
-    | "general";
+    | "general"
+    | "booking"
+    | "cancellation"
+    | "reschedule";
 
   if (!to) {
     return NextResponse.json(
@@ -44,6 +47,9 @@ export async function GET(req: NextRequest) {
     noshow: `Hi there, we missed you at Lumière today for your Botox appointment.\n\nWe completely understand that life gets busy. We'd love to reschedule at a time that works better for you.\n\nSimply reply to this message and we'll find you a spot.`,
     reactivation: `Hi there! We've been thinking about you at Lumière.\n\nIt's been a while since your last visit, and we'd love to have you back. Use code WELCOMEBACK20 for 20% off your next service — valid for 30 days.\n\nWe're here Monday–Saturday, 9 AM–7 PM.`,
     general: `This is a test email from Lumière Med Spa & Wellness.\n\nIf you received this, your Resend email integration is working correctly.`,
+    booking: `Hi Test User, your appointment at Lumière is confirmed!\n\nTreatment: HydraFacial\nDate & Time: Friday, June 20, 2026 at 2:00 PM CT\nPractitioner: Dr. Smith\nLocation: 2847 S Lamar Blvd, Suite 120, Austin TX 78704\n\nWe look forward to seeing you!`,
+    cancellation: `Hi Test User, your appointment at Lumière has been cancelled.\n\nTreatment: HydraFacial\nOriginal Date & Time: Friday, June 20, 2026 at 2:00 PM CT\n\nWe hope to see you again soon. Reply to this email or visit us to rebook.`,
+    reschedule: `Hi Test User, your appointment at Lumière has been rescheduled.\n\nTreatment: HydraFacial\nNew Date & Time: Saturday, June 21, 2026 at 3:00 PM CT\nLocation: 2847 S Lamar Blvd, Suite 120, Austin TX 78704\n\nSee you then!`,
   };
 
   try {

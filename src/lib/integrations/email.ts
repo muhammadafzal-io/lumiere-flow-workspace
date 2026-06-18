@@ -193,21 +193,28 @@ function getGmailTransport() {
  *   3. Resend    — RESEND_API_KEY set                         → requires verified domain for arbitrary recipients
  */
 export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> {
+  console.log(`[email] ATTEMPT → to: ${opts.to} | flow: ${opts.flowType ?? "general"} | subject: ${opts.subject}`);
   const html = buildEmailHtml(opts);
 
   // ── 1. SendGrid (single sender verification — no domain DNS needed) ──────
   const sgKey = process.env.SENDGRID_API_KEY;
   const sgFrom = process.env.SENDGRID_FROM_EMAIL;
   if (sgKey && sgFrom) {
-    sgMail.setApiKey(sgKey);
-    await sgMail.send({
-      from: { email: sgFrom, name: process.env.SENDGRID_FROM_NAME ?? "Lumiere Med Spa" },
-      to: opts.to,
-      subject: opts.subject,
-      html,
-      text: opts.text,
-    });
-    console.log(`[email] SENT via SendGrid → ${opts.to} | subject: ${opts.subject}`);
+    console.log(`[email] provider: SendGrid | from: ${sgFrom}`);
+    try {
+      sgMail.setApiKey(sgKey);
+      await sgMail.send({
+        from: { email: sgFrom, name: process.env.SENDGRID_FROM_NAME ?? "Lumiere Med Spa" },
+        to: opts.to,
+        subject: opts.subject,
+        html,
+        text: opts.text,
+      });
+      console.log(`[email] SENT via SendGrid → ${opts.to}`);
+    } catch (err) {
+      console.error(`[email] FAILED via SendGrid → ${opts.to}`, err instanceof Error ? err.message : err);
+      throw err;
+    }
     return;
   }
 
@@ -215,25 +222,38 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
   const gmail = getGmailTransport();
   if (gmail) {
     const from = `"${process.env.GMAIL_FROM_NAME ?? "Lumiere Med Spa"}" <${process.env.GMAIL_USER}>`;
-    await gmail.sendMail({ from, to: opts.to, subject: opts.subject, html, text: opts.text });
-    console.log(`[email] SENT via Gmail → ${opts.to} | subject: ${opts.subject}`);
+    console.log(`[email] provider: Gmail | from: ${process.env.GMAIL_USER}`);
+    try {
+      await gmail.sendMail({ from, to: opts.to, subject: opts.subject, html, text: opts.text });
+      console.log(`[email] SENT via Gmail → ${opts.to}`);
+    } catch (err) {
+      console.error(`[email] FAILED via Gmail → ${opts.to}`, err instanceof Error ? err.message : err);
+      throw err;
+    }
     return;
   }
 
   // ── 3. Resend (requires verified domain for arbitrary recipients) ─────────
   if (!process.env.RESEND_API_KEY) {
-    console.log(`[email] SKIP (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY) → ${opts.to}`);
+    console.warn(`[email] SKIP — no email provider configured (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY)`);
     return;
   }
 
+  const from = getFromAddress();
+  console.log(`[email] provider: Resend | from: ${from}`);
   const resend = getResend();
-  const { error } = await resend.emails.send({
-    from: getFromAddress(),
-    to: opts.to,
-    subject: opts.subject,
-    html,
-    text: opts.text,
-  });
-
-  if (error) throw new Error(`Resend error: ${error.message}`);
+  try {
+    const { error } = await resend.emails.send({
+      from,
+      to: opts.to,
+      subject: opts.subject,
+      html,
+      text: opts.text,
+    });
+    if (error) throw new Error(`Resend error: ${error.message}`);
+    console.log(`[email] SENT via Resend → ${opts.to}`);
+  } catch (err) {
+    console.error(`[email] FAILED via Resend → ${opts.to}`, err instanceof Error ? err.message : err);
+    throw err;
+  }
 }
