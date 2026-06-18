@@ -90,6 +90,8 @@ export interface AgentResult {
 
 export type EventType =
   | "booking"
+  | "cancellation"
+  | "reschedule"
   | "escalation"
   | "inquiry"
   | "no-show"
