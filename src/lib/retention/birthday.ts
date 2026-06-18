@@ -10,7 +10,9 @@ const CREDIT_VALID_DAYS = 30;
 /** Generates a code in the format BDAY-MA-X7K2|YYYY-MM-DD (expiry encoded) */
 function generateCreditCode(clientName: string): string {
   const initials = clientName
-    .split(" ")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
     .map((n) => n[0].toUpperCase())
     .join("");
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
