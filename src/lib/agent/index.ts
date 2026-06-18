@@ -11,6 +11,7 @@ import {
 } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
+import { sendRetentionEmail } from "@/lib/integrations/email";
 import type { AgentResult } from "@/types";
 
 function getOpenAI() {
@@ -102,6 +103,48 @@ async function executeTool(
       ).catch(() => {
         /* non-fatal */
       });
+
+      // Fire-and-forget: send booking confirmation email via widget
+      const clientEmail = clientRecord?.email ?? (input.email as string | undefined);
+      if (clientEmail) {
+        const displayTime = new Date(apptData.startTime).toLocaleString("en-US", {
+          timeZone: "America/Chicago",
+          weekday: "long",
+          month: "long",
+          day: "numeric",
+          year: "numeric",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: true,
+        });
+        sendRetentionEmail({
+          to: clientEmail,
+          subject: `Appointment confirmed — ${apptData.treatment} on ${new Date(apptData.startTime).toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric" })}`,
+          flowType: "booking",
+          text: [
+            `Hi ${apptData.clientName}, your appointment at Lumière is confirmed!`,
+            ``,
+            `Treatment: ${apptData.treatment}`,
+            `Date & Time: ${displayTime} CT`,
+            `Practitioner: ${apptData.practitionerName}`,
+            `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
+            apptData.notes ? `Notes: ${apptData.notes}` : "",
+            ``,
+            `Need to change anything? Reply to this message or contact us Monday–Saturday, 9 AM–7 PM.`,
+            ``,
+            `See you soon!`,
+            `— The Lumière Team`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          cta: {
+            label: "View Location",
+            url: "https://maps.google.com/?q=2847+S+Lamar+Blvd+Suite+120+Austin+TX",
+          },
+        })
+          .then(() => console.log(`[agent/book] confirmation email sent → ${clientEmail}`))
+          .catch((e) => console.error(`[agent/book] confirmation email failed:`, e));
+      }
 
       return { result: appt, booked: true };
     }
