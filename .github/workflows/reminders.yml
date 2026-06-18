@@ -1,0 +1,32 @@
+name: Appointment Reminders (3x daily)
+
+on:
+  schedule:
+    # T-72h window: 9 AM CT = 14:00 UTC
+    - cron: "0 14 * * *"
+    # T-24h window: 3 PM CT = 20:00 UTC
+    - cron: "0 20 * * *"
+    # T-2h window:  9 PM CT = 02:00 UTC next day
+    - cron: "0 2 * * *"
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+
+jobs:
+  reminders:
+    name: Run reminder flow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger reminders endpoint
+        run: |
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://lumiere-flow-workspace-htt1.vercel.app/api/cron/reminders")
+          body=$(echo "$response" | head -n -1)
+          status=$(echo "$response" | tail -n1)
+          echo "Status: $status"
+          echo "Response: $body"
+          if [ "$status" != "200" ]; then
+            echo "❌ Reminder flow failed with status $status"
+            exit 1
+          fi
+          echo "✅ Reminder flow completed"
