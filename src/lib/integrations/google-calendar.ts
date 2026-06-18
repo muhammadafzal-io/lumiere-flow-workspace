@@ -339,6 +339,63 @@ export async function getEventsByRange(from: string, to: string): Promise<Calend
     });
 }
 
+/** Cancel (delete) a calendar event by ID. Returns the event data before deletion. */
+export async function cancelCalendarEvent(eventId: string): Promise<{
+  clientName: string;
+  treatment: string;
+  clientContact: string;
+  startTime: string;
+}> {
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+  const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+  await calendar.events.delete({ calendarId: calId, eventId });
+  const summary = event.summary ?? "";
+  const dashIdx = summary.indexOf(" — ");
+  const treatment = dashIdx >= 0 ? summary.slice(0, dashIdx).trim() : summary;
+  const clientName = dashIdx >= 0 ? summary.slice(dashIdx + 3).trim() : "Client";
+  const { contact } = parseDesc(event.description ?? "");
+  return {
+    clientName,
+    treatment,
+    clientContact: contact,
+    startTime: event.start?.dateTime ?? "",
+  };
+}
+
+/** Reschedule a calendar event to a new start/end time. Returns old and new start times. */
+export async function rescheduleCalendarEvent(
+  eventId: string,
+  newStartTime: string,
+  newEndTime: string,
+): Promise<{
+  clientName: string;
+  treatment: string;
+  clientContact: string;
+  oldStartTime: string;
+  newStartTime: string;
+}> {
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+  const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+  const oldStartTime = event.start?.dateTime ?? "";
+  await calendar.events.update({
+    calendarId: calId,
+    eventId,
+    requestBody: {
+      ...event,
+      start: { dateTime: newStartTime, timeZone: TIMEZONE },
+      end: { dateTime: newEndTime, timeZone: TIMEZONE },
+    },
+  });
+  const summary = event.summary ?? "";
+  const dashIdx = summary.indexOf(" — ");
+  const treatment = dashIdx >= 0 ? summary.slice(0, dashIdx).trim() : summary;
+  const clientName = dashIdx >= 0 ? summary.slice(dashIdx + 3).trim() : "Client";
+  const { contact } = parseDesc(event.description ?? "");
+  return { clientName, treatment, clientContact: contact, oldStartTime, newStartTime };
+}
+
 export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointment[]> {
   const calendar = getCalendarClient();
   const calId = calendarId();

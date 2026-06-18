@@ -71,6 +71,60 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "cancel_appointment",
+      description:
+        "Cancel (delete) an existing appointment in the Lumière Google Calendar. Use when a client wants to cancel. Always confirm with the client before calling this. A cancellation confirmation email is sent automatically.",
+      parameters: {
+        type: "object",
+        properties: {
+          event_id: {
+            type: "string",
+            description: "The Google Calendar event ID to cancel",
+          },
+          client_email: {
+            type: "string",
+            description: "Client email address to send the cancellation confirmation to",
+          },
+        },
+        required: ["event_id"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "reschedule_appointment",
+      description:
+        "Reschedule an existing appointment to a new date and time. Always call check_availability first to confirm the new slot is free, then confirm with the client before calling this. A reschedule confirmation email is sent automatically.",
+      parameters: {
+        type: "object",
+        properties: {
+          event_id: {
+            type: "string",
+            description: "The Google Calendar event ID to reschedule",
+          },
+          new_date_time: {
+            type: "string",
+            description: "New appointment start time in ISO 8601 format",
+          },
+          duration_minutes: {
+            type: "number",
+            description: "Duration of the appointment in minutes (default 60)",
+          },
+          client_email: {
+            type: "string",
+            description: "Client email address to send the reschedule confirmation to",
+          },
+        },
+        required: ["event_id", "new_date_time"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
       name: "lookup_client",
       description:
         "Look up an existing client record in Airtable by platform user ID or phone number. Returns client details including last visit and treatment history.",

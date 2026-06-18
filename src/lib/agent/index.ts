@@ -3,6 +3,7 @@ import type { ChatCompletionMessageParam } from "openai/resources";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { TOOLS } from "./tools";
 import { checkAvailability, bookAppointment, suggestSlot } from "@/lib/services/booking-service";
+import { cancelCalendarEvent, rescheduleCalendarEvent } from "@/lib/integrations/google-calendar";
 import {
   lookupClient,
   upsertClient,
@@ -147,6 +148,134 @@ async function executeTool(
       }
 
       return { result: appt, booked: true };
+    }
+
+    case "cancel_appointment": {
+      const eventId = input.event_id as string;
+      const cancelled = await cancelCalendarEvent(eventId);
+
+      // Fire-and-forget cancellation email
+      const cancelEmail =
+        (input.client_email as string | undefined) ||
+        (await lookupClient({ phone: cancelled.clientContact }).catch(() => null))?.email;
+
+      if (cancelEmail) {
+        const displayTime = cancelled.startTime
+          ? new Date(cancelled.startTime).toLocaleString("en-US", {
+              timeZone: "America/Chicago",
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            })
+          : "your scheduled time";
+
+        sendRetentionEmail({
+          to: cancelEmail,
+          subject: `Your ${cancelled.treatment} appointment has been cancelled`,
+          flowType: "cancellation",
+          text: [
+            `Hi ${cancelled.clientName}, your appointment at Lumière has been cancelled.`,
+            ``,
+            `Treatment: ${cancelled.treatment}`,
+            `Original Date: ${displayTime} CT`,
+            ``,
+            `We'd love to rebook you at a time that works better. Reply here or visit us Monday–Saturday, 9 AM–7 PM.`,
+            ``,
+            `— The Lumière Team`,
+          ].join("\n"),
+          cta: {
+            label: "Book a New Appointment",
+            url: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://lumiere-ai-system.vercel.app"}/widget`,
+          },
+        })
+          .then(() => console.log(`[agent/cancel] cancellation email sent → ${cancelEmail}`))
+          .catch((e) => console.error(`[agent/cancel] cancellation email failed:`, e));
+      }
+
+      await logEvent(
+        "cancellation",
+        cancelled.clientName,
+        `Appointment cancelled via widget: ${cancelled.treatment}`,
+        {
+          phone: cancelled.clientContact,
+          email: cancelEmail,
+          platform: context.platform,
+        },
+      );
+
+      return { result: { ok: true, ...cancelled } };
+    }
+
+    case "reschedule_appointment": {
+      const eventId = input.event_id as string;
+      const newStartTime = input.new_date_time as string;
+      const durationMin = (input.duration_minutes as number) ?? 60;
+      const newEndTime = new Date(
+        new Date(newStartTime).getTime() + durationMin * 60_000,
+      ).toISOString();
+
+      const rescheduled = await rescheduleCalendarEvent(eventId, newStartTime, newEndTime);
+
+      // Fire-and-forget reschedule email
+      const rescheduleEmail =
+        (input.client_email as string | undefined) ||
+        (await lookupClient({ phone: rescheduled.clientContact }).catch(() => null))?.email;
+
+      if (rescheduleEmail) {
+        const fmtTime = (iso: string) =>
+          new Date(iso).toLocaleString("en-US", {
+            timeZone: "America/Chicago",
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+
+        sendRetentionEmail({
+          to: rescheduleEmail,
+          subject: `Your ${rescheduled.treatment} appointment has been rescheduled`,
+          flowType: "reschedule",
+          text: [
+            `Hi ${rescheduled.clientName}, your Lumière appointment has been rescheduled.`,
+            ``,
+            `Treatment: ${rescheduled.treatment}`,
+            rescheduled.oldStartTime ? `Old Date: ${fmtTime(rescheduled.oldStartTime)} CT` : "",
+            `New Date: ${fmtTime(rescheduled.newStartTime)} CT`,
+            `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
+            ``,
+            `Need further changes? Reply here or contact us Monday–Saturday, 9 AM–7 PM.`,
+            ``,
+            `See you soon!`,
+            `— The Lumière Team`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          cta: {
+            label: "View Location",
+            url: "https://maps.google.com/?q=2847+S+Lamar+Blvd+Suite+120+Austin+TX",
+          },
+        })
+          .then(() => console.log(`[agent/reschedule] reschedule email sent → ${rescheduleEmail}`))
+          .catch((e) => console.error(`[agent/reschedule] reschedule email failed:`, e));
+      }
+
+      await logEvent(
+        "reschedule",
+        rescheduled.clientName,
+        `Appointment rescheduled via widget: ${rescheduled.treatment}`,
+        {
+          phone: rescheduled.clientContact,
+          email: rescheduleEmail,
+          platform: context.platform,
+        },
+      );
+
+      return { result: { ok: true, ...rescheduled } };
     }
 
     case "lookup_client": {
