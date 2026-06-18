@@ -122,5 +122,13 @@ export interface RetentionResult {
     contact?: string;
     platform?: string;
     messagePreview?: string;
+    /** Email address the message was (or was not) sent to */
+    emailAddress?: string | null;
+    /** Whether the Resend email was dispatched successfully */
+    emailSent?: boolean;
+    /** Why email was skipped (e.g. "no email on client record", "RESEND_API_KEY not set") */
+    emailSkipReason?: string;
+    /** Whether the Discord staff-channel mirror fired */
+    discordMirrored?: boolean;
   }>;
 }

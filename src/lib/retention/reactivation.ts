@@ -102,7 +102,7 @@ export async function runReactivationFlow(): Promise<RetentionResult> {
     try {
       const message = await generatePersonalisedMessage(client, step);
 
-      const { platform, simulated } = await trySend(messaging, {
+      const { platform, simulated, emailSent, discordMirrored } = await trySend(messaging, {
         to: contactId,
         text: message,
         email: client.email,
@@ -142,6 +142,10 @@ export async function runReactivationFlow(): Promise<RetentionResult> {
         contact: contactId,
         platform,
         messagePreview: `[Step ${step}/3] ${message.substring(0, 80)}...${simulated ? " (simulated)" : ""}`,
+        emailAddress: client.email ?? null,
+        emailSent,
+        discordMirrored,
+        ...(!client.email && { emailSkipReason: "no email on client record" }),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

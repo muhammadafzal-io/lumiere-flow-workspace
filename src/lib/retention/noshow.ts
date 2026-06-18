@@ -57,7 +57,7 @@ export async function runNoshowFlow(): Promise<RetentionResult> {
     try {
       const text = buildNoshowText(client.name, treatment);
 
-      const { platform, simulated } = await trySend(messaging, {
+      const { platform, simulated, emailSent, discordMirrored } = await trySend(messaging, {
         to: contactId,
         text,
         buttons: [{ text: "Rebook Now", callbackData: "rebook:noshow" }],
@@ -96,6 +96,10 @@ export async function runNoshowFlow(): Promise<RetentionResult> {
         contact: contactId,
         platform,
         messagePreview: text.substring(0, 80) + `...${simulated ? " (simulated)" : ""}`,
+        emailAddress: client.email ?? null,
+        emailSent,
+        discordMirrored,
+        ...(!client.email && { emailSkipReason: "no email on client record" }),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

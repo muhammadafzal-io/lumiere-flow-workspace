@@ -68,7 +68,7 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
       const creditCode = generateCreditCode(client.name);
       const message = buildBirthdayMessage(client.name, creditCode);
 
-      const { platform, simulated } = await trySend(messaging, {
+      const { platform, simulated, emailSent, discordMirrored } = await trySend(messaging, {
         to: contactId,
         text: message,
         email: client.email,
@@ -77,7 +77,7 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
       });
 
       console.log(
-        `[birthday] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | contact: ${contactId} | code: ${creditCode}`,
+        `[birthday] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | email: ${emailSent ? client.email : "none"} | discord-mirror: ${discordMirrored} | contact: ${contactId} | code: ${creditCode}`,
       );
 
       if (client.id) {
@@ -90,7 +90,7 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
       await logEvent(
         "birthday",
         client.name,
-        `Birthday credit ${simulated ? "queued (simulation)" : "sent"}. Code: ${creditCode}. Valid ${CREDIT_VALID_DAYS} days.`,
+        `Birthday credit ${simulated ? "queued (simulation)" : "sent"}. Code: ${creditCode}. Valid ${CREDIT_VALID_DAYS} days.${emailSent ? ` Email sent to ${client.email}.` : ""}`,
         {
           clientId: client.id,
           phone: client.phone,
@@ -107,6 +107,10 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
         contact: contactId,
         platform,
         messagePreview: `Code: ${creditCode} — $${CREDIT_AMOUNT} birthday credit${simulated ? " (simulated)" : ""}`,
+        emailAddress: client.email ?? null,
+        emailSent,
+        discordMirrored,
+        ...(!client.email && { emailSkipReason: "no email on client record" }),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
