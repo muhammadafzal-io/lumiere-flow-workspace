@@ -25,7 +25,7 @@ interface FlowResult {
   skipped?: number;
   failed?: number;
   error?: string;
-  raw?: unknown;
+  raw?: object;
   expanded?: boolean;
   ranAt?: string;
 }
