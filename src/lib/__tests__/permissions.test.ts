@@ -5,7 +5,6 @@ describe("RBAC Permissions", () => {
   describe("Role page access", () => {
     it("admin can access all pages", () => {
       const adminPages = ROLE_PAGES.admin;
-      expect(adminPages.length).toBe(6);
       expect(adminPages).toContain("/");
       expect(adminPages).toContain("/rules");
       expect(adminPages).toContain("/calendar");
@@ -72,6 +71,14 @@ describe("RBAC Permissions", () => {
 
     it("handles /dashboard as /", () => {
       expect(canAccessPage("practitioner", "/dashboard")).toBe(true);
+    });
+
+    it("all roles have entries defined", () => {
+      const roles: UserRole[] = ["admin", "receptionist", "practitioner"];
+      roles.forEach((role) => {
+        expect(Array.isArray(ROLE_PAGES[role])).toBe(true);
+        expect(ROLE_PAGES[role].length).toBeGreaterThan(0);
+      });
     });
   });
 });

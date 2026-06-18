@@ -1,82 +1,57 @@
-/**
- * API Permission Testing Guide
- *
- * When implementing API-level RBAC, test these scenarios:
- */
-
-// Example test cases for protected API endpoints:
-const API_TESTS = {
-  "GET /api/customers": {
-    admin: "✓ allowed",
-    receptionist: "✓ allowed",
-    practitioner: "✗ forbidden",
-  },
-  "POST /api/customers": {
-    admin: "✓ allowed",
-    receptionist: "✓ allowed",
-    practitioner: "✗ forbidden",
-  },
-  "GET /api/rules": {
-    admin: "✓ allowed",
-    receptionist: "✗ forbidden",
-    practitioner: "✗ forbidden",
-  },
-  "POST /api/rules": {
-    admin: "✓ allowed",
-    receptionist: "✗ forbidden",
-    practitioner: "✗ forbidden",
-  },
-  "DELETE /api/rules/:id": {
-    admin: "✓ allowed",
-    receptionist: "✗ forbidden",
-    practitioner: "✗ forbidden",
-  },
-  "GET /api/activity": {
-    admin: "✓ allowed",
-    receptionist: "✗ forbidden",
-    practitioner: "✗ forbidden",
-  },
-  "GET /api/calendar/events": {
-    admin: "✓ allowed",
-    receptionist: "✓ allowed",
-    practitioner: "✓ allowed",
-  },
-  "POST /api/calendar/events": {
-    admin: "✓ allowed",
-    receptionist: "✓ allowed",
-    practitioner: "✗ forbidden",
-  },
-};
+import { canAccessPage } from "../permissions";
 
 /**
- * To test API permissions, you would:
- *
- * 1. Add a middleware to check user role from request headers
- * 2. Verify permission before executing each endpoint
- * 3. Return 403 Forbidden if access denied
- *
- * Example middleware:
- *
- * function requireRole(roles: UserRole[]) {
- *   return (req: NextRequest) => {
- *     const userRole = req.headers.get('x-user-role') as UserRole;
- *     if (!roles.includes(userRole)) {
- *       return NextResponse.json(
- *         { error: "Forbidden" },
- *         { status: 403 }
- *       );
- *     }
- *   };
- * }
- *
- * Usage in route:
- * export async function POST(req: NextRequest) {
- *   const role = req.headers.get('x-user-role') as UserRole;
- *   if (!canAccessPage(role, '/rules')) {
- *     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
- *   }
- *   // ... continue with the endpoint logic
- * }
+ * API-level RBAC: which roles can call which endpoints.
+ * These mirror the intent described in the API permission matrix.
  */
+describe("API Permission Matrix", () => {
+  describe("customer endpoints", () => {
+    it("admin can access /customers", () => {
+      expect(canAccessPage("admin", "/customers")).toBe(true);
+    });
 
-export const API_PERMISSION_TESTS = API_TESTS;
+    it("receptionist can access /customers", () => {
+      expect(canAccessPage("receptionist", "/customers")).toBe(true);
+    });
+
+    it("practitioner cannot access /customers", () => {
+      expect(canAccessPage("practitioner", "/customers")).toBe(false);
+    });
+  });
+
+  describe("rules endpoints", () => {
+    it("admin can access /rules", () => {
+      expect(canAccessPage("admin", "/rules")).toBe(true);
+    });
+
+    it("receptionist cannot access /rules", () => {
+      expect(canAccessPage("receptionist", "/rules")).toBe(false);
+    });
+
+    it("practitioner cannot access /rules", () => {
+      expect(canAccessPage("practitioner", "/rules")).toBe(false);
+    });
+  });
+
+  describe("activity endpoints", () => {
+    it("admin can access /activity", () => {
+      expect(canAccessPage("admin", "/activity")).toBe(true);
+    });
+
+    it("receptionist cannot access /activity", () => {
+      expect(canAccessPage("receptionist", "/activity")).toBe(false);
+    });
+
+    it("practitioner cannot access /activity", () => {
+      expect(canAccessPage("practitioner", "/activity")).toBe(false);
+    });
+  });
+
+  describe("calendar endpoints", () => {
+    it("all roles can access /calendar", () => {
+      expect(canAccessPage("admin", "/calendar")).toBe(true);
+      expect(canAccessPage("receptionist", "/calendar")).toBe(true);
+      expect(canAccessPage("practitioner", "/calendar")).toBe(true);
+    });
+  });
+});
