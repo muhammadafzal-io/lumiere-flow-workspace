@@ -126,7 +126,7 @@ export interface RetentionResult {
     emailAddress?: string | null;
     /** Whether the Resend email was dispatched successfully */
     emailSent?: boolean;
-    /** Why email was skipped (e.g. "no email on client record", "RESEND_API_KEY not set") */
+    /** Why email was skipped or failed — populated whenever emailSent=false */
     emailSkipReason?: string;
     /** Whether the Discord staff-channel mirror fired */
     discordMirrored?: boolean;

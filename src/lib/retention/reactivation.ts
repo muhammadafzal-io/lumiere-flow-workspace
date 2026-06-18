@@ -102,18 +102,21 @@ export async function runReactivationFlow(): Promise<RetentionResult> {
     try {
       const message = await generatePersonalisedMessage(client, step);
 
-      const { platform, simulated, emailSent, discordMirrored } = await trySend(messaging, {
-        to: contactId,
-        text: message,
-        email: client.email,
-        subject:
-          step === 1
-            ? `We'd love to see you again, ${client.name}`
-            : step === 2
-              ? `Still thinking about us? Your offer is waiting, ${client.name}`
-              : `One last thing before we go, ${client.name}`,
-        flowType: "reactivation",
-      });
+      const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
+        messaging,
+        {
+          to: contactId,
+          text: message,
+          email: client.email,
+          subject:
+            step === 1
+              ? `We'd love to see you again, ${client.name}`
+              : step === 2
+                ? `Still thinking about us? Your offer is waiting, ${client.name}`
+                : `One last thing before we go, ${client.name}`,
+          flowType: "reactivation",
+        },
+      );
 
       console.log(
         `[reactivation] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | step: ${step}/3 | platform: ${platform} | contact: ${contactId}`,
@@ -145,7 +148,7 @@ export async function runReactivationFlow(): Promise<RetentionResult> {
         emailAddress: client.email ?? null,
         emailSent,
         discordMirrored,
-        ...(!client.email && { emailSkipReason: "no email on client record" }),
+        ...(!emailSent && { emailSkipReason: emailError }),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

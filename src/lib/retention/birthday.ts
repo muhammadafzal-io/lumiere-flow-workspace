@@ -68,13 +68,16 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
       const creditCode = generateCreditCode(client.name);
       const message = buildBirthdayMessage(client.name, creditCode);
 
-      const { platform, simulated, emailSent, discordMirrored } = await trySend(messaging, {
-        to: contactId,
-        text: message,
-        email: client.email,
-        subject: `Happy Birthday from the Lumière team — your $${CREDIT_AMOUNT} gift is inside`,
-        flowType: "birthday",
-      });
+      const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
+        messaging,
+        {
+          to: contactId,
+          text: message,
+          email: client.email,
+          subject: `Happy Birthday from the Lumière team — your $${CREDIT_AMOUNT} gift is inside`,
+          flowType: "birthday",
+        },
+      );
 
       console.log(
         `[birthday] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | email: ${emailSent ? client.email : "none"} | discord-mirror: ${discordMirrored} | contact: ${contactId} | code: ${creditCode}`,
@@ -110,7 +113,7 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
         emailAddress: client.email ?? null,
         emailSent,
         discordMirrored,
-        ...(!client.email && { emailSkipReason: "no email on client record" }),
+        ...(!emailSent && { emailSkipReason: emailError }),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

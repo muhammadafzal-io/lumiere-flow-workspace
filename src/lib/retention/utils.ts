@@ -14,20 +14,18 @@ export interface TrySendResult {
   simulated: boolean;
   emailSent: boolean;
   discordMirrored: boolean;
+  /** Populated when emailSent=false — explains exactly why */
+  emailError?: string;
 }
 
 /**
  * Sends a retention message through up to three channels in parallel:
  *
  *  1. Primary provider  — the configured messaging provider
- *                         (Telegram / WhatsApp / Discord, set via MESSAGING_PROVIDER)
- *  2. Discord channel   — always mirrors to DISCORD_RETENTION_CHANNEL_ID so staff
- *                         see every outbound message in real time.
- *                         Skipped when the primary provider is already Discord.
- *  3. Email             — sent via Resend to msg.email when provided and
- *                         RESEND_API_KEY is configured.
+ *  2. Discord channel   — mirrors to DISCORD_RETENTION_CHANNEL_ID for staff visibility
+ *  3. Email             — sent via Resend to msg.email when provided
  *
- * DEMO_MODE=true short-circuits all sends and logs a simulation line.
+ * DEMO_MODE=true short-circuits all sends.
  */
 export async function trySend(
   messaging: MessagingProvider,
@@ -43,15 +41,27 @@ export async function trySend(
       simulated: true,
       emailSent: false,
       discordMirrored: false,
+      emailError: "DEMO_MODE is enabled",
     };
   }
 
-  // ── build channel tasks ─────────────────────────────────────────────────────
+  // ── pre-flight checks (surface skip reasons immediately) ───────────────────
+  let emailSkipReason: string | undefined;
+  if (!msg.email) {
+    emailSkipReason = "no email address on client record";
+  } else if (!process.env.RESEND_API_KEY) {
+    emailSkipReason = "RESEND_API_KEY not set in environment";
+  }
 
   const retentionChannelId = process.env.DISCORD_RETENTION_CHANNEL_ID;
   const willMirrorDiscord = !!(retentionChannelId && messaging.platform !== "discord");
-  const willSendEmail = !!(msg.email && process.env.RESEND_API_KEY);
+  const willSendEmail = !emailSkipReason;
 
+  console.log(
+    `[trySend] email=${willSendEmail ? `will send to ${msg.email}` : `skipped — ${emailSkipReason}`} | discord-mirror=${willMirrorDiscord} | from=${process.env.RESEND_FROM_EMAIL ?? "default"}`,
+  );
+
+  // ── build channel tasks ─────────────────────────────────────────────────────
   const tasks: Promise<unknown>[] = [
     // 1. Primary provider
     messaging.send(msg),
@@ -68,7 +78,7 @@ export async function trySend(
     willSendEmail
       ? sendRetentionEmail({
           to: msg.email!,
-          subject: msg.subject ?? "A message from Lumière Med Spa",
+          subject: msg.subject ?? "A message from Lumiere Med Spa",
           text: msg.text,
           flowType: msg.flowType,
         })
@@ -90,21 +100,19 @@ export async function trySend(
     );
   }
 
-  if (emailRes.status === "rejected") {
-    console.error(
-      "[trySend] Email send failed:",
-      emailRes.reason instanceof Error ? emailRes.reason.message : emailRes.reason,
-    );
+  let emailError: string | undefined = emailSkipReason;
+  if (willSendEmail && emailRes.status === "rejected") {
+    emailError =
+      emailRes.reason instanceof Error ? emailRes.reason.message : String(emailRes.reason);
+    console.error("[trySend] Email send failed:", emailError);
   }
 
   const emailSent = willSendEmail && emailRes.status === "fulfilled";
   const discordMirrored = willMirrorDiscord && discordRes.status === "fulfilled";
 
   console.log(
-    `[trySend] sent via ${messaging.platform}` +
-      (discordMirrored ? " + discord-mirror" : "") +
-      (emailSent ? ` + email(${msg.email})` : ""),
+    `[trySend] RESULT — primary:${messaging.platform} email:${emailSent ? "sent" : `FAILED(${emailError})`} discord-mirror:${discordMirrored}`,
   );
 
-  return { platform: messaging.platform, simulated: false, emailSent, discordMirrored };
+  return { platform: messaging.platform, simulated: false, emailSent, discordMirrored, emailError };
 }

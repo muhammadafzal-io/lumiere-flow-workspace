@@ -57,14 +57,17 @@ export async function runNoshowFlow(): Promise<RetentionResult> {
     try {
       const text = buildNoshowText(client.name, treatment);
 
-      const { platform, simulated, emailSent, discordMirrored } = await trySend(messaging, {
-        to: contactId,
-        text,
-        buttons: [{ text: "Rebook Now", callbackData: "rebook:noshow" }],
-        email: client.email,
-        subject: `We missed you today, ${client.name} — let's reschedule`,
-        flowType: "noshow",
-      });
+      const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
+        messaging,
+        {
+          to: contactId,
+          text,
+          buttons: [{ text: "Rebook Now", callbackData: "rebook:noshow" }],
+          email: client.email,
+          subject: `We missed you today, ${client.name} — let's reschedule`,
+          flowType: "noshow",
+        },
+      );
 
       console.log(
         `[noshow] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | contact: ${contactId}`,
@@ -99,7 +102,7 @@ export async function runNoshowFlow(): Promise<RetentionResult> {
         emailAddress: client.email ?? null,
         emailSent,
         discordMirrored,
-        ...(!client.email && { emailSkipReason: "no email on client record" }),
+        ...(!emailSent && { emailSkipReason: emailError }),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

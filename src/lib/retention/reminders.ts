@@ -119,18 +119,21 @@ export async function runReminderFlow(): Promise<RetentionResult> {
     try {
       const text = buildReminderText(appt.clientName, appt.treatment, appt.startTime, window);
 
-      const { platform, simulated, emailSent, discordMirrored } = await trySend(messaging, {
-        to: deliverTo,
-        text,
-        buttons: [
-          { text: "Confirm", callbackData: `confirm:${appt.id}` },
-          { text: "Reschedule", callbackData: `reschedule:${appt.id}` },
-          { text: "Cancel", callbackData: `cancel:${appt.id}` },
-        ],
-        email: client?.email,
-        subject: buildReminderSubject(appt.treatment, appt.startTime, window),
-        flowType: "reminder",
-      });
+      const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
+        messaging,
+        {
+          to: deliverTo,
+          text,
+          buttons: [
+            { text: "Confirm", callbackData: `confirm:${appt.id}` },
+            { text: "Reschedule", callbackData: `reschedule:${appt.id}` },
+            { text: "Cancel", callbackData: `cancel:${appt.id}` },
+          ],
+          email: client?.email,
+          subject: buildReminderSubject(appt.treatment, appt.startTime, window),
+          flowType: "reminder",
+        },
+      );
 
       console.log(
         `[reminder] ${simulated ? "SIMULATED" : "SENT"} → ${appt.clientName} | window: ${window} | platform: ${platform} | email: ${emailSent ? client?.email : "none"} | discord-mirror: ${discordMirrored} | contact: ${deliverTo}`,
@@ -158,7 +161,7 @@ export async function runReminderFlow(): Promise<RetentionResult> {
         emailAddress: client?.email ?? null,
         emailSent,
         discordMirrored,
-        ...(!client?.email && { emailSkipReason: "no email on client record" }),
+        ...(!emailSent && { emailSkipReason: emailError }),
       });
 
       if (window === "T-2h" && !client?.lastReminderSent) {
