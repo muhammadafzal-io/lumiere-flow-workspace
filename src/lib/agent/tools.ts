@@ -176,6 +176,26 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "validate_credit_code",
+      description:
+        "Check whether a client's credit or promo code is valid and how much discount it provides. Call this whenever a client mentions they have a birthday credit, promo code, or discount code. Returns validity, client name, credit amount, and expiry. Do NOT redeem — only validate.",
+      parameters: {
+        type: "object",
+        properties: {
+          code: {
+            type: "string",
+            description:
+              "The credit or promo code exactly as the client provided it (e.g. BDAY-MA-IP1L)",
+          },
+        },
+        required: ["code"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
       name: "escalate_to_human",
       description:
         "Post an escalation alert in the Lumière #lumiere-escalations Slack channel so a human team member can follow up. Use when the agent cannot or should not answer.",

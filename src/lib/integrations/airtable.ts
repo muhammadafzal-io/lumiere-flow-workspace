@@ -187,6 +187,75 @@ export async function updateClientField(
   if (error) throw new Error(error.message);
 }
 
+// ─── credit code helpers ─────────────────────────────────────────────────────
+
+export interface CreditCodeInfo {
+  raw: string;
+  code: string;
+  expiresAt: string | null;
+  isUsed: boolean;
+  isExpired: boolean;
+  isValid: boolean;
+  creditAmount: number;
+  daysRemaining: number | null;
+}
+
+export function parseCreditCode(raw: string): CreditCodeInfo {
+  const CREDIT_AMOUNT = 50;
+  const withoutUsed = raw.startsWith("USED:") ? raw.slice(5) : raw;
+  const [code, expiresAt = null] = withoutUsed.split("|");
+  const isUsed = raw.startsWith("USED:");
+
+  let isExpired = false;
+  let daysRemaining: number | null = null;
+  if (expiresAt) {
+    const expiry = new Date(expiresAt);
+    const now = new Date();
+    daysRemaining = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    isExpired = daysRemaining < 0;
+  }
+
+  return {
+    raw,
+    code,
+    expiresAt,
+    isUsed,
+    isExpired,
+    isValid: !isUsed && !isExpired,
+    creditAmount: CREDIT_AMOUNT,
+    daysRemaining,
+  };
+}
+
+export async function getClientByCreditCode(
+  code: string,
+): Promise<{ client: Client; codeInfo: CreditCodeInfo } | null> {
+  const sb = getSupabase();
+
+  // Match by display code (ignores USED: prefix and |expiry suffix)
+  const { data, error } = await sb.from(TABLE).select("*").ilike("Credit Codes", `%${code}%`);
+  if (error) throw new Error(error.message);
+  if (!data?.length) return null;
+
+  // Find exact match (code might partially match others)
+  const row = data.find((r) => {
+    const raw: string = r["Credit Codes"] ?? "";
+    return parseCreditCode(raw).code === code;
+  });
+  if (!row) return null;
+
+  return { client: rowToClient(row), codeInfo: parseCreditCode(row["Credit Codes"]) };
+}
+
+export async function redeemCreditCode(clientId: string, raw: string): Promise<void> {
+  const sb = getSupabase();
+  const { error } = await sb
+    .from(TABLE)
+    .update({ "Credit Codes": `USED:${raw.replace(/^USED:/, "")}` })
+    .eq("id", clientId);
+  if (error) throw new Error(error.message);
+}
+
 export async function createAppointmentRecord(
   appt: Omit<Appointment, "id">,
   clientId?: string,

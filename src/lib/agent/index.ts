@@ -3,7 +3,12 @@ import type { ChatCompletionMessageParam } from "openai/resources";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { TOOLS } from "./tools";
 import { checkAvailability, bookAppointment, suggestSlot } from "@/lib/services/booking-service";
-import { lookupClient, upsertClient, createAppointmentRecord } from "@/lib/integrations/airtable";
+import {
+  lookupClient,
+  upsertClient,
+  createAppointmentRecord,
+  getClientByCreditCode,
+} from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import type { AgentResult } from "@/types";
@@ -140,6 +145,40 @@ async function executeTool(
         },
       );
       return { result: { logged: true } };
+    }
+
+    case "validate_credit_code": {
+      const code = (input.code as string)?.trim().toUpperCase();
+      const result = await getClientByCreditCode(code);
+      if (!result) {
+        return { result: { valid: false, error: "Code not found" } };
+      }
+      const { client, codeInfo } = result;
+      if (codeInfo.isUsed) {
+        return {
+          result: { valid: false, error: "Code already redeemed", clientName: client.name },
+        };
+      }
+      if (codeInfo.isExpired) {
+        return {
+          result: {
+            valid: false,
+            error: `Code expired on ${codeInfo.expiresAt}`,
+            clientName: client.name,
+          },
+        };
+      }
+      return {
+        result: {
+          valid: true,
+          code: codeInfo.code,
+          clientName: client.name,
+          creditAmount: codeInfo.creditAmount,
+          expiresAt: codeInfo.expiresAt,
+          daysRemaining: codeInfo.daysRemaining,
+          message: `Valid! $${codeInfo.creditAmount} birthday credit for ${client.name}. Expires ${codeInfo.expiresAt} (${codeInfo.daysRemaining} days remaining). Staff will apply the discount at checkout.`,
+        },
+      };
     }
 
     case "escalate_to_human": {

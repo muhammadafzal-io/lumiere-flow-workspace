@@ -7,13 +7,23 @@ import type { RetentionResult } from "@/types";
 const CREDIT_AMOUNT = 50;
 const CREDIT_VALID_DAYS = 30;
 
+/** Generates a code in the format BDAY-MA-X7K2|YYYY-MM-DD (expiry encoded) */
 function generateCreditCode(clientName: string): string {
   const initials = clientName
     .split(" ")
     .map((n) => n[0].toUpperCase())
     .join("");
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `BDAY-${initials}-${rand}`;
+  const expiry = new Date(Date.now() + CREDIT_VALID_DAYS * 24 * 60 * 60_000).toLocaleDateString(
+    "en-CA",
+    { timeZone: "America/Chicago" },
+  );
+  return `BDAY-${initials}-${rand}|${expiry}`;
+}
+
+/** Returns the display code (without the expiry suffix) */
+export function displayCode(raw: string): string {
+  return raw.replace(/^USED:/, "").split("|")[0];
 }
 
 function buildBirthdayMessage(clientName: string, creditCode: string): string {
@@ -66,7 +76,7 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
 
     try {
       const creditCode = generateCreditCode(client.name);
-      const message = buildBirthdayMessage(client.name, creditCode);
+      const message = buildBirthdayMessage(client.name, displayCode(creditCode));
 
       const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
         messaging,
@@ -93,7 +103,7 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
       await logEvent(
         "birthday",
         client.name,
-        `Birthday credit ${simulated ? "queued (simulation)" : "sent"}. Code: ${creditCode}. Valid ${CREDIT_VALID_DAYS} days.${emailSent ? ` Email sent to ${client.email}.` : ""}`,
+        `Birthday credit ${simulated ? "queued (simulation)" : "sent"}. Code: ${displayCode(creditCode)}. Valid ${CREDIT_VALID_DAYS} days.${emailSent ? ` Email sent to ${client.email}.` : ""}`,
         {
           clientId: client.id,
           phone: client.phone,
@@ -109,7 +119,7 @@ export async function runBirthdayFlow(): Promise<RetentionResult> {
         status: "sent",
         contact: contactId,
         platform,
-        messagePreview: `Code: ${creditCode} — $${CREDIT_AMOUNT} birthday credit${simulated ? " (simulated)" : ""}`,
+        messagePreview: `Code: ${displayCode(creditCode)} — $${CREDIT_AMOUNT} birthday credit${simulated ? " (simulated)" : ""}`,
         emailAddress: client.email ?? null,
         emailSent,
         discordMirrored,

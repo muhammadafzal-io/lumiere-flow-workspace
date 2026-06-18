@@ -9,6 +9,7 @@ import {
   ScrollText,
   Settings as SettingsIcon,
   Calendar as CalendarIcon,
+  BadgePercent,
 } from "lucide-react";
 import {
   Sidebar,
@@ -29,6 +30,7 @@ const items = [
   { title: "Calendar", url: "/calendar", icon: CalendarIcon },
   { title: "Customers", url: "/customers", icon: Users },
   { title: "Activity Log", url: "/activity", icon: ScrollText },
+  { title: "Checkout", url: "/checkout", icon: BadgePercent },
   { title: "Settings", url: "/settings", icon: SettingsIcon },
 ];
 
