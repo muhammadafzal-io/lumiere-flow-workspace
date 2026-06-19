@@ -46,11 +46,17 @@ export async function trySend(
   }
 
   // ── pre-flight checks (surface skip reasons immediately) ───────────────────
+  const hasEmailProvider = !!(
+    (process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM_EMAIL) ||
+    (process.env.GMAIL_USER && process.env.GMAIL_APP_PASSWORD) ||
+    process.env.RESEND_API_KEY
+  );
+
   let emailSkipReason: string | undefined;
   if (!msg.email) {
     emailSkipReason = "no email address on client record";
-  } else if (!process.env.RESEND_API_KEY) {
-    emailSkipReason = "RESEND_API_KEY not set in environment";
+  } else if (!hasEmailProvider) {
+    emailSkipReason = "no email provider configured (SendGrid, Gmail, or Resend)";
   }
 
   const retentionChannelId = process.env.DISCORD_RETENTION_CHANNEL_ID;
