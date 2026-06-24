@@ -1,6 +1,10 @@
 import "server-only";
 
-import { getAllClients, getDormantClients, getUpcomingBirthdays } from "@/lib/integrations/airtable";
+import {
+  getAllClients,
+  getDormantClients,
+  getUpcomingBirthdays,
+} from "@/lib/integrations/airtable";
 import { getUpcomingAppointments } from "@/lib/integrations/google-calendar";
 import type { Client } from "@/types";
 import {
@@ -11,7 +15,12 @@ import {
   type RetentionFlowKey,
 } from "@/lib/retention/audience-config";
 
-export type { AudienceFilters, AudienceResult, AudienceRow, RetentionFlowKey } from "@/lib/retention/audience-config";
+export type {
+  AudienceFilters,
+  AudienceResult,
+  AudienceRow,
+  RetentionFlowKey,
+} from "@/lib/retention/audience-config";
 export {
   applyVisitRangePreset,
   defaultFiltersForFlow,
@@ -32,7 +41,10 @@ function daysSince(iso?: string): number {
   return (Date.now() - new Date(iso).getTime()) / 86400000;
 }
 
-function matchesLastVisit(lastVisit: string | undefined, bucket: AudienceFilters["last_visit"]): boolean {
+function matchesLastVisit(
+  lastVisit: string | undefined,
+  bucket: AudienceFilters["last_visit"],
+): boolean {
   if (!bucket || bucket === "any") return true;
   if (!lastVisit) return false;
   const days = daysSince(lastVisit);
@@ -195,8 +207,7 @@ async function buildReminderAudience(filters: AudienceFilters): Promise<Audience
 
 async function buildNoshowAudience(filters: AudienceFilters): Promise<AudienceResult> {
   const today =
-    filters.noshow_date ??
-    new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+    filters.noshow_date ?? new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
   const clients = await getAllClients();
   const noshows = clients.filter((c) => {
     if (c.status?.toLowerCase() !== "no-show") return false;
@@ -239,9 +250,7 @@ async function buildReactivationAudience(filters: AudienceFilters): Promise<Audi
       }
       return matchesClientFilters(c, filters);
     })
-    .map((c) =>
-      clientToRow(c, `Step ${(c.reactivationStep ?? 0) + 1}/3 · dormant ${days}d+`),
-    );
+    .map((c) => clientToRow(c, `Step ${(c.reactivationStep ?? 0) + 1}/3 · dormant ${days}d+`));
 
   return {
     flow: "reactivation",
@@ -275,9 +284,7 @@ export async function getFilterSuggestions(
         });
       }
     }
-    return [...values]
-      .filter((v) => !query || v.toLowerCase().includes(query))
-      .slice(0, 12);
+    return [...values].filter((v) => !query || v.toLowerCase().includes(query)).slice(0, 12);
   }
 
   if (field === "visit_range") {

@@ -212,7 +212,11 @@ export function parseFiltersFromSearchParams(
     has_email:
       hasEmail === "yes" ? true : hasEmail === "no" ? false : (defaults.has_email ?? undefined),
     has_contact:
-      hasContact === "yes" ? true : hasContact === "no" ? false : (defaults.has_contact ?? undefined),
+      hasContact === "yes"
+        ? true
+        : hasContact === "no"
+          ? false
+          : (defaults.has_contact ?? undefined),
     birthday_days_ahead: params.has("birthday_days_ahead")
       ? Number(params.get("birthday_days_ahead"))
       : defaults.birthday_days_ahead,
@@ -233,10 +237,7 @@ export function parseFiltersFromSearchParams(
   };
 }
 
-export function applyVisitRangePreset(
-  filters: AudienceFilters,
-  preset: string,
-): AudienceFilters {
+export function applyVisitRangePreset(filters: AudienceFilters, preset: string): AudienceFilters {
   if (preset.startsWith("1-4")) return { ...filters, visit_min: 1, visit_max: 4 };
   if (preset.startsWith("5-9")) return { ...filters, visit_min: 5, visit_max: 9 };
   if (preset.startsWith("10-14")) return { ...filters, visit_min: 10, visit_max: 14 };
