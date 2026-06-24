@@ -97,7 +97,12 @@ function triggerDetail(rule: Rule, c: Customer): string {
 export async function buildRuleAudience(
   rule: Rule,
   extraFilters: RuleAudienceFilters = {},
-): Promise<{ total: number; eligible: number; rows: RuleAudienceRow[]; activeFilterCount: number }> {
+): Promise<{
+  total: number;
+  eligible: number;
+  rows: RuleAudienceRow[];
+  activeFilterCount: number;
+}> {
   const customers = await fetchAllCustomers();
   const total = customers.length;
 
@@ -147,9 +152,7 @@ export async function getRuleFilterSuggestions(
   if (field === "treatment") {
     const values = new Set<string>();
     customers.forEach((c) => c.treatments.forEach((t) => values.add(t)));
-    return [...values]
-      .filter((v) => !query || v.toLowerCase().includes(query))
-      .slice(0, 12);
+    return [...values].filter((v) => !query || v.toLowerCase().includes(query)).slice(0, 12);
   }
   if (field === "visit_range") {
     return ["1-4 visits", "5-9 visits", "10-14 visits", "15+ visits"].filter(

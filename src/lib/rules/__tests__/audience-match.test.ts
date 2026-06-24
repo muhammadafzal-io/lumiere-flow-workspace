@@ -64,12 +64,12 @@ describe("matchesRuleTrigger", () => {
   it("Birthday matches upcoming birthdays", () => {
     const r = rule({ trigger_type: "Birthday", trigger_config: { days_before: 7 } });
     const now = new Date("2026-06-23T12:00:00");
-    expect(
-      matchesRuleTrigger(customer({ id: "1", name: "A", birthday: "06-25" }), r, now),
-    ).toBe(birthdayWithinDays("06-25", 7, now));
-    expect(
-      matchesRuleTrigger(customer({ id: "2", name: "B", birthday: "12-25" }), r, now),
-    ).toBe(birthdayWithinDays("12-25", 7, now));
+    expect(matchesRuleTrigger(customer({ id: "1", name: "A", birthday: "06-25" }), r, now)).toBe(
+      birthdayWithinDays("06-25", 7, now),
+    );
+    expect(matchesRuleTrigger(customer({ id: "2", name: "B", birthday: "12-25" }), r, now)).toBe(
+      birthdayWithinDays("12-25", 7, now),
+    );
   });
 
   it("Treatment-based requires treatment and days_after since last visit", () => {
@@ -112,10 +112,7 @@ describe("matchesRuleTrigger", () => {
     const recent = new Date(Date.now() - 12 * 3600000).toISOString();
     const old = new Date(Date.now() - 48 * 3600000).toISOString();
     expect(
-      matchesRuleTrigger(
-        customer({ id: "1", name: "A", status: "Active", last_visit: recent }),
-        r,
-      ),
+      matchesRuleTrigger(customer({ id: "1", name: "A", status: "Active", last_visit: recent }), r),
     ).toBe(false);
     expect(
       matchesRuleTrigger(
@@ -173,9 +170,9 @@ describe("matchesExtraFilters", () => {
   });
 
   it("has_email requires email", () => {
-    expect(matchesExtraFilters(customer({ id: "1", name: "A", email: "" }), { has_email: true })).toBe(
-      false,
-    );
+    expect(
+      matchesExtraFilters(customer({ id: "1", name: "A", email: "" }), { has_email: true }),
+    ).toBe(false);
   });
 });
 

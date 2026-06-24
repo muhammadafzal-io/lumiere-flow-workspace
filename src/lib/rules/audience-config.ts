@@ -37,10 +37,7 @@ export function applyVisitRangePreset(
   return filters;
 }
 
-export function countRuleFilters(
-  filters: RuleAudienceFilters,
-  ruleMinVisits?: number,
-): number {
+export function countRuleFilters(filters: RuleAudienceFilters, ruleMinVisits?: number): number {
   let n = 0;
   if (filters.q?.trim()) n++;
   if (filters.status?.length) n++;
@@ -61,10 +58,6 @@ export function parseRuleAudienceParams(params: URLSearchParams): RuleAudienceFi
     visit_max: params.has("visit_max") ? Number(params.get("visit_max")) : undefined,
     last_visit: (params.get("last_visit") as RuleAudienceFilters["last_visit"]) ?? "any",
     has_email:
-      params.get("has_email") === "yes"
-        ? true
-        : params.get("has_email") === "no"
-          ? false
-          : true,
+      params.get("has_email") === "yes" ? true : params.get("has_email") === "no" ? false : true,
   };
 }
