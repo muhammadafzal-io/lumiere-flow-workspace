@@ -56,10 +56,7 @@ async function fetchSentClientIds(ruleId: string): Promise<Set<string>> {
   return new Set((data ?? []).map((row) => String(row.client_id)));
 }
 
-async function recordSends(
-  ruleId: string,
-  details: RetentionResult["details"],
-): Promise<void> {
+async function recordSends(ruleId: string, details: RetentionResult["details"]): Promise<void> {
   const sb = getSupabase();
   const rows = details
     .filter((d) => d.status === "sent" && d.clientId)
@@ -124,7 +121,12 @@ export async function runScheduledRules(opts?: {
     const schedule = parseRuleSchedule(rule.trigger_config?.schedule);
 
     if (!schedule.enabled) {
-      results.push({ ruleId: rule.id, ruleName: rule.name, due: false, skipped: "schedule disabled" });
+      results.push({
+        ruleId: rule.id,
+        ruleName: rule.name,
+        due: false,
+        skipped: "schedule disabled",
+      });
       continue;
     }
 

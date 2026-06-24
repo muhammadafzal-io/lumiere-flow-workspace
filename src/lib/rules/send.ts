@@ -79,12 +79,17 @@ export async function sendRuleEmails(
         continue;
       }
 
-      await logEvent("inquiry", r.name, `Rule "${rule.name}" email sent.${rule.offer_code ? ` Code: ${rule.offer_code}` : ""}`, {
-        clientId: r.id,
-        email: r.email,
-        platform,
-        status: "success",
-      });
+      await logEvent(
+        "inquiry",
+        r.name,
+        `Rule "${rule.name}" email sent.${rule.offer_code ? ` Code: ${rule.offer_code}` : ""}`,
+        {
+          clientId: r.id,
+          email: r.email,
+          platform,
+          status: "success",
+        },
+      );
 
       result.sent++;
       result.details.push({
@@ -108,10 +113,7 @@ export async function sendRuleEmails(
 
   if (rule.id) {
     const sb = getSupabase();
-    await sb
-      .from("Rules")
-      .update({ "Last Run At": new Date().toISOString() })
-      .eq("id", rule.id);
+    await sb.from("Rules").update({ "Last Run At": new Date().toISOString() }).eq("id", rule.id);
   }
 
   return result;
