@@ -7,6 +7,7 @@ export interface ParsedRule {
   channel: Channel;
   message_template: string;
   offer_code?: string;
+  audience_filters?: Record<string, any>;
 }
 
 export function parseNaturalLanguage(input: string): ParsedRule {
@@ -15,7 +16,7 @@ export function parseNaturalLanguage(input: string): ParsedRule {
   let trigger_config: Record<string, any> = {};
   let name = "New rule";
   let offer_code: string | undefined;
-  let channel: Channel = "Discord";
+  let channel: Channel = "Email";
 
   // Discount detection
   const pctMatch = text.match(/(\d{1,2})\s*%/);
@@ -23,7 +24,14 @@ export function parseNaturalLanguage(input: string): ParsedRule {
   if (pctMatch) offer_code = `SAVE${pctMatch[1]}`;
   else if (dollarMatch) offer_code = `CREDIT${dollarMatch[1]}`;
 
-  if (/no[- ]show|missed/.test(text)) {
+  if (/(\d+)\s*(times|visits)|visited\s+(more\s+than|over)\s+(\d+)/.test(text)) {
+    trigger_type = "Visit count";
+    const m = text.match(/(\d+)\s*(times|visits)/) ?? text.match(/(?:more\s+than|over)\s+(\d+)/);
+    const n = m ? parseInt(m[1] || "5", 10) : 5;
+    trigger_config = { min_visits: n };
+    name = `${n}+ visit loyalty reward`;
+    channel = "Email";
+  } else if (/no[- ]show|missed/.test(text)) {
     trigger_type = "No-show recovery";
     trigger_config = { hours_after: 24 };
     name = "No-show recovery";
@@ -66,8 +74,10 @@ export function parseNaturalLanguage(input: string): ParsedRule {
     name = "Date-based campaign";
   }
 
-  if (/telegram/.test(text)) channel = "Telegram";
-  if (/whatsapp/.test(text)) channel = "WhatsApp";
+  if (/telegram/.test(text)) channel = "Discord";
+  else if (/whatsapp/.test(text)) channel = "WhatsApp";
+  else if (/discord/.test(text)) channel = "Discord";
+  else if (/email/.test(text)) channel = "Email";
 
   const message_template = generateCopy(trigger_type, trigger_config, offer_code);
   return { name, trigger_type, trigger_config, channel, message_template, offer_code };
@@ -75,6 +85,10 @@ export function parseNaturalLanguage(input: string): ParsedRule {
 
 export function generateCopy(t: TriggerType, cfg: Record<string, any>, offer?: string): string {
   switch (t) {
+    case "Visit count":
+      return `Hi {first_name}, thank you for being a loyal Lumière guest! Enjoy ${offer ? "$" + (offer.match(/\d+/)?.[0] || "50") + " off" : "a special offer"} on your next visit.${offer ? " Code: {credit_code}." : ""}`;
+    case "Custom":
+      return `Hi {first_name}, we have a special offer just for you.${offer ? " Use code {credit_code}." : ""} Book your next visit today.`;
     case "Birthday":
       return `Hi {first_name}, a little birthday gift from Lumière — enjoy ${offer ? "$" + (offer.match(/\d+/)?.[0] || "50") + " credit" : "a treat on us"} on your next visit.${offer ? " Code: {credit_code}." : ""}`;
     case "Inactivity":

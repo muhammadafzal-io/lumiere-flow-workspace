@@ -3,7 +3,7 @@ import { getDormantClients, updateClientField } from "@/lib/integrations/airtabl
 import { logEvent } from "@/lib/integrations/activity-log";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
-import type { Client, RetentionResult } from "@/types";
+import type { Client, RetentionResult, RunFlowOptions } from "@/types";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -49,9 +49,13 @@ function daysSince(iso?: string): number {
   return (Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24);
 }
 
-export async function runReactivationFlow(): Promise<RetentionResult> {
+export async function runReactivationFlow(opts?: RunFlowOptions): Promise<RetentionResult> {
   const messaging = getMessagingProvider();
-  const clients = await getDormantClients(90);
+  let clients = await getDormantClients(90);
+  if (opts?.clientIds?.length) {
+    const idSet = new Set(opts.clientIds);
+    clients = clients.filter((c) => c.id && idSet.has(c.id));
+  }
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
 
   for (const client of clients) {

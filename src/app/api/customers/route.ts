@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { deriveLastVisit } from "@/lib/customers/last-visit";
 import { getSupabase } from "@/lib/supabase";
 import type { Customer, Status, Treatment } from "@/lib/types";
 
@@ -51,7 +52,7 @@ function mapRow(row: any): Customer {
     phone: row["Phone"] ?? "",
     email: row["Email"] ?? "",
     birthday: row["Birthday"] ?? "",
-    last_visit: row["Last Visit"] ?? "",
+    last_visit: deriveLastVisit(row["Last Visit"], apptStrings),
     total_visits: apptStrings.length,
     lifetime_value: 0,
     treatments,
@@ -87,6 +88,7 @@ export async function GET(req: NextRequest) {
       customers = customers.filter((c) => {
         if (!c.last_visit) return false;
         const days = (now - new Date(c.last_visit).getTime()) / 86400000;
+        if (last === "7") return days <= 7;
         if (last === "30") return days <= 30;
         if (last === "30-90") return days > 30 && days <= 90;
         if (last === "90") return days > 90;
@@ -134,7 +136,7 @@ export async function PATCH(req: Request) {
   try {
     const sb = getSupabase();
     const body = await req.json();
-    const { recordId, name, phone, email, birthday, status, notes, treatmentInterest } = body;
+    const { recordId, name, phone, email, birthday, status, notes, treatmentInterest, appointments, lastVisit } = body;
     if (!recordId) return NextResponse.json({ error: "recordId is required" }, { status: 400 });
 
     const fields: Record<string, any> = {};
@@ -145,6 +147,8 @@ export async function PATCH(req: Request) {
     if (status !== undefined) fields["Status"] = status;
     if (notes !== undefined) fields["Notes"] = notes;
     if (treatmentInterest !== undefined) fields["Treatment Interest"] = treatmentInterest;
+    if (appointments !== undefined) fields["Appointments"] = appointments;
+    if (lastVisit !== undefined) fields["Last Visit"] = lastVisit;
 
     const { data, error } = await sb
       .from(TABLE)

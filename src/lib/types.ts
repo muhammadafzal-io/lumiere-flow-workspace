@@ -1,13 +1,26 @@
 export type Status = "Active" | "Dormant" | "VIP" | "New";
 export type Treatment = "Botox" | "HydraFacial" | "Laser" | "Microneedling" | "IV Drip" | "Filler";
-export type Channel = "Discord" | "Telegram" | "WhatsApp";
+export type Channel = "Discord" | "WhatsApp" | "Email";
+
+/** Channels offered when creating or editing a rule in the admin UI. */
+export const RULE_CHANNELS = ["Email", "Discord", "WhatsApp"] as const satisfies readonly Channel[];
+
+/** Map legacy DB values (e.g. Telegram) to a supported rule channel. */
+export function normalizeRuleChannel(raw: string | null | undefined): Channel {
+  const c = (raw ?? "Email").trim();
+  if (c === "Telegram") return "Email";
+  if (RULE_CHANNELS.includes(c as Channel)) return c as Channel;
+  return "Email";
+}
 export type RuleStatus = "active" | "paused" | "draft";
 export type TriggerType =
   | "Inactivity"
   | "Birthday"
   | "Treatment-based"
   | "Date-based"
-  | "No-show recovery";
+  | "No-show recovery"
+  | "Visit count"
+  | "Custom";
 export type MsgStatus = "Delivered" | "Opened" | "Replied" | "Failed" | "Sent";
 export type AppointmentStatus = "confirmed" | "pending" | "completed" | "cancelled" | "no_show";
 export type AppointmentSource = "ai_booked" | "manual";
@@ -77,6 +90,67 @@ export interface AiTranscriptMsg {
   text: string;
   ts: string;
 }
+export type CampaignStatus = "draft" | "active" | "paused" | "expired";
+export type CampaignProcessingStatus = "idle" | "processing" | "completed" | "failed";
+export type CampaignTriggerType = "visit_count";
+export type CampaignRewardType = "credit" | "discount";
+export type CampaignRecipientStatus = "pending" | "sent" | "redeemed" | "failed";
+export type VisitCountPreset = 5 | 10 | 15 | "custom";
+
+export interface Campaign {
+  id: string;
+  name: string;
+  description: string;
+  trigger_type: CampaignTriggerType;
+  visit_count: number;
+  reward_type: CampaignRewardType;
+  reward_amount: number;
+  status: CampaignStatus;
+  processing_status: CampaignProcessingStatus;
+  last_processed_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CampaignRecipient {
+  id: string;
+  campaign_id: string;
+  customer_id: string;
+  customer_name: string;
+  customer_email: string;
+  visit_count: number;
+  reward_amount: number;
+  status: CampaignRecipientStatus;
+  sent_at?: string;
+  redeemed_at?: string;
+  created_at: string;
+  campaign_name?: string;
+  reward_code?: string;
+  is_redeemed?: boolean;
+}
+
+export interface CustomerReward {
+  id: string;
+  customer_id: string;
+  campaign_id: string;
+  reward_type: CampaignRewardType;
+  reward_amount: number;
+  reward_code: string;
+  is_redeemed: boolean;
+  redeemed_at?: string;
+  created_at: string;
+}
+
+export interface CampaignStats {
+  eligible: number;
+  rewards_assigned: number;
+  emails_sent: number;
+  pending: number;
+  failed: number;
+  redeemed: number;
+  not_redeemed: number;
+}
+
 export interface Appointment {
   id: string;
   customer_id: string;

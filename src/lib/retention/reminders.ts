@@ -4,7 +4,7 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
-import type { RetentionResult } from "@/types";
+import type { RetentionResult, RunFlowOptions } from "@/types";
 
 function hoursUntil(isoTime: string): number {
   return (new Date(isoTime).getTime() - Date.now()) / (1000 * 60 * 60);
@@ -59,9 +59,13 @@ function buildReminderSubject(treatment: string, startTime: string, window: stri
   return `Your ${treatment} appointment ${label} — ${displayDate}`;
 }
 
-export async function runReminderFlow(): Promise<RetentionResult> {
+export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionResult> {
   const messaging = getMessagingProvider();
-  const appointments = await getUpcomingAppointments(4);
+  let appointments = await getUpcomingAppointments(4);
+  if (opts?.appointmentIds?.length) {
+    const idSet = new Set(opts.appointmentIds);
+    appointments = appointments.filter((a) => idSet.has(a.id ?? a.clientContact));
+  }
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
 
   for (const appt of appointments) {

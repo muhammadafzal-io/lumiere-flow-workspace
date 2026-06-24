@@ -194,8 +194,6 @@ export default function Dashboard() {
     return d;
   });
 
-  // Upcoming sends (active rules)
-  const maxAudienceSize = Math.max(...activeRules.map((r: any) => r.audience_size ?? 0), 1);
 
   return (
     <div className="space-y-6">
@@ -247,97 +245,52 @@ export default function Dashboard() {
             ))}
       </div>
 
-      {/* Recent activity + Upcoming sends */}
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-        {/* Recent activity */}
-        <div className="lg:col-span-3 rounded-lg border bg-card">
-          <div className="px-5 py-4 border-b flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Recent activity</h2>
-            <Link href="/activity" className="text-xs text-primary hover:underline">
-              View all
-            </Link>
-          </div>
-          <div className="divide-y">
-            {loading ? (
-              Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="px-5 py-3 flex gap-3 animate-pulse">
-                  <div className="h-2 w-2 rounded-full bg-muted mt-1.5 flex-shrink-0" />
-                  <div className="flex-1 space-y-1.5">
-                    <div className="h-3 bg-muted rounded w-1/3" />
-                    <div className="h-2.5 bg-muted rounded w-1/2" />
-                  </div>
-                  <div className="h-2.5 bg-muted rounded w-16" />
-                </div>
-              ))
-            ) : activity.length === 0 ? (
-              <div className="px-5 py-8 text-center text-sm text-muted-foreground">
-                No recent activity.
-              </div>
-            ) : (
-              activity.map((a) => (
-                <div key={a.id} className="px-5 py-3 flex items-center gap-3 text-sm">
-                  {statusDot(a.status)}
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{a.clientName || "Customer"}</div>
-                    <div className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                      <span className={eventTypeBadge(a.eventType)}>{a.eventType}</span>
-                      <span>· {a.platform}</span>
-                    </div>
-                  </div>
-                  <div className="text-xs text-muted-foreground whitespace-nowrap">
-                    {new Date(a.timestamp).toLocaleString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                      hour: "numeric",
-                      minute: "2-digit",
-                    })}
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+      {/* Recent activity */}
+      <div className="rounded-lg border bg-card">
+        <div className="px-5 py-4 border-b flex items-center justify-between">
+          <h2 className="text-sm font-semibold">Recent activity</h2>
+          <Link href="/activity" className="text-xs text-primary hover:underline">
+            View all
+          </Link>
         </div>
-
-        {/* Upcoming sends */}
-        <div className="lg:col-span-2 rounded-lg border bg-card">
-          <div className="px-5 py-4 border-b">
-            <h2 className="text-sm font-semibold">Upcoming sends · next 7 days</h2>
-          </div>
-          <div className="p-5 space-y-3">
-            {loading ? (
-              Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className="animate-pulse space-y-1.5">
-                  <div className="h-3 bg-muted rounded w-2/3" />
-                  <div className="h-2 bg-muted rounded-full" />
+        <div className="divide-y">
+          {loading ? (
+            Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="px-5 py-3 flex gap-3 animate-pulse">
+                <div className="h-2 w-2 rounded-full bg-muted mt-1.5 flex-shrink-0" />
+                <div className="flex-1 space-y-1.5">
+                  <div className="h-3 bg-muted rounded w-1/3" />
+                  <div className="h-2.5 bg-muted rounded w-1/2" />
                 </div>
-              ))
-            ) : activeRules.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-4">
-                No active rules.{" "}
-                <Link href="/rules" className="text-primary hover:underline">
-                  Create one →
-                </Link>
-              </p>
-            ) : (
-              activeRules.map((r: any) => {
-                const count = Math.max(1, Math.round((r.audience_size ?? 0) / 7));
-                return (
-                  <div key={r.id}>
-                    <div className="flex justify-between text-xs mb-1">
-                      <span className="font-medium truncate">{r.name}</span>
-                      <span className="text-muted-foreground">{count}</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                      <div
-                        className="h-full bg-primary rounded-full"
-                        style={{ width: `${(count / Math.max(maxAudienceSize / 7, 1)) * 100}%` }}
-                      />
-                    </div>
+                <div className="h-2.5 bg-muted rounded w-16" />
+              </div>
+            ))
+          ) : activity.length === 0 ? (
+            <div className="px-5 py-8 text-center text-sm text-muted-foreground">
+              No recent activity.
+            </div>
+          ) : (
+            activity.map((a) => (
+              <div key={a.id} className="px-5 py-3 flex items-center gap-3 text-sm">
+                {statusDot(a.status)}
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{a.clientName || "Customer"}</div>
+                  <div className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
+                    <span className={eventTypeBadge(a.eventType)}>{a.eventType}</span>
+                    <span>· {a.platform}</span>
                   </div>
-                );
-              })
-            )}
-          </div>
+                </div>
+                <div className="text-xs text-muted-foreground whitespace-nowrap">
+                  {new Date(a.timestamp).toLocaleString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
 

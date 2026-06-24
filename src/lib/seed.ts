@@ -276,7 +276,7 @@ export function seedRules(): Rule[] {
       trigger_type: "Treatment-based",
       trigger_config: { treatment: "Any", days_after: 1 },
       audience_filter: [],
-      channel: "Telegram",
+      channel: "Discord",
       message_template:
         "Welcome to Lumière, {first_name}. Here's your aftercare guide and a few tips for the next 48 hours.",
       status: "active",

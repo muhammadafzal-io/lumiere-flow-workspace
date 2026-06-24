@@ -99,7 +99,8 @@ export type EventType =
   | "noshow-recovery"
   | "reminder"
   | "reactivation"
-  | "birthday";
+  | "birthday"
+  | "campaign";
 
 export interface OpsLogEntry {
   timestamp: string;
@@ -111,6 +112,13 @@ export interface OpsLogEntry {
   details: string;
   status: "success" | "pending" | "failed";
   platform: string;
+}
+
+export interface RunFlowOptions {
+  /** Limit processing to these client record IDs */
+  clientIds?: string[];
+  /** Limit reminder processing to these appointment IDs */
+  appointmentIds?: string[];
 }
 
 export interface RetentionResult {

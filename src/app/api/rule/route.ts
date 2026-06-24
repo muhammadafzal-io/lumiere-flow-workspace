@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
+import { normalizeRuleChannel } from "@/lib/types";
 
 const TABLE = "Rules";
 
@@ -16,7 +17,7 @@ function mapRow(r: any) {
     status: (r["Status"] ?? "draft").toLowerCase() as "active" | "draft" | "paused",
     trigger_type: r["Trigger Type"] ?? "Inactivity",
     trigger_config,
-    channel: r["Channel"] ?? "Discord",
+    channel: normalizeRuleChannel(r["Channel"]),
     message_template: r["Message Template"] ?? "",
     offer_code: r["Incentive Code"] || undefined,
     audience_filter: [],
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
         Status: status,
         "Trigger Type": triggerType,
         "Trigger Config": JSON.stringify(triggerConfig ?? {}),
-        Channel: channel,
+        Channel: normalizeRuleChannel(channel),
         "Message Template": messageTemplate,
         "Incentive Code": incentiveCode || "",
       })
@@ -103,7 +104,7 @@ export async function PATCH(req: Request) {
         Status: status,
         "Trigger Type": triggerType,
         "Trigger Config": JSON.stringify(triggerConfig ?? {}),
-        Channel: channel,
+        Channel: normalizeRuleChannel(channel),
         "Message Template": messageTemplate,
         "Incentive Code": incentiveCode || "",
       })

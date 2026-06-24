@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
@@ -9,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Plus, Zap, RefreshCw } from "lucide-react";
+import { MoreHorizontal, Plus, Zap, RefreshCw, ChevronRight, Users } from "lucide-react";
 import type { Rule } from "@/lib/types";
 import { RuleModal } from "@/components/RuleModal";
 import { toast } from "sonner";
@@ -26,17 +27,24 @@ function statusBadge(s: string) {
 }
 
 function triggerDescription(r: Rule): string {
+  const cfg = r.trigger_config ?? {};
   switch (r.trigger_type) {
+    case "Visit count":
+      return `${cfg.min_visits ?? cfg.visit_count ?? "?"}+ visits`;
     case "Birthday":
-      return `${r.trigger_config.days_before} days before birthday`;
+      return `${cfg.days_before} days before birthday`;
     case "Inactivity":
-      return `No visit in ${r.trigger_config.days} days`;
+      return `No visit in ${cfg.days} days`;
     case "Treatment-based":
-      return `${r.trigger_config.days_after} days after ${r.trigger_config.treatment}`;
+      return `${cfg.days_after} days after ${cfg.treatment}`;
     case "Date-based":
-      return `One-time on ${r.trigger_config.date}`;
+      return `One-time on ${cfg.date}`;
     case "No-show recovery":
-      return `${r.trigger_config.hours_after}h after missed appointment`;
+      return `${cfg.hours_after}h after missed appointment`;
+    case "Custom":
+      return "Custom audience filters";
+    default:
+      return r.trigger_type;
   }
 }
 
@@ -96,7 +104,6 @@ export default function RulesPage() {
       const exists = prev.some((r) => r.id === rule.id);
       return exists ? prev.map((r) => (r.id === rule.id ? rule : r)) : [rule, ...prev];
     });
-    // Switch to the tab where the saved rule lives so the user can see it
     if (rule.status === "active" || rule.status === "paused" || rule.status === "draft") {
       setTab(rule.status);
     }
@@ -176,10 +183,11 @@ export default function RulesPage() {
     <div className="space-y-6">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Rules</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Rules & Campaigns</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Automated messaging triggered by customer behavior. Press{" "}
-            <kbd className="border rounded px-1 text-[10px]">N</kbd> to create.
+            Describe a rule in plain English (AI) or set it manually — preview audience and send
+            offers by email. Press <kbd className="border rounded px-1 text-[10px]">N</kbd> to
+            create.
           </p>
         </div>
         <div className="flex gap-2">
@@ -219,8 +227,9 @@ export default function RulesPage() {
               <h3 className="mt-3 text-sm font-medium">
                 No {STATUS_COPY[tab].toLowerCase()} rules
               </h3>
-              <p className="text-xs text-muted-foreground mt-1">
-                Create your first rule to start automating customer messaging.
+              <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
+                e.g. &quot;Send $50 off to clients with 5+ visits&quot; — use AI or set a custom
+                trigger, then pick who to email.
               </p>
               <Button
                 size="sm"
@@ -242,13 +251,15 @@ export default function RulesPage() {
                   className="rounded-lg border bg-card p-5 hover:border-primary/40 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
+                    <Link href={`/rules/${r.id}`} className="min-w-0 flex-1 group">
                       <div className="flex items-center gap-2">
-                        <h3 className="font-semibold">{r.name}</h3>
+                        <h3 className="font-semibold group-hover:text-primary transition-colors">
+                          {r.name}
+                        </h3>
                         <span className={statusBadge(r.status)}>{STATUS_COPY[r.status]}</span>
                       </div>
                       <p className="text-sm text-muted-foreground mt-1.5">
-                        Trigger: {triggerDescription(r)}
+                        {r.trigger_type}: {triggerDescription(r)}
                         {r.offer_code ? ` · Offer ${r.offer_code}` : ""}
                       </p>
                       <div className="flex flex-wrap gap-x-5 gap-y-1 text-xs text-muted-foreground mt-3">
@@ -257,8 +268,12 @@ export default function RulesPage() {
                         </span>
                         {r.last_run_at && <span>Last sent {timeAgo(r.last_run_at)}</span>}
                         <span>Created {timeAgo(r.created_at)}</span>
+                        <span className="flex items-center gap-0.5 text-primary">
+                          <Users className="h-3 w-3" /> Audience & send{" "}
+                          <ChevronRight className="h-3 w-3" />
+                        </span>
                       </div>
-                    </div>
+                    </Link>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -266,13 +281,16 @@ export default function RulesPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                          <Link href={`/rules/${r.id}`}>Audience & send emails</Link>
+                        </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() => {
                             setEditing(r);
                             setModalOpen(true);
                           }}
                         >
-                          Edit
+                          Edit rule
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => togglePause(r)}>
                           {r.status === "active" ? "Pause" : "Activate"}

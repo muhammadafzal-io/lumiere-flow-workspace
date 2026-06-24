@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,17 +14,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Sparkles, Loader2, Wand2 } from "lucide-react";
-import { parseNaturalLanguage, generateCopy } from "@/lib/ai-parse";
+import { Sparkles, Loader2, Wand2, RefreshCw } from "lucide-react";
+import { generateCopy } from "@/lib/ai-parse";
+import { formatLastVisit } from "@/lib/customers/last-visit";
 import type { Rule, TriggerType, Channel, Treatment } from "@/lib/types";
+import { RULE_CHANNELS, normalizeRuleChannel } from "@/lib/types";
+import type { RuleAudienceRow } from "@/lib/rules/audience-config";
 import { toast } from "sonner";
 
 const TRIGGER_TYPES: TriggerType[] = [
+  "Visit count",
   "Inactivity",
   "Birthday",
   "Treatment-based",
   "Date-based",
   "No-show recovery",
+  "Custom",
 ];
 const TREATMENTS: Treatment[] = [
   "Botox",
@@ -36,9 +41,9 @@ const TREATMENTS: Treatment[] = [
 ];
 
 const EXAMPLES = [
+  "Send a $50 discount to clients who visited more than 5 times",
   "Send a birthday greeting 7 days before with a $50 credit",
   "For clients who got Botox 3 months ago, send a touch-up reminder",
-  "Run a Women's Day sale on March 8th — 25% off any facial",
 ];
 
 interface Props {
@@ -51,28 +56,21 @@ interface Props {
 export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
   const [nl, setNl] = useState("");
   const [parsing, setParsing] = useState(false);
+  const [generatingMsg, setGeneratingMsg] = useState(false);
   const [parsed, setParsed] = useState(false);
+  const [aiReady, setAiReady] = useState<boolean | null>(null);
 
   const [name, setName] = useState("");
   const [triggerType, setTriggerType] = useState<TriggerType>("Inactivity");
   const [cfg, setCfg] = useState<Record<string, any>>({ days: 90 });
-  const [channel, setChannel] = useState<Channel>("Discord");
+  const [channel, setChannel] = useState<Channel>("Email");
   const [message, setMessage] = useState("");
   const [offer, setOffer] = useState("");
 
-  // Real customers from Supabase
-  const [customers, setCustomers] = useState<
-    { id: string; name: string; last_visit: string; treatments: Treatment[] }[]
-  >([]);
-  const [loadingCustomers, setLoadingCustomers] = useState(true);
-  useEffect(() => {
-    setLoadingCustomers(true);
-    fetch("/api/customers?limit=500")
-      .then((r) => r.json())
-      .then((d) => setCustomers(d.customers ?? []))
-      .catch(() => {})
-      .finally(() => setLoadingCustomers(false));
-  }, []);
+  const [previewTotal, setPreviewTotal] = useState(0);
+  const [previewEligible, setPreviewEligible] = useState(0);
+  const [previewRows, setPreviewRows] = useState<RuleAudienceRow[]>([]);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   // Textarea ref for inserting template tags at cursor
   const msgRef = useRef<HTMLTextAreaElement>(null);
@@ -95,11 +93,20 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
 
   useEffect(() => {
     if (open) {
+      fetch("/api/rule/parse")
+        .then((r) => r.json())
+        .then((d) => setAiReady(!!d.configured))
+        .catch(() => setAiReady(false));
+    }
+  }, [open]);
+
+  useEffect(() => {
+    if (open) {
       if (editing) {
         setName(editing.name);
         setTriggerType(editing.trigger_type);
         setCfg(editing.trigger_config);
-        setChannel(editing.channel);
+        setChannel(normalizeRuleChannel(editing.channel));
         setMessage(editing.message_template);
         setOffer(editing.offer_code || "");
         setParsed(true);
@@ -107,53 +114,101 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
         setNl("");
         setParsed(false);
         setName("");
-        setTriggerType("Inactivity");
-        setCfg({ days: 90 });
-        setChannel("Discord");
+        setTriggerType("Visit count");
+        setCfg({ min_visits: 5 });
+        setChannel("Email");
         setMessage("");
         setOffer("");
       }
     }
   }, [open, editing]);
 
-  const handleParse = (input?: string) => {
+  const handleParse = async (input?: string) => {
     const text = input ?? nl;
     if (!text.trim()) return;
     if (input) setNl(input);
     setParsing(true);
-    setTimeout(() => {
-      const p = parseNaturalLanguage(text);
+    try {
+      const res = await fetch("/api/rule/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ description: text }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Parse failed");
+
+      const p = data.rule;
       setName(p.name);
       setTriggerType(p.trigger_type);
-      setCfg(p.trigger_config);
-      setChannel(p.channel);
+      setCfg({
+        ...p.trigger_config,
+        ...(p.audience_filters ? { audience_filters: p.audience_filters } : {}),
+      });
+      setChannel(normalizeRuleChannel(p.channel));
       setMessage(p.message_template);
       setOffer(p.offer_code || "");
-      setParsing(false);
       setParsed(true);
-      toast.success("AI parsed your rule");
-    }, 1500);
+      toast.success("AI built your rule");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "AI parse failed");
+    } finally {
+      setParsing(false);
+    }
   };
 
-  // Live audience preview
-  const audience = useMemo(() => {
-    let pool = customers;
-    if (triggerType === "Inactivity") {
-      const days = Number(cfg.days || 90);
-      const cutoff = Date.now() - days * 86400000;
-      pool = pool.filter((c) => new Date(c.last_visit).getTime() < cutoff);
-    } else if (triggerType === "Birthday") {
-      pool = pool.slice(0, Math.round(pool.length / 12));
-    } else if (triggerType === "Treatment-based") {
-      const t = cfg.treatment;
-      if (t && t !== "Any") pool = pool.filter((c) => c.treatments.includes(t));
-    } else if (triggerType === "Date-based") {
-      // all customers eligible
-    } else if (triggerType === "No-show recovery") {
-      pool = pool.slice(0, 6);
+  const handleGenerateMessage = async () => {
+    if (!name.trim()) {
+      toast.error("Add a rule name first");
+      return;
     }
-    return pool;
-  }, [customers, triggerType, cfg]);
+    setGeneratingMsg(true);
+    try {
+      const res = await fetch("/api/rule/generate-message", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ruleName: name,
+          triggerType,
+          triggerConfig: cfg,
+          offerCode: offer || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Generation failed");
+      setMessage(data.message);
+      toast.success("AI rewrote your message");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "AI message failed");
+    } finally {
+      setGeneratingMsg(false);
+    }
+  };
+
+  // Live audience preview — same engine as /rules/[id]
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => {
+      setLoadingPreview(true);
+      fetch("/api/rule/preview-audience", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ triggerType, triggerConfig: cfg, channel }),
+      })
+        .then((r) => r.json())
+        .then((d) => {
+          setPreviewTotal(d.total ?? 0);
+          setPreviewEligible(d.eligible ?? 0);
+          setPreviewRows((d.rows ?? []).slice(0, 5));
+        })
+        .catch(() => {
+          setPreviewTotal(0);
+          setPreviewEligible(0);
+          setPreviewRows([]);
+        })
+        .finally(() => setLoadingPreview(false));
+    }, 350);
+    return () => clearTimeout(t);
+  }, [open, triggerType, cfg, channel]);
 
   // Update copy when trigger changes (only if not user-edited beyond simple)
   useEffect(() => {
@@ -211,13 +266,18 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
           <div className="rounded-lg border bg-accent/40 p-4">
             <div className="flex items-center gap-2 text-sm font-medium mb-2">
               <Sparkles className="h-4 w-4 text-primary" />
-              Describe your rule in plain English
+              Describe your rule — AI builds everything
+              {aiReady === false && (
+                <span className="text-[10px] text-destructive font-normal ml-1">
+                  (OPENAI_API_KEY required)
+                </span>
+              )}
             </div>
             <div className="flex gap-2">
               <Textarea
                 value={nl}
                 onChange={(e) => setNl(e.target.value)}
-                placeholder="e.g., For customers who haven't visited in 6 months, send them 20% off full body laser"
+                placeholder="e.g., Send $50 off to clients who visited 5+ times"
                 className="min-h-[60px] bg-background resize-none"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleParse();
@@ -249,7 +309,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
             {parsing && <div className="mt-3 h-2 rounded shimmer bg-secondary" />}
             {parsed && !parsing && (
               <div className="mt-3 text-xs text-primary flex items-center gap-1.5">
-                <Sparkles className="h-3 w-3" /> AI parsed your rule — review and edit below.
+                <Sparkles className="h-3 w-3" /> AI filled in your rule — review and edit below, then save.
               </div>
             )}
           </div>
@@ -300,7 +360,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
               onValueChange={(v) => setChannel(v as Channel)}
               className="flex gap-4 mt-2"
             >
-              {(["Discord", "Telegram", "WhatsApp"] as Channel[]).map((c) => (
+              {RULE_CHANNELS.map((c) => (
                 <label key={c} className="flex items-center gap-2 text-sm cursor-pointer">
                   <RadioGroupItem value={c} /> {c}
                 </label>
@@ -309,7 +369,24 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
           </div>
 
           <div>
-            <Label>Message preview</Label>
+            <div className="flex items-center justify-between">
+              <Label>Message preview</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                disabled={generatingMsg || !name.trim()}
+                onClick={handleGenerateMessage}
+              >
+                {generatingMsg ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3 w-3" />
+                )}
+                Rewrite with AI
+              </Button>
+            </div>
             <Textarea
               ref={msgRef}
               value={message}
@@ -350,7 +427,10 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
 
           <div className="rounded-lg border bg-secondary/40 p-4">
             <div className="text-sm font-medium">Audience preview</div>
-            {loadingCustomers ? (
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Matches the same filters used on the run page after you save.
+            </p>
+            {loadingPreview ? (
               <div className="mt-2 space-y-2 animate-pulse">
                 <div className="h-7 bg-muted rounded w-1/4" />
                 <div className="h-3 bg-muted rounded w-1/2 mt-3" />
@@ -358,25 +438,40 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
               </div>
             ) : (
               <>
-                <div className="text-2xl font-semibold mt-1 tracking-tight">
-                  {audience.length} customers
+                <div className="text-2xl font-semibold mt-2 tracking-tight">
+                  {previewEligible}{" "}
+                  <span className="text-base font-normal text-muted-foreground">
+                    of {previewTotal} customers
+                  </span>
                 </div>
-                <div className="mt-3 space-y-1.5">
-                  {audience
-                    .slice(0, 3)
-                    .map((c: { id: string; name: string; last_visit: string }) => (
-                      <div key={c.id} className="flex items-center justify-between text-xs">
-                        <span className="font-medium">{c.name}</span>
-                        <span className="text-muted-foreground">
-                          {c.last_visit
-                            ? `Last visit ${new Date(c.last_visit).toLocaleDateString()}`
-                            : "No visits recorded"}
-                        </span>
-                      </div>
-                    ))}
-                  {audience.length === 0 && (
-                    <div className="text-xs text-muted-foreground">
-                      No customers match — adjust the trigger settings.
+                {previewRows.length > 0 && (
+                  <div className="mt-3 grid grid-cols-[1fr_auto_auto] gap-x-4 gap-y-1 text-[10px] uppercase tracking-wide text-muted-foreground border-b pb-1">
+                    <span>Name</span>
+                    <span>Visits</span>
+                    <span>Last visit</span>
+                  </div>
+                )}
+                <div className="mt-1 space-y-1">
+                  {previewRows.map((c) => (
+                    <div
+                      key={c.id}
+                      className="grid grid-cols-[1fr_auto_auto] gap-x-4 items-center text-xs py-1"
+                    >
+                      <span className="font-medium truncate">{c.name}</span>
+                      <span className="text-muted-foreground tabular-nums">{c.visits ?? 0}</span>
+                      <span className="text-muted-foreground whitespace-nowrap">
+                        {formatLastVisit(c.lastVisit)}
+                      </span>
+                    </div>
+                  ))}
+                  {previewEligible === 0 && (
+                    <div className="text-xs text-muted-foreground py-2">
+                      No customers match — adjust trigger settings or add audience filters via AI.
+                    </div>
+                  )}
+                  {previewEligible > previewRows.length && (
+                    <div className="text-[11px] text-muted-foreground pt-1">
+                      +{previewEligible - previewRows.length} more on the run page
                     </div>
                   )}
                 </div>
@@ -398,6 +493,10 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
 
 function defaultCfg(t: TriggerType): Record<string, any> {
   switch (t) {
+    case "Visit count":
+      return { min_visits: 5 };
+    case "Custom":
+      return {};
     case "Inactivity":
       return { days: 90 };
     case "Birthday":
@@ -489,15 +588,36 @@ function TriggerDetails({
         />
       </div>
     );
-  return (
-    <div>
-      <Label>Hours after no-show</Label>
-      <Input
-        type="number"
-        value={cfg.hours_after ?? 24}
-        onChange={(e) => setCfg({ ...cfg, hours_after: +e.target.value })}
-        className="mt-1.5"
-      />
-    </div>
-  );
+  if (t === "Visit count")
+    return (
+      <div>
+        <Label>Minimum visits</Label>
+        <Input
+          type="number"
+          min={1}
+          value={cfg.min_visits ?? cfg.visit_count ?? 5}
+          onChange={(e) => setCfg({ ...cfg, min_visits: +e.target.value })}
+          className="mt-1.5"
+        />
+      </div>
+    );
+  if (t === "Custom")
+    return (
+      <div className="text-sm text-muted-foreground pt-6">
+        Define audience with filters on the run page after saving.
+      </div>
+    );
+  if (t === "No-show recovery")
+    return (
+      <div>
+        <Label>Hours after no-show</Label>
+        <Input
+          type="number"
+          value={cfg.hours_after ?? 24}
+          onChange={(e) => setCfg({ ...cfg, hours_after: +e.target.value })}
+          className="mt-1.5"
+        />
+      </div>
+    );
+  return null;
 }

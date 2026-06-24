@@ -3,7 +3,7 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
-import type { RetentionResult } from "@/types";
+import type { RetentionResult, RunFlowOptions } from "@/types";
 
 function buildNoshowText(clientName: string, treatment: string): string {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
@@ -19,14 +19,14 @@ function buildNoshowText(clientName: string, treatment: string): string {
   ].join("\n");
 }
 
-export async function runNoshowFlow(): Promise<RetentionResult> {
+export async function runNoshowFlow(opts?: RunFlowOptions): Promise<RetentionResult> {
   const messaging = getMessagingProvider();
   // Use Austin CT date so late-night runs don't shift to the next UTC day
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
 
   const clients = await getAllClients();
-  const noshows = clients.filter((c) => {
+  let noshows = clients.filter((c) => {
     if (c.status?.toLowerCase() !== "no-show") return false;
     if (!c.lastVisit) return false;
     // Plain YYYY-MM-DD date — compare directly (no timezone conversion needed)
@@ -37,6 +37,11 @@ export async function runNoshowFlow(): Promise<RetentionResult> {
     });
     return visitDate === today;
   });
+
+  if (opts?.clientIds?.length) {
+    const idSet = new Set(opts.clientIds);
+    noshows = noshows.filter((c) => c.id && idSet.has(c.id));
+  }
 
   for (const client of noshows) {
     if (!client.telegramId && !client.phone) {

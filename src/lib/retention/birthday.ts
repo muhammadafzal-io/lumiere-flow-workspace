@@ -2,7 +2,7 @@ import { getUpcomingBirthdays, updateClientField } from "@/lib/integrations/airt
 import { logEvent } from "@/lib/integrations/activity-log";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
-import type { RetentionResult } from "@/types";
+import type { RetentionResult, RunFlowOptions } from "@/types";
 
 const CREDIT_AMOUNT = 50;
 const CREDIT_VALID_DAYS = 30;
@@ -45,9 +45,13 @@ function buildBirthdayMessage(clientName: string, creditCode: string): string {
   ].join("\n");
 }
 
-export async function runBirthdayFlow(): Promise<RetentionResult> {
+export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionResult> {
   const messaging = getMessagingProvider();
-  const clients = await getUpcomingBirthdays(7);
+  let clients = await getUpcomingBirthdays(7);
+  if (opts?.clientIds?.length) {
+    const idSet = new Set(opts.clientIds);
+    clients = clients.filter((c) => c.id && idSet.has(c.id));
+  }
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
 
   for (const client of clients) {

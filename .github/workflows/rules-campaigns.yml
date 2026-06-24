@@ -1,0 +1,39 @@
+name: Rule campaign auto-send
+
+# Vercel Hobby: use GitHub Actions instead of Vercel Cron for /api/cron/rules.
+# Requires repo secret CRON_SECRET (same value as Vercel env CRON_SECRET).
+
+on:
+  schedule:
+    # Hourly UTC — app checks run_at in America/Chicago before sending
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  rules-cron:
+    name: Run scheduled rule sends
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger rules cron endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.VERCEL_APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing CRON_SECRET in GitHub repository secrets"
+            exit 1
+          fi
+          BASE="${APP_URL:-https://lumiere-flow-workspace-htt1.vercel.app}"
+          echo "Calling ${BASE}/api/cron/rules"
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE}/api/cron/rules")
+          body=$(echo "$response" | head -n -1)
+          status=$(echo "$response" | tail -n1)
+          echo "Status: $status"
+          echo "Response: $body"
+          if [ "$status" != "200" ]; then
+            echo "Rule cron failed with status $status"
+            exit 1
+          fi
+          echo "Rule cron completed"

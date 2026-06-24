@@ -12,6 +12,7 @@ export type EmailFlowType =
   | "booking"
   | "cancellation"
   | "reschedule"
+  | "campaign"
   | "general";
 
 export interface SendEmailOptions {
@@ -54,6 +55,7 @@ const FLOW_ACCENT: Record<EmailFlowType, string> = {
   booking: "#4CAF82",
   cancellation: "#C0392B",
   reschedule: "#E67E22",
+  campaign: "#C9A96E",
   general: BRAND.gold,
 };
 
@@ -65,6 +67,7 @@ const FLOW_ICON: Record<EmailFlowType, string> = {
   booking: "✅",
   cancellation: "❌",
   reschedule: "🔄",
+  campaign: "🎁",
   general: "💌",
 };
 

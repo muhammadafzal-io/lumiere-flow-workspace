@@ -3,9 +3,11 @@ import { runReminderFlow } from "@/lib/retention/reminders";
 import { runNoshowFlow } from "@/lib/retention/noshow";
 import { runReactivationFlow } from "@/lib/retention/reactivation";
 import { runBirthdayFlow } from "@/lib/retention/birthday";
+import { processAllActiveCampaigns } from "@/lib/campaigns/process";
+import { sendAllPendingCampaignEmails } from "@/lib/campaigns/send";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 function isAuthorised(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -25,6 +27,15 @@ export async function GET(req: NextRequest) {
     noshow: runNoshowFlow,
     reactivation: runReactivationFlow,
     birthday: runBirthdayFlow,
+    campaigns: async () => {
+      const process = await processAllActiveCampaigns();
+      const send = await sendAllPendingCampaignEmails();
+      return { process, send: send.totals };
+    },
+    rules: async () => {
+      const { runScheduledRules } = await import("@/lib/rules/run-scheduled");
+      return runScheduledRules();
+    },
   };
 
   // Run a single flow if specified, otherwise run all
@@ -37,12 +48,13 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Run all flows in parallel
-  const [reminders, noshow, reactivation, birthday] = await Promise.allSettled([
+  // Run all flows in parallel (campaigns runs sequentially internally)
+  const [reminders, noshow, reactivation, birthday, campaigns] = await Promise.allSettled([
     runReminderFlow(),
     runNoshowFlow(),
     runReactivationFlow(),
     runBirthdayFlow(),
+    runners.campaigns(),
   ]);
 
   return NextResponse.json({
@@ -64,6 +76,10 @@ export async function GET(req: NextRequest) {
         birthday.status === "fulfilled"
           ? birthday.value
           : { error: String((birthday as PromiseRejectedResult).reason) },
+      campaigns:
+        campaigns.status === "fulfilled"
+          ? campaigns.value
+          : { error: String((campaigns as PromiseRejectedResult).reason) },
     },
   });
 }
