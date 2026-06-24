@@ -196,7 +196,9 @@ function getGmailTransport() {
  *   3. Resend    — RESEND_API_KEY set                         → requires verified domain for arbitrary recipients
  */
 export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> {
-  console.log(`[email] ATTEMPT → to: ${opts.to} | flow: ${opts.flowType ?? "general"} | subject: ${opts.subject}`);
+  console.log(
+    `[email] ATTEMPT → to: ${opts.to} | flow: ${opts.flowType ?? "general"} | subject: ${opts.subject}`,
+  );
   const html = buildEmailHtml(opts);
 
   // ── 1. SendGrid (single sender verification — no domain DNS needed) ──────
@@ -215,7 +217,10 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
       });
       console.log(`[email] SENT via SendGrid → ${opts.to}`);
     } catch (err) {
-      console.error(`[email] FAILED via SendGrid → ${opts.to}`, err instanceof Error ? err.message : err);
+      console.error(
+        `[email] FAILED via SendGrid → ${opts.to}`,
+        err instanceof Error ? err.message : err,
+      );
       throw err;
     }
     return;
@@ -230,7 +235,10 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
       await gmail.sendMail({ from, to: opts.to, subject: opts.subject, html, text: opts.text });
       console.log(`[email] SENT via Gmail → ${opts.to}`);
     } catch (err) {
-      console.error(`[email] FAILED via Gmail → ${opts.to}`, err instanceof Error ? err.message : err);
+      console.error(
+        `[email] FAILED via Gmail → ${opts.to}`,
+        err instanceof Error ? err.message : err,
+      );
       throw err;
     }
     return;
@@ -238,7 +246,9 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
 
   // ── 3. Resend (requires verified domain for arbitrary recipients) ─────────
   if (!process.env.RESEND_API_KEY) {
-    console.warn(`[email] SKIP — no email provider configured (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY)`);
+    console.warn(
+      `[email] SKIP — no email provider configured (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY)`,
+    );
     return;
   }
 
@@ -256,7 +266,10 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
     if (error) throw new Error(`Resend error: ${error.message}`);
     console.log(`[email] SENT via Resend → ${opts.to}`);
   } catch (err) {
-    console.error(`[email] FAILED via Resend → ${opts.to}`, err instanceof Error ? err.message : err);
+    console.error(
+      `[email] FAILED via Resend → ${opts.to}`,
+      err instanceof Error ? err.message : err,
+    );
     throw err;
   }
 }

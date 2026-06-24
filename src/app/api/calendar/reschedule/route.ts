@@ -120,9 +120,7 @@ export async function PATCH(req: NextRequest) {
         const emailInDesc =
           parseField(description, "Email") ||
           description.match(/Email:\s*([^\s\n]+@[^\s\n]+)/i)?.[1];
-        const client = contact
-          ? await lookupClient({ phone: contact }).catch(() => null)
-          : null;
+        const client = contact ? await lookupClient({ phone: contact }).catch(() => null) : null;
         const email = client?.email || emailInDesc;
         if (!email) return;
 
