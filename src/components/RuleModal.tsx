@@ -309,7 +309,8 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
             {parsing && <div className="mt-3 h-2 rounded shimmer bg-secondary" />}
             {parsed && !parsing && (
               <div className="mt-3 text-xs text-primary flex items-center gap-1.5">
-                <Sparkles className="h-3 w-3" /> AI filled in your rule — review and edit below, then save.
+                <Sparkles className="h-3 w-3" /> AI filled in your rule — review and edit below,
+                then save.
               </div>
             )}
           </div>

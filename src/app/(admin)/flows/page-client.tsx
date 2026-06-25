@@ -19,7 +19,11 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AudienceFilterPanel } from "@/components/retention/AudienceFilterPanel";
-import type { AudienceFilters, AudienceRow, RetentionFlowKey } from "@/lib/retention/audience-config";
+import type {
+  AudienceFilters,
+  AudienceRow,
+  RetentionFlowKey,
+} from "@/lib/retention/audience-config";
 import { defaultFiltersForFlow } from "@/lib/retention/audience-config";
 import { toast } from "sonner";
 
@@ -201,7 +205,11 @@ export default function FlowsClient() {
               )}
               {showFilters ? "Hide filters" : "Show filters"}
             </Button>
-            <Button onClick={runFlow} disabled={result.status === "running" || loading} className="gap-1.5">
+            <Button
+              onClick={runFlow}
+              disabled={result.status === "running" || loading}
+              className="gap-1.5"
+            >
               {result.status === "running" ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
@@ -296,9 +304,7 @@ export default function FlowsClient() {
                   </th>
                   <th className="px-4 py-2.5 font-medium">Name</th>
                   <th className="px-4 py-2.5 font-medium">Email</th>
-                  {flow !== "reminders" && (
-                    <th className="px-4 py-2.5 font-medium">Visits</th>
-                  )}
+                  {flow !== "reminders" && <th className="px-4 py-2.5 font-medium">Visits</th>}
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5 font-medium">Detail</th>
                 </tr>
@@ -330,12 +336,14 @@ export default function FlowsClient() {
                         />
                       </td>
                       <td className="px-4 py-2.5 font-medium text-primary">{r.name}</td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{r.email || r.phone || "—"}</td>
-                      {flow !== "reminders" && (
-                        <td className="px-4 py-2.5">{r.visits ?? "—"}</td>
-                      )}
+                      <td className="px-4 py-2.5 text-muted-foreground">
+                        {r.email || r.phone || "—"}
+                      </td>
+                      {flow !== "reminders" && <td className="px-4 py-2.5">{r.visits ?? "—"}</td>}
                       <td className="px-4 py-2.5">{r.status ?? "—"}</td>
-                      <td className="px-4 py-2.5 text-xs text-muted-foreground">{r.detail ?? r.treatment ?? "—"}</td>
+                      <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                        {r.detail ?? r.treatment ?? "—"}
+                      </td>
                     </tr>
                   ))
                 )}

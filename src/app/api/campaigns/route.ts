@@ -46,15 +46,8 @@ export async function POST(req: Request) {
   try {
     const sb = getSupabase();
     const body = await req.json();
-    const {
-      name,
-      description,
-      visit_count,
-      reward_type,
-      reward_amount,
-      status,
-      trigger_type,
-    } = body;
+    const { name, description, visit_count, reward_type, reward_amount, status, trigger_type } =
+      body;
 
     if (!name?.trim()) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });

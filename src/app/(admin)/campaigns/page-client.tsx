@@ -89,9 +89,7 @@ export default function CampaignsPage() {
         body: JSON.stringify({ id: c.id, status: newStatus }),
       });
       if (!res.ok) throw new Error();
-      setCampaigns((prev) =>
-        prev.map((x) => (x.id === c.id ? { ...x, status: newStatus } : x)),
-      );
+      setCampaigns((prev) => prev.map((x) => (x.id === c.id ? { ...x, status: newStatus } : x)));
       toast.success(`Campaign ${STATUS_COPY[newStatus].toLowerCase()}`);
     } catch {
       toast.error("Failed to update campaign");

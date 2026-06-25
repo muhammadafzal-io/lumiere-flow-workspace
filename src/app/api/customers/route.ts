@@ -136,7 +136,18 @@ export async function PATCH(req: Request) {
   try {
     const sb = getSupabase();
     const body = await req.json();
-    const { recordId, name, phone, email, birthday, status, notes, treatmentInterest, appointments, lastVisit } = body;
+    const {
+      recordId,
+      name,
+      phone,
+      email,
+      birthday,
+      status,
+      notes,
+      treatmentInterest,
+      appointments,
+      lastVisit,
+    } = body;
     if (!recordId) return NextResponse.json({ error: "recordId is required" }, { status: 400 });
 
     const fields: Record<string, any> = {};

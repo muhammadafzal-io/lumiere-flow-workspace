@@ -58,7 +58,10 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const flow = req.nextUrl.searchParams.get("flow") as FlowKey | null;
   if (!flow || !(flow in FLOW_MAP)) {
-    return NextResponse.json({ ok: false, error: "Missing or invalid ?flow= param" }, { status: 400 });
+    return NextResponse.json(
+      { ok: false, error: "Missing or invalid ?flow= param" },
+      { status: 400 },
+    );
   }
 
   try {

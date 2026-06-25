@@ -30,10 +30,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
       .eq("campaign_id", id)
       .order("created_at", { ascending: false });
 
-    const { data: rewards } = await sb
-      .from("customer_rewards")
-      .select("*")
-      .eq("campaign_id", id);
+    const { data: rewards } = await sb.from("customer_rewards").select("*").eq("campaign_id", id);
 
     const rewardByCustomer = new Map(
       (rewards ?? []).map((r) => [String(r.customer_id), mapRewardRow(r)]),

@@ -199,11 +199,7 @@ export default function CampaignDetailPage() {
             Scan & assign
           </Button>
           <Button onClick={runSend} disabled={sending} className="gap-1.5">
-            {sending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Mail className="h-4 w-4" />
-            )}
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
             Send emails
           </Button>
         </div>

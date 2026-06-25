@@ -43,8 +43,7 @@ export function CampaignModal({ open, onOpenChange, editing, onSaved }: Props) {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const visitCount =
-    visitPreset === "custom" ? customVisits : Number(visitPreset);
+  const visitCount = visitPreset === "custom" ? customVisits : Number(visitPreset);
 
   useEffect(() => {
     if (open) {

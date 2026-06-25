@@ -108,10 +108,7 @@ export default function RuleAudiencePage() {
     return () => clearTimeout(t);
   }, [load]);
 
-  const visibleRows = useMemo(
-    () => rows.filter((r) => !skipped.has(r.id)),
-    [rows, skipped],
-  );
+  const visibleRows = useMemo(() => rows.filter((r) => !skipped.has(r.id)), [rows, skipped]);
 
   const sendTargets = useMemo(() => {
     const pool = visibleRows;
@@ -249,8 +246,16 @@ export default function RuleAudiencePage() {
             <Button variant="outline" size="icon" onClick={load}>
               <RefreshCw className="h-4 w-4" />
             </Button>
-            <Button onClick={sendEmails} disabled={sending || sendTargets.length === 0} className="gap-1.5">
-              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
+            <Button
+              onClick={sendEmails}
+              disabled={sending || sendTargets.length === 0}
+              className="gap-1.5"
+            >
+              {sending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mail className="h-4 w-4" />
+              )}
               Send to {sendTargets.length}
             </Button>
           </div>
@@ -301,19 +306,30 @@ export default function RuleAudiencePage() {
                 AI filter
               </Button>
             </div>
-            {aiExplanation && (
-              <p className="text-xs text-muted-foreground">{aiExplanation}</p>
-            )}
+            {aiExplanation && <p className="text-xs text-muted-foreground">{aiExplanation}</p>}
           </div>
 
           <div className="px-4 py-3 border-b flex flex-wrap items-center gap-3">
-            <Button variant="outline" size="sm" className="md:hidden" onClick={() => setShowFilters((v) => !v)}>
-              {showFilters ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+            <Button
+              variant="outline"
+              size="sm"
+              className="md:hidden"
+              onClick={() => setShowFilters((v) => !v)}
+            >
+              {showFilters ? (
+                <PanelLeftClose className="h-4 w-4" />
+              ) : (
+                <PanelLeft className="h-4 w-4" />
+              )}
             </Button>
             <span className="text-sm">
-              Total <strong>{total}</strong> · Eligible <strong className="text-primary">{eligible}</strong>
+              Total <strong>{total}</strong> · Eligible{" "}
+              <strong className="text-primary">{eligible}</strong>
               {skipped.size > 0 && (
-                <> · Skipped <strong>{skipped.size}</strong></>
+                <>
+                  {" "}
+                  · Skipped <strong>{skipped.size}</strong>
+                </>
               )}
             </span>
             <div className="relative flex-1 min-w-[180px] max-w-sm ml-auto">
@@ -381,7 +397,9 @@ export default function RuleAudiencePage() {
                           {formatLastVisit(r.lastVisit)}
                         </td>
                         <td className="px-4 py-2.5">{r.status ?? "—"}</td>
-                        <td className="px-4 py-2.5 text-xs text-muted-foreground">{r.detail ?? "—"}</td>
+                        <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                          {r.detail ?? "—"}
+                        </td>
                         <td className="px-4 py-2.5">
                           {isSkipped ? (
                             <button

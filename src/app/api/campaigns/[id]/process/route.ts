@@ -14,7 +14,11 @@ export async function POST(_req: NextRequest, ctx: RouteCtx) {
   } catch (error) {
     console.error("POST /api/campaigns/[id]/process error:", error);
     const message = error instanceof Error ? error.message : "Internal Server Error";
-    const status = message.includes("not found") ? 404 : message.includes("Only active") ? 400 : 500;
+    const status = message.includes("not found")
+      ? 404
+      : message.includes("Only active")
+        ? 400
+        : 500;
     return NextResponse.json({ ok: false, error: message }, { status });
   }
 }
