@@ -26,7 +26,7 @@ import { canAccessPage } from "@/lib/permissions";
 
 const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Rules", url: "/rules", icon: Zap },
+  { title: "Rules & Campaigns", url: "/rules", icon: Zap },
   { title: "Calendar", url: "/calendar", icon: CalendarIcon },
   { title: "Customers", url: "/customers", icon: Users },
   { title: "Activity Log", url: "/activity", icon: ScrollText },

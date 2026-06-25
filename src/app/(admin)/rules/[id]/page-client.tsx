@@ -219,7 +219,7 @@ export default function RuleAudiencePage() {
       <div className="px-6 pt-2 pb-4 border-b shrink-0">
         <Button variant="ghost" size="sm" asChild className="-ml-2 mb-2">
           <Link href="/rules">
-            <ArrowLeft className="h-4 w-4 mr-1" /> Rules
+            <ArrowLeft className="h-4 w-4 mr-1" /> Rules & Campaigns
           </Link>
         </Button>
         <div className="flex items-start justify-between gap-4 flex-wrap">

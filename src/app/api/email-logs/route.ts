@@ -12,13 +12,18 @@ export async function GET(req: NextRequest) {
   try {
     const params = req.nextUrl.searchParams;
     const category = (params.get("category") ?? "all") as EmailSendCategory | "all";
+    const categoriesRaw = params.get("categories");
+    const categories = categoriesRaw
+      ? (categoriesRaw.split(",").filter(Boolean) as EmailSendCategory[])
+      : undefined;
     const status = (params.get("status") ?? "all") as EmailSendStatus | "all";
     const triggerType = (params.get("trigger") ?? "all") as EmailSendTrigger | "all";
     const search = params.get("search") ?? undefined;
     const limit = params.has("limit") ? Number(params.get("limit")) : 300;
 
     const { entries, stats } = await readEmailSendLog({
-      category,
+      category: categories?.length ? "all" : category,
+      categories,
       status,
       triggerType,
       search,

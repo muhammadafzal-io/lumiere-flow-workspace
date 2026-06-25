@@ -56,6 +56,7 @@ export interface LogEmailSendInput {
 
 export interface ReadEmailSendLogFilters {
   category?: EmailSendCategory | "all";
+  categories?: EmailSendCategory[];
   status?: EmailSendStatus | "all";
   triggerType?: EmailSendTrigger | "all";
   search?: string;
@@ -105,6 +106,17 @@ export async function logEmailSend(input: LogEmailSendInput): Promise<void> {
   }
 }
 
+function isMissingTableError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("email_sends") && (msg.includes("schema cache") || msg.includes("does not exist"))
+  );
+}
+
+export function emailSendsMigrationHint(): string {
+  return "Run migrations/create_email_sends.sql in the Supabase SQL Editor for your production project (same project as Vercel SUPABASE_URL).";
+}
+
 export async function readEmailSendLog(
   filters: ReadEmailSendLogFilters = {},
 ): Promise<{ entries: EmailSendLogEntry[]; stats: Record<EmailSendStatus, number> }> {
@@ -113,7 +125,9 @@ export async function readEmailSendLog(
 
   let query = sb.from(TABLE).select("*").order("created_at", { ascending: false }).limit(limit);
 
-  if (filters.category && filters.category !== "all") {
+  if (filters.categories?.length) {
+    query = query.in("category", filters.categories);
+  } else if (filters.category && filters.category !== "all") {
     query = query.eq("category", filters.category);
   }
   if (filters.status && filters.status !== "all") {
@@ -124,7 +138,12 @@ export async function readEmailSendLog(
   }
 
   const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isMissingTableError(error)) {
+      throw new Error(`email_sends table missing. ${emailSendsMigrationHint()}`);
+    }
+    throw new Error(error.message);
+  }
 
   let entries = (data ?? []).map((row) => mapRow(row as Record<string, unknown>));
 

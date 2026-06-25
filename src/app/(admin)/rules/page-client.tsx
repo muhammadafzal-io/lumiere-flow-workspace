@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Plus, Zap, RefreshCw, ChevronRight, Users } from "lucide-react";
+import { MoreHorizontal, Plus, Zap, RefreshCw, ChevronRight, Users, Mail } from "lucide-react";
 import type { Rule } from "@/lib/types";
 import { RuleModal } from "@/components/RuleModal";
 import { toast } from "sonner";
@@ -191,6 +191,12 @@ export default function RulesPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" asChild>
+            <Link href="/email-logs?categories=rule,campaign">
+              <Mail className="h-4 w-4 mr-1.5" />
+              View send history
+            </Link>
+          </Button>
           <Button variant="outline" size="icon" onClick={fetchRules} disabled={loading}>
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </Button>

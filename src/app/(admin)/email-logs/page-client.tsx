@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RefreshCw, Mail } from "lucide-react";
-import type { EmailSendLogEntry } from "@/lib/integrations/email-send-log";
+import type { EmailSendLogEntry, EmailSendCategory } from "@/lib/integrations/email-send-log";
 
 const CATEGORIES = [
   "rule",
@@ -63,14 +65,22 @@ function categoryClass(category: string) {
 }
 
 export default function EmailLogsPage() {
+  const searchParams = useSearchParams();
+  const initialCategories = useMemo(() => {
+    const raw = searchParams.get("categories");
+    if (!raw) return null;
+    return raw.split(",").filter(Boolean) as EmailSendCategory[];
+  }, [searchParams]);
+
   const [entries, setEntries] = useState<EmailSendLogEntry[]>([]);
   const [stats, setStats] = useState({ sent: 0, failed: 0, skipped: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [category, setCategory] = useState("all");
-  const [status, setStatus] = useState("all");
-  const [trigger, setTrigger] = useState("all");
+  const [category, setCategory] = useState(() => searchParams.get("category") ?? "all");
+  const [categories, setCategories] = useState<EmailSendCategory[] | null>(initialCategories);
+  const [status, setStatus] = useState(() => searchParams.get("status") ?? "all");
+  const [trigger, setTrigger] = useState(() => searchParams.get("trigger") ?? "all");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<EmailSendLogEntry | null>(null);
 
@@ -79,7 +89,11 @@ export default function EmailLogsPage() {
     setError(null);
     try {
       const qs = new URLSearchParams();
-      if (category !== "all") qs.set("category", category);
+      if (categories?.length) {
+        qs.set("categories", categories.join(","));
+      } else if (category !== "all") {
+        qs.set("category", category);
+      }
       if (status !== "all") qs.set("status", status);
       if (trigger !== "all") qs.set("trigger", trigger);
       if (search.trim()) qs.set("search", search.trim());
@@ -94,7 +108,7 @@ export default function EmailLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [category, status, trigger, search]);
+  }, [category, categories, status, trigger, search]);
 
   useEffect(() => {
     fetchLogs();
@@ -112,6 +126,17 @@ export default function EmailLogsPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             All email attempts from cron jobs, manual sends, and system triggers.
+            {categories?.length ? (
+              <span className="block mt-0.5">
+                Filtered: {categories.join(", ")} —{" "}
+                <Link
+                  href="/email-logs"
+                  className="text-primary underline-offset-2 hover:underline"
+                >
+                  show all
+                </Link>
+              </span>
+            ) : null}
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchLogs} disabled={loading}>
@@ -134,12 +159,24 @@ export default function EmailLogsPage() {
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs h-8 text-sm"
         />
-        <Select value={category} onValueChange={setCategory}>
-          <SelectTrigger className="w-[140px] h-8 text-xs">
+        <Select
+          value={categories?.length ? "rules-campaigns" : category}
+          onValueChange={(v) => {
+            if (v === "rules-campaigns") {
+              setCategories(["rule", "campaign"]);
+              setCategory("all");
+            } else {
+              setCategories(null);
+              setCategory(v);
+            }
+          }}
+        >
+          <SelectTrigger className="w-[160px] h-8 text-xs">
             <SelectValue placeholder="Category" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All categories</SelectItem>
+            <SelectItem value="rules-campaigns">Rules & campaigns</SelectItem>
             {CATEGORIES.map((c) => (
               <SelectItem key={c} value={c} className="capitalize">
                 {c}
