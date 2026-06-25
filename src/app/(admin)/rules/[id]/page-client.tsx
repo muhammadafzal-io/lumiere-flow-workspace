@@ -215,8 +215,8 @@ export default function RuleAudiencePage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-7rem)] -m-6">
-      <div className="px-6 pt-2 pb-4 border-b shrink-0">
+    <div className="flex flex-col min-h-[calc(100vh-7rem)] -m-6">
+      <div className="px-6 pt-2 pb-3 border-b shrink-0">
         <Button variant="ghost" size="sm" asChild className="-ml-2 mb-2">
           <Link href="/rules">
             <ArrowLeft className="h-4 w-4 mr-1" /> Rules & Campaigns
@@ -260,12 +260,12 @@ export default function RuleAudiencePage() {
             </Button>
           </div>
         </div>
-        <div className="mt-4">
+        <div className="mt-3 max-h-[42vh] overflow-y-auto pr-1">
           <RuleSchedulePanel rule={rule} filters={filters} onSaved={load} />
         </div>
       </div>
 
-      <div className="flex flex-1 min-h-0 relative">
+      <div className="flex flex-1 min-h-[360px] relative">
         {showFilters && (
           <aside className="w-72 shrink-0 border-r md:border-r-0 md:block absolute md:relative z-20 md:z-auto inset-y-0 left-0 bg-card md:bg-transparent shadow-lg md:shadow-none">
             <RuleAudienceFilterPanel
@@ -343,7 +343,7 @@ export default function RuleAudiencePage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto">
+          <div className="flex-1 overflow-auto min-h-[240px]">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-muted/80 backdrop-blur-sm z-10">
                 <tr className="text-left text-xs text-muted-foreground border-b">
