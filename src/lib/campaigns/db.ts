@@ -1,9 +1,4 @@
-import type {
-  Campaign,
-  CampaignRecipient,
-  CampaignStats,
-  CustomerReward,
-} from "@/lib/types";
+import type { Campaign, CampaignRecipient, CampaignStats, CustomerReward } from "@/lib/types";
 
 export function mapCampaignRow(row: Record<string, unknown>): Campaign {
   return {
@@ -62,7 +57,9 @@ export function computeStats(recipients: CampaignRecipient[]): CampaignStats {
   const rewards_assigned = recipients.length;
   const pending = recipients.filter((r) => r.status === "pending").length;
   const failed = recipients.filter((r) => r.status === "failed").length;
-  const emails_sent = recipients.filter((r) => r.status === "sent" || r.status === "redeemed").length;
+  const emails_sent = recipients.filter(
+    (r) => r.status === "sent" || r.status === "redeemed",
+  ).length;
   const redeemed = recipients.filter((r) => r.status === "redeemed" || r.is_redeemed).length;
 
   return {

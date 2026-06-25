@@ -37,10 +37,7 @@ export async function processCampaign(campaignId: string): Promise<ProcessCampai
     throw new Error("Only active campaigns can be processed");
   }
 
-  await sb
-    .from("campaigns")
-    .update({ processing_status: "processing" })
-    .eq("id", campaignId);
+  await sb.from("campaigns").update({ processing_status: "processing" }).eq("id", campaignId);
 
   try {
     const eligible = await fetchEligibleCustomers(sb, campaign.visit_count);
@@ -134,10 +131,7 @@ export async function processCampaign(campaignId: string): Promise<ProcessCampai
       skipped_duplicates: skippedDuplicates,
     };
   } catch (err) {
-    await sb
-      .from("campaigns")
-      .update({ processing_status: "failed" })
-      .eq("id", campaignId);
+    await sb.from("campaigns").update({ processing_status: "failed" }).eq("id", campaignId);
     throw err;
   }
 }

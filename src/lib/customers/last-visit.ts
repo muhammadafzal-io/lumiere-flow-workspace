@@ -1,5 +1,4 @@
-const DATE_RE =
-  /[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}|^\d{4}-\d{2}-\d{2}/;
+const DATE_RE = /[A-Z][a-z]{2}\s+[A-Z][a-z]{2}\s+\d{1,2},\s*\d{4}|^\d{4}-\d{2}-\d{2}/;
 
 export function parseDateFromAppointment(appt: string): string | null {
   const match = appt.match(DATE_RE);

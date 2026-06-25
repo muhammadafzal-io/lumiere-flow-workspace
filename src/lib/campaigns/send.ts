@@ -88,11 +88,16 @@ async function sendToRecipient(
     return { ok: true, emailSent: emailSent || simulated };
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    await logEvent("campaign", recipient.customer_name, `Failed to send campaign reward: ${reason}`, {
-      clientId: recipient.customer_id,
-      email: recipient.customer_email,
-      status: "failed",
-    });
+    await logEvent(
+      "campaign",
+      recipient.customer_name,
+      `Failed to send campaign reward: ${reason}`,
+      {
+        clientId: recipient.customer_id,
+        email: recipient.customer_email,
+        status: "failed",
+      },
+    );
     return { ok: false, emailSent: false, reason };
   }
 }
