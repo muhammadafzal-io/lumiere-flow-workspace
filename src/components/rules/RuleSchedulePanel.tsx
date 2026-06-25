@@ -222,12 +222,8 @@ export function RuleSchedulePanel({ rule, filters, onSaved }: Props) {
       </div>
 
       <p className="text-[10px] text-muted-foreground leading-relaxed">
-        Vercel Hobby: use GitHub Actions (
-        <code className="bg-muted px-1 rounded">.github/workflows/rules-campaigns.yml</code>)
-        hourly. Add <code className="bg-muted px-1 rounded">CRON_SECRET</code> to GitHub Secrets and
-        Vercel env (same value). Optional repo variable{" "}
-        <code className="bg-muted px-1 rounded">VERCEL_APP_URL</code>. Run{" "}
-        <code className="bg-muted px-1 rounded">migrations/create_rule_sends.sql</code> in Supabase.
+        When enabled, scheduled sends run automatically every hour (America/Chicago time). Each
+        client receives at most one send per rule when &quot;Once per client&quot; is selected.
       </p>
     </div>
   );
