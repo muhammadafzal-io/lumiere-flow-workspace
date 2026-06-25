@@ -70,7 +70,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       return NextResponse.json({ error: "No recipients selected" }, { status: 400 });
     }
 
-    const result = await sendRuleEmails(rule, recipients);
+    const result = await sendRuleEmails(rule, recipients, { trigger: "manual" });
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("POST /api/rule/[id]/send error:", error);

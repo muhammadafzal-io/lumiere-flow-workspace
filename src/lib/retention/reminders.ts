@@ -145,6 +145,12 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
           email: client?.email,
           subject: buildReminderSubject(appt.treatment, appt.startTime, window),
           flowType: "reminder",
+          emailLog: {
+            category: "reminder",
+            triggerType: opts?.trigger ?? "cron",
+            clientId: client?.id,
+            clientName: appt.clientName,
+          },
         },
       );
 

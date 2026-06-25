@@ -119,6 +119,12 @@ export async function runReactivationFlow(opts?: RunFlowOptions): Promise<Retent
                 ? `Still thinking about us? Your offer is waiting, ${client.name}`
                 : `One last thing before we go, ${client.name}`,
           flowType: "reactivation",
+          emailLog: {
+            category: "reactivation",
+            triggerType: opts?.trigger ?? "cron",
+            clientId: client.id,
+            clientName: client.name,
+          },
         },
       );
 

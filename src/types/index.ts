@@ -119,6 +119,8 @@ export interface RunFlowOptions {
   clientIds?: string[];
   /** Limit reminder processing to these appointment IDs */
   appointmentIds?: string[];
+  /** How the flow was triggered — used for email send logs */
+  trigger?: "cron" | "manual" | "system";
 }
 
 export interface RetentionResult {

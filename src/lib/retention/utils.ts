@@ -1,12 +1,15 @@
 import type { MessagingProvider } from "@/lib/messaging";
 import type { OutboundMessage } from "@/types";
 import type { EmailFlowType } from "@/lib/integrations/email";
-import { sendRetentionEmail } from "@/lib/integrations/email";
+import { sendRetentionEmail, type EmailSendLogMeta } from "@/lib/integrations/email";
+import { logEmailSend } from "@/lib/integrations/email-send-log";
 import { DiscordProvider } from "@/lib/messaging/discord";
 
 export interface TrySendOptions extends OutboundMessage {
   /** Flow type used to pick the email accent colour and icon */
   flowType?: EmailFlowType;
+  /** When set, each email attempt is persisted to email_sends */
+  emailLog?: EmailSendLogMeta;
 }
 
 export interface TrySendResult {
@@ -31,11 +34,28 @@ export async function trySend(
   messaging: MessagingProvider,
   msg: TrySendOptions,
 ): Promise<TrySendResult> {
+  const subject = msg.subject ?? "A message from Lumiere Med Spa";
+  const preview = msg.text.slice(0, 120);
+
+  async function logSkip(reason: string, simulated = false) {
+    if (!msg.emailLog) return;
+    await logEmailSend({
+      ...msg.emailLog,
+      toEmail: msg.email ?? "",
+      subject,
+      messagePreview: preview,
+      status: "skipped",
+      failReason: reason,
+      simulated,
+    });
+  }
+
   // ── demo short-circuit ──────────────────────────────────────────────────────
   if (process.env.DEMO_MODE === "true") {
     console.log(
       `[retention/sim] DEMO_MODE → ${msg.to}${msg.email ? ` + ${msg.email}` : ""} | ${msg.text.slice(0, 60)}...`,
     );
+    await logSkip("DEMO_MODE is enabled", true);
     return {
       platform: messaging.platform,
       simulated: true,
@@ -57,6 +77,10 @@ export async function trySend(
     emailSkipReason = "no email address on client record";
   } else if (!hasEmailProvider) {
     emailSkipReason = "no email provider configured (SendGrid, Gmail, or Resend)";
+  }
+
+  if (emailSkipReason) {
+    await logSkip(emailSkipReason);
   }
 
   const retentionChannelId = process.env.DISCORD_RETENTION_CHANNEL_ID;
@@ -84,11 +108,12 @@ export async function trySend(
     willSendEmail
       ? sendRetentionEmail({
           to: msg.email!,
-          subject: msg.subject ?? "A message from Lumiere Med Spa",
+          subject,
           text: msg.text,
           flowType: msg.flowType,
+          logMeta: msg.emailLog,
         })
-      : Promise.resolve(),
+      : Promise.resolve({ sent: false }),
   ];
 
   const [primaryRes, discordRes, emailRes] = await Promise.allSettled(tasks);

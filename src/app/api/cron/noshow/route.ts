@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   if (!isAuthorised(req)) return NextResponse.json({ ok: false }, { status: 401 });
 
   try {
-    const result = await runNoshowFlow();
+    const result = await runNoshowFlow({ trigger: "cron" });
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });

@@ -95,6 +95,12 @@ export async function DELETE(req: NextRequest) {
           to: email,
           subject: `Your ${treatment} appointment has been cancelled`,
           flowType: "cancellation",
+          logMeta: {
+            category: "cancellation",
+            triggerType: "system",
+            clientId: client?.id,
+            clientName,
+          },
           text: [
             `Hi ${clientName}, your appointment at Lumière has been cancelled.`,
             ``,

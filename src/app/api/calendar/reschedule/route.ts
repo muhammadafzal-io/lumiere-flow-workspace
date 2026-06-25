@@ -139,6 +139,12 @@ export async function PATCH(req: NextRequest) {
           to: email,
           subject: `Your ${treatment} appointment has been rescheduled`,
           flowType: "reschedule",
+          logMeta: {
+            category: "reschedule",
+            triggerType: "system",
+            clientId: client?.id,
+            clientName,
+          },
           text: [
             `Hi ${clientName}, your Lumière appointment has been rescheduled.`,
             ``,

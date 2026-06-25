@@ -71,6 +71,12 @@ export async function runNoshowFlow(opts?: RunFlowOptions): Promise<RetentionRes
           email: client.email,
           subject: `We missed you today, ${client.name} — let's reschedule`,
           flowType: "noshow",
+          emailLog: {
+            category: "noshow",
+            triggerType: opts?.trigger ?? "cron",
+            clientId: client.id,
+            clientName: client.name,
+          },
         },
       );
 

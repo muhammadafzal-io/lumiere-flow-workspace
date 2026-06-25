@@ -68,6 +68,12 @@ export async function POST(req: NextRequest) {
           to: email,
           subject: `Appointment confirmed — ${treatment} on ${new Date(startTime).toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric" })}`,
           flowType: "booking",
+          logMeta: {
+            category: "booking",
+            triggerType: "system",
+            clientId: client?.id,
+            clientName,
+          },
           text: [
             `Hi ${clientName}, your appointment at Lumière is confirmed!`,
             ``,

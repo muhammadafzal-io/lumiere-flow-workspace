@@ -92,6 +92,12 @@ export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionR
           email: client.email,
           subject: `Happy Birthday from the Lumière team — your $${CREDIT_AMOUNT} gift is inside`,
           flowType: "birthday",
+          emailLog: {
+            category: "birthday",
+            triggerType: opts?.trigger ?? "cron",
+            clientId: client.id,
+            clientName: client.name,
+          },
         },
       );
 

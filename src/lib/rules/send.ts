@@ -2,6 +2,7 @@ import "server-only";
 
 import { getSupabase } from "@/lib/supabase";
 import { logEvent } from "@/lib/integrations/activity-log";
+import { logEmailSend, type EmailSendTrigger } from "@/lib/integrations/email-send-log";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
 import type { Rule } from "@/lib/types";
@@ -29,12 +30,26 @@ export async function sendRuleEmails(
     phone?: string;
     treatment?: string;
   }>,
+  opts?: { trigger?: EmailSendTrigger },
 ): Promise<RetentionResult> {
   const messaging = getMessagingProvider();
+  const triggerType = opts?.trigger ?? "manual";
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
 
   for (const r of recipients) {
     if (!r.email) {
+      await logEmailSend({
+        category: "rule",
+        triggerType,
+        sourceId: rule.id,
+        sourceName: rule.name,
+        clientId: r.id,
+        clientName: r.name,
+        toEmail: "",
+        subject: rule.name,
+        status: "skipped",
+        failReason: "no email address",
+      });
       result.skipped++;
       result.details.push({
         clientId: r.id,
@@ -55,6 +70,14 @@ export async function sendRuleEmails(
         email: r.email,
         subject: rule.name,
         flowType: "general",
+        emailLog: {
+          category: "rule",
+          triggerType,
+          sourceId: rule.id,
+          sourceName: rule.name,
+          clientId: r.id,
+          clientName: r.name,
+        },
       });
 
       if (simulated) {
@@ -101,6 +124,19 @@ export async function sendRuleEmails(
         messagePreview: text.slice(0, 80),
       });
     } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      await logEmailSend({
+        category: "rule",
+        triggerType,
+        sourceId: rule.id,
+        sourceName: rule.name,
+        clientId: r.id,
+        clientName: r.name,
+        toEmail: r.email ?? "",
+        subject: rule.name,
+        status: "failed",
+        failReason: reason,
+      });
       result.failed++;
       result.details.push({
         clientId: r.id,

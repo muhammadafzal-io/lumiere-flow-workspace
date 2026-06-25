@@ -7,6 +7,7 @@ import {
   Zap,
   Users,
   ScrollText,
+  Mail,
   Settings as SettingsIcon,
   Calendar as CalendarIcon,
 } from "lucide-react";
@@ -29,6 +30,7 @@ const items = [
   { title: "Calendar", url: "/calendar", icon: CalendarIcon },
   { title: "Customers", url: "/customers", icon: Users },
   { title: "Activity Log", url: "/activity", icon: ScrollText },
+  { title: "Email Log", url: "/email-logs", icon: Mail },
   { title: "Settings", url: "/settings", icon: SettingsIcon },
 ];
 

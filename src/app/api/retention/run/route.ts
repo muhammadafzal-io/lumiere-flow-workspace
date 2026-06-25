@@ -23,13 +23,13 @@ export async function GET(req: NextRequest) {
   const flow = new URL(req.url).searchParams.get("flow") ?? "all";
 
   const runners: Record<string, () => Promise<unknown>> = {
-    reminders: runReminderFlow,
-    noshow: runNoshowFlow,
-    reactivation: runReactivationFlow,
-    birthday: runBirthdayFlow,
+    reminders: () => runReminderFlow({ trigger: "cron" }),
+    noshow: () => runNoshowFlow({ trigger: "cron" }),
+    reactivation: () => runReactivationFlow({ trigger: "cron" }),
+    birthday: () => runBirthdayFlow({ trigger: "cron" }),
     campaigns: async () => {
       const process = await processAllActiveCampaigns();
-      const send = await sendAllPendingCampaignEmails();
+      const send = await sendAllPendingCampaignEmails({ trigger: "cron" });
       return { process, send: send.totals };
     },
     rules: async () => {
@@ -50,10 +50,10 @@ export async function GET(req: NextRequest) {
 
   // Run all flows in parallel (campaigns runs sequentially internally)
   const [reminders, noshow, reactivation, birthday, campaigns] = await Promise.allSettled([
-    runReminderFlow(),
-    runNoshowFlow(),
-    runReactivationFlow(),
-    runBirthdayFlow(),
+    runReminderFlow({ trigger: "cron" }),
+    runNoshowFlow({ trigger: "cron" }),
+    runReactivationFlow({ trigger: "cron" }),
+    runBirthdayFlow({ trigger: "cron" }),
     runners.campaigns(),
   ]);
 

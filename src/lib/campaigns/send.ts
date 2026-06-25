@@ -1,5 +1,6 @@
 import { getSupabase } from "@/lib/supabase";
 import { logEvent } from "@/lib/integrations/activity-log";
+import type { EmailSendTrigger } from "@/lib/integrations/email-send-log";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
 import { mapCampaignRow, mapRecipientRow } from "@/lib/campaigns/db";
@@ -46,6 +47,7 @@ async function sendToRecipient(
   campaign: Campaign,
   recipient: CampaignRecipient,
   rewardCode: string,
+  triggerType: EmailSendTrigger = "manual",
 ): Promise<{ ok: boolean; emailSent: boolean; reason?: string }> {
   const messaging = getMessagingProvider();
   const message = buildCampaignMessage(campaign, recipient, rewardCode);
@@ -63,6 +65,14 @@ async function sendToRecipient(
       email: recipient.customer_email || undefined,
       subject,
       flowType: "campaign",
+      emailLog: {
+        category: "campaign",
+        triggerType,
+        sourceId: campaign.id,
+        sourceName: campaign.name,
+        clientId: recipient.customer_id,
+        clientName: recipient.customer_name,
+      },
     });
 
     if (!recipient.customer_email) {
@@ -103,7 +113,11 @@ async function sendToRecipient(
 }
 
 /** Send pending emails for a single campaign. */
-export async function sendCampaignEmails(campaignId: string): Promise<SendCampaignResult> {
+export async function sendCampaignEmails(
+  campaignId: string,
+  opts?: { trigger?: EmailSendTrigger },
+): Promise<SendCampaignResult> {
+  const triggerType = opts?.trigger ?? "manual";
   const sb = getSupabase();
   const result: SendCampaignResult = {
     sent: 0,
@@ -152,7 +166,7 @@ export async function sendCampaignEmails(campaignId: string): Promise<SendCampai
       continue;
     }
 
-    const sendResult = await sendToRecipient(campaign, recipient, reward.reward_code);
+    const sendResult = await sendToRecipient(campaign, recipient, reward.reward_code, triggerType);
     const now = new Date().toISOString();
 
     if (sendResult.ok) {
@@ -185,7 +199,9 @@ export async function sendCampaignEmails(campaignId: string): Promise<SendCampai
 }
 
 /** Send pending campaign emails across all active campaigns (Flows page / cron). */
-export async function sendAllPendingCampaignEmails(): Promise<{
+export async function sendAllPendingCampaignEmails(opts?: {
+  trigger?: EmailSendTrigger;
+}): Promise<{
   campaigns: SendCampaignResult[];
   totals: { sent: number; skipped: number; failed: number };
 }> {
@@ -200,7 +216,7 @@ export async function sendAllPendingCampaignEmails(): Promise<{
   let failed = 0;
 
   for (const c of active ?? []) {
-    const r = await sendCampaignEmails(String(c.id));
+    const r = await sendCampaignEmails(String(c.id), { trigger: opts?.trigger ?? "cron" });
     campaigns.push(r);
     sent += r.sent;
     skipped += r.skipped;

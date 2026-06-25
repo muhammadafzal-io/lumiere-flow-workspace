@@ -7,6 +7,7 @@ export const ROLE_PAGES: Record<UserRole, string[]> = {
     "/calendar",
     "/customers",
     "/activity",
+    "/email-logs",
     "/flows",
     "/checkout",
     "/settings",

@@ -15,7 +15,7 @@ const FLOW_MAP = {
 type FlowKey = keyof typeof FLOW_MAP;
 
 async function runOne(flow: FlowKey, opts?: RunFlowOptions) {
-  return FLOW_MAP[flow](opts);
+  return FLOW_MAP[flow]({ trigger: "manual", ...opts });
 }
 
 export async function GET(req: NextRequest) {

@@ -168,6 +168,7 @@ export async function runScheduledRules(opts?: {
         phone: r.phone,
         treatment: r.treatment,
       })),
+      { trigger: "cron" },
     );
 
     await recordSends(rule.id, sendResult.details);

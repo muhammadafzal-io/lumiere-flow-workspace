@@ -1,6 +1,11 @@
 import { Resend } from "resend";
 import nodemailer from "nodemailer";
 import sgMail from "@sendgrid/mail";
+import {
+  logEmailSend,
+  type EmailSendCategory,
+  type EmailSendTrigger,
+} from "@/lib/integrations/email-send-log";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -22,6 +27,23 @@ export interface SendEmailOptions {
   flowType?: EmailFlowType;
   /** Optional CTA button shown below the message body */
   cta?: { label: string; url: string };
+  /** When set, persist send outcome to email_sends */
+  logMeta?: EmailSendLogMeta;
+}
+
+export interface EmailSendLogMeta {
+  category: EmailSendCategory;
+  triggerType: EmailSendTrigger;
+  sourceId?: string;
+  sourceName?: string;
+  clientId?: string;
+  clientName?: string;
+}
+
+export interface SendEmailOutcome {
+  sent: boolean;
+  provider?: string;
+  error?: string;
 }
 
 // ─── client ──────────────────────────────────────────────────────────────────
@@ -195,7 +217,26 @@ function getGmailTransport() {
  *   2. Gmail     — GMAIL_USER + GMAIL_APP_PASSWORD set        → sends to anyone, no domain needed
  *   3. Resend    — RESEND_API_KEY set                         → requires verified domain for arbitrary recipients
  */
-export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> {
+export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEmailOutcome> {
+  const preview = opts.text.slice(0, 120);
+
+  async function persist(
+    status: "sent" | "failed" | "skipped",
+    extra: { provider?: string; failReason?: string; simulated?: boolean } = {},
+  ) {
+    if (!opts.logMeta) return;
+    await logEmailSend({
+      ...opts.logMeta,
+      toEmail: opts.to,
+      subject: opts.subject,
+      messagePreview: preview,
+      status,
+      provider: extra.provider,
+      failReason: extra.failReason,
+      simulated: extra.simulated ?? false,
+    });
+  }
+
   console.log(
     `[email] ATTEMPT → to: ${opts.to} | flow: ${opts.flowType ?? "general"} | subject: ${opts.subject}`,
   );
@@ -216,14 +257,14 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
         text: opts.text,
       });
       console.log(`[email] SENT via SendGrid → ${opts.to}`);
+      await persist("sent", { provider: "sendgrid" });
+      return { sent: true, provider: "sendgrid" };
     } catch (err) {
-      console.error(
-        `[email] FAILED via SendGrid → ${opts.to}`,
-        err instanceof Error ? err.message : err,
-      );
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[email] FAILED via SendGrid → ${opts.to}`, error);
+      await persist("failed", { provider: "sendgrid", failReason: error });
       throw err;
     }
-    return;
   }
 
   // ── 2. Gmail SMTP (app password — no domain needed) ──────────────────────
@@ -234,22 +275,23 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
     try {
       await gmail.sendMail({ from, to: opts.to, subject: opts.subject, html, text: opts.text });
       console.log(`[email] SENT via Gmail → ${opts.to}`);
+      await persist("sent", { provider: "gmail" });
+      return { sent: true, provider: "gmail" };
     } catch (err) {
-      console.error(
-        `[email] FAILED via Gmail → ${opts.to}`,
-        err instanceof Error ? err.message : err,
-      );
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[email] FAILED via Gmail → ${opts.to}`, error);
+      await persist("failed", { provider: "gmail", failReason: error });
       throw err;
     }
-    return;
   }
 
   // ── 3. Resend (requires verified domain for arbitrary recipients) ─────────
   if (!process.env.RESEND_API_KEY) {
-    console.warn(
-      `[email] SKIP — no email provider configured (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY)`,
-    );
-    return;
+    const reason =
+      "no email provider configured (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY)";
+    console.warn(`[email] SKIP — ${reason}`);
+    await persist("skipped", { failReason: reason });
+    return { sent: false, error: reason };
   }
 
   const from = getFromAddress();
@@ -265,11 +307,12 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<void> 
     });
     if (error) throw new Error(`Resend error: ${error.message}`);
     console.log(`[email] SENT via Resend → ${opts.to}`);
+    await persist("sent", { provider: "resend" });
+    return { sent: true, provider: "resend" };
   } catch (err) {
-    console.error(
-      `[email] FAILED via Resend → ${opts.to}`,
-      err instanceof Error ? err.message : err,
-    );
+    const error = err instanceof Error ? err.message : String(err);
+    console.error(`[email] FAILED via Resend → ${opts.to}`, error);
+    await persist("failed", { provider: "resend", failReason: error });
     throw err;
   }
 }
