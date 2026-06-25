@@ -54,7 +54,8 @@ export function RuleSchedulePanel({ rule, filters, onSaved }: Props) {
         body: JSON.stringify({
           recordId: rule.id,
           ruleName: rule.name,
-          status: rule.status === "active" ? "Active" : rule.status === "paused" ? "Paused" : "Draft",
+          status:
+            rule.status === "active" ? "Active" : rule.status === "paused" ? "Paused" : "Draft",
           triggerType: rule.trigger_type,
           triggerConfig,
           channel: rule.channel,
@@ -63,7 +64,9 @@ export function RuleSchedulePanel({ rule, filters, onSaved }: Props) {
         }),
       });
       if (!res.ok) throw new Error("Save failed");
-      toast.success(schedule.enabled ? "Auto-send schedule saved" : "Schedule disabled — manual send only");
+      toast.success(
+        schedule.enabled ? "Auto-send schedule saved" : "Schedule disabled — manual send only",
+      );
       onSaved();
     } catch {
       toast.error("Failed to save schedule");
@@ -220,10 +223,11 @@ export function RuleSchedulePanel({ rule, filters, onSaved }: Props) {
 
       <p className="text-[10px] text-muted-foreground leading-relaxed">
         Vercel Hobby: use GitHub Actions (
-        <code className="bg-muted px-1 rounded">.github/workflows/rules-campaigns.yml</code>) hourly.
-        Add <code className="bg-muted px-1 rounded">CRON_SECRET</code> to GitHub Secrets and Vercel env
-        (same value). Optional repo variable <code className="bg-muted px-1 rounded">VERCEL_APP_URL</code>.
-        Run <code className="bg-muted px-1 rounded">migrations/create_rule_sends.sql</code> in Supabase.
+        <code className="bg-muted px-1 rounded">.github/workflows/rules-campaigns.yml</code>)
+        hourly. Add <code className="bg-muted px-1 rounded">CRON_SECRET</code> to GitHub Secrets and
+        Vercel env (same value). Optional repo variable{" "}
+        <code className="bg-muted px-1 rounded">VERCEL_APP_URL</code>. Run{" "}
+        <code className="bg-muted px-1 rounded">migrations/create_rule_sends.sql</code> in Supabase.
       </p>
     </div>
   );

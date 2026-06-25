@@ -10,14 +10,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ChevronDown, X } from "lucide-react";
-import type { AudienceFilters, FilterFieldDef, RetentionFlowKey } from "@/lib/retention/audience-config";
-import { applyVisitRangePreset, defaultFiltersForFlow, filtersForFlow } from "@/lib/retention/audience-config";
+import type {
+  AudienceFilters,
+  FilterFieldDef,
+  RetentionFlowKey,
+} from "@/lib/retention/audience-config";
+import {
+  applyVisitRangePreset,
+  defaultFiltersForFlow,
+  filtersForFlow,
+} from "@/lib/retention/audience-config";
 
 interface Props {
   flow: RetentionFlowKey;
@@ -179,7 +183,9 @@ export function AudienceFilterPanel({ flow, filters, onChange, activeCount }: Pr
             placeholder={field.placeholder}
             value={(filters[key] as number | undefined) ?? ""}
             onChange={(e) =>
-              set({ [key]: e.target.value ? Number(e.target.value) : undefined } as Partial<AudienceFilters>)
+              set({
+                [key]: e.target.value ? Number(e.target.value) : undefined,
+              } as Partial<AudienceFilters>)
             }
           />
         </div>
@@ -212,9 +218,7 @@ export function AudienceFilterPanel({ flow, filters, onChange, activeCount }: Pr
       else if (key === "credit_not_sent") value = filters.credit_not_sent ? "yes" : "any";
       else if (key === "reactivation_step")
         value =
-          filters.reactivation_step?.length === 1
-            ? String(filters.reactivation_step[0])
-            : "any";
+          filters.reactivation_step?.length === 1 ? String(filters.reactivation_step[0]) : "any";
 
       return (
         <div key={field.key}>
@@ -280,9 +284,7 @@ export function AudienceFilterPanel({ flow, filters, onChange, activeCount }: Pr
               onAdd={(v) => onChange(applyVisitRangePreset(filters, v))}
               onRemove={() => {}}
             />
-            <div className="grid grid-cols-2 gap-2">
-              {visitFields.map((f) => renderField(f))}
-            </div>
+            <div className="grid grid-cols-2 gap-2">{visitFields.map((f) => renderField(f))}</div>
             {(filters.visit_min != null || filters.visit_max != null) && (
               <div className="flex flex-wrap gap-1">
                 {filters.visit_min != null && (
