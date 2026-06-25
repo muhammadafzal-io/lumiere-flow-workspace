@@ -199,9 +199,7 @@ export async function sendCampaignEmails(
 }
 
 /** Send pending campaign emails across all active campaigns (Flows page / cron). */
-export async function sendAllPendingCampaignEmails(opts?: {
-  trigger?: EmailSendTrigger;
-}): Promise<{
+export async function sendAllPendingCampaignEmails(opts?: { trigger?: EmailSendTrigger }): Promise<{
   campaigns: SendCampaignResult[];
   totals: { sent: number; skipped: number; failed: number };
 }> {
