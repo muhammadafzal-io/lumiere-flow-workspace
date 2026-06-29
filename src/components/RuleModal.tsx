@@ -442,10 +442,11 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
             </div>
           ) : (
             <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-              Each recipient gets a unique <span className="font-mono text-foreground">{`{birthday_token}`}</span>{" "}
-              (e.g. BDAY-JD-X7K2) saved to their profile. Clients enter it in the chatbot to redeem $
-              50 off — include <span className="font-mono text-foreground">{`{birthday_token}`}</span> in
-              your message above.
+              Each recipient gets a unique{" "}
+              <span className="font-mono text-foreground">{`{birthday_token}`}</span> (e.g.
+              BDAY-JD-X7K2) saved to their profile. Clients enter it in the chatbot to redeem $ 50
+              off — include <span className="font-mono text-foreground">{`{birthday_token}`}</span>{" "}
+              in your message above.
             </div>
           )}
 

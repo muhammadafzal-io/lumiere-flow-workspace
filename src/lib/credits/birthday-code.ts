@@ -10,10 +10,9 @@ export function generateBirthdayCreditCode(clientName: string): string {
     .map((n) => n[0].toUpperCase())
     .join("");
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  const expiry = new Date(Date.now() + BIRTHDAY_CREDIT_VALID_DAYS * 24 * 60 * 60_000).toLocaleDateString(
-    "en-CA",
-    { timeZone: "America/Chicago" },
-  );
+  const expiry = new Date(
+    Date.now() + BIRTHDAY_CREDIT_VALID_DAYS * 24 * 60 * 60_000,
+  ).toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
   return `BDAY-${initials || "VIP"}-${rand}|${expiry}`;
 }
 
