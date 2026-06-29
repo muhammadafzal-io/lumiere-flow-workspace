@@ -108,11 +108,40 @@ function textToHtmlParagraphs(text: string): string {
     .join("");
 }
 
+/** Gmail/inbox preview text — keeps snippet off the branded header block. */
+function buildPreheader(text: string): string {
+  const line =
+    text
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean) ?? text.trim();
+  return line.replace(/\s+/g, " ").slice(0, 120);
+}
+
+/** Strip newlines and control chars so Subject headers stay valid. */
+export function sanitizeEmailSubject(subject: string): string {
+  return subject
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 function buildEmailHtml(opts: SendEmailOptions): string {
   const flowType = opts.flowType ?? "general";
   const accent = FLOW_ACCENT[flowType];
   const icon = FLOW_ICON[flowType];
   const body = textToHtmlParagraphs(opts.text);
+  const preheader = escapeHtml(buildPreheader(opts.text));
+  const subject = escapeHtml(sanitizeEmailSubject(opts.subject));
 
   const ctaBlock = opts.cta
     ? `
@@ -135,9 +164,12 @@ function buildEmailHtml(opts: SendEmailOptions): string {
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>${opts.subject}</title>
+  <title>${subject}</title>
 </head>
 <body style="margin:0;padding:0;background:${BRAND.surface};font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;opacity:0;color:transparent;font-size:1px;line-height:1px;">
+    ${preheader}
+  </div>
 
   <!-- wrapper -->
   <table width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.surface};padding:40px 16px;">
@@ -218,6 +250,7 @@ function getGmailTransport() {
  *   3. Resend    — RESEND_API_KEY set                         → requires verified domain for arbitrary recipients
  */
 export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEmailOutcome> {
+  const subject = sanitizeEmailSubject(opts.subject);
   const preview = opts.text.slice(0, 120);
 
   async function persist(
@@ -228,7 +261,7 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
     await logEmailSend({
       ...opts.logMeta,
       toEmail: opts.to,
-      subject: opts.subject,
+      subject,
       messagePreview: preview,
       status,
       provider: extra.provider,
@@ -238,9 +271,9 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
   }
 
   console.log(
-    `[email] ATTEMPT → to: ${opts.to} | flow: ${opts.flowType ?? "general"} | subject: ${opts.subject}`,
+    `[email] ATTEMPT → to: ${opts.to} | flow: ${opts.flowType ?? "general"} | subject: ${subject}`,
   );
-  const html = buildEmailHtml(opts);
+  const html = buildEmailHtml({ ...opts, subject });
 
   // ── 1. SendGrid (single sender verification — no domain DNS needed) ──────
   const sgKey = process.env.SENDGRID_API_KEY;
@@ -252,7 +285,7 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
       await sgMail.send({
         from: { email: sgFrom, name: process.env.SENDGRID_FROM_NAME ?? "Lumiere Med Spa" },
         to: opts.to,
-        subject: opts.subject,
+        subject,
         html,
         text: opts.text,
       });
@@ -273,7 +306,7 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
     const from = `"${process.env.GMAIL_FROM_NAME ?? "Lumiere Med Spa"}" <${process.env.GMAIL_USER}>`;
     console.log(`[email] provider: Gmail | from: ${process.env.GMAIL_USER}`);
     try {
-      await gmail.sendMail({ from, to: opts.to, subject: opts.subject, html, text: opts.text });
+      await gmail.sendMail({ from, to: opts.to, subject, text: opts.text, html });
       console.log(`[email] SENT via Gmail → ${opts.to}`);
       await persist("sent", { provider: "gmail" });
       return { sent: true, provider: "gmail" };
@@ -301,7 +334,7 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
     const { error } = await resend.emails.send({
       from,
       to: opts.to,
-      subject: opts.subject,
+      subject,
       html,
       text: opts.text,
     });

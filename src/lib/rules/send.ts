@@ -5,6 +5,7 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { logEmailSend, type EmailSendTrigger } from "@/lib/integrations/email-send-log";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
+import { sanitizeEmailSubject } from "@/lib/integrations/email";
 import type { Rule } from "@/lib/types";
 import type { RetentionResult } from "@/types";
 
@@ -46,7 +47,7 @@ export async function sendRuleEmails(
         clientId: r.id,
         clientName: r.name,
         toEmail: "",
-        subject: rule.name,
+        subject: emailSubject,
         status: "skipped",
         failReason: "no email address",
       });
@@ -62,13 +63,14 @@ export async function sendRuleEmails(
 
     const text = personalize(rule.message_template, r.name, rule.offer_code, r.treatment);
     const contact = r.phone || r.email;
+    const emailSubject = sanitizeEmailSubject(rule.name);
 
     try {
       const { platform, simulated, emailSent, emailError } = await trySend(messaging, {
         to: contact,
         text,
         email: r.email,
-        subject: rule.name,
+        subject: emailSubject,
         flowType: "general",
         emailLog: {
           category: "rule",
@@ -133,7 +135,7 @@ export async function sendRuleEmails(
         clientId: r.id,
         clientName: r.name,
         toEmail: r.email ?? "",
-        subject: rule.name,
+        subject: emailSubject,
         status: "failed",
         failReason: reason,
       });

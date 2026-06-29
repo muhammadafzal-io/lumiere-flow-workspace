@@ -1,7 +1,11 @@
 import type { MessagingProvider } from "@/lib/messaging";
 import type { OutboundMessage } from "@/types";
 import type { EmailFlowType } from "@/lib/integrations/email";
-import { sendRetentionEmail, type EmailSendLogMeta } from "@/lib/integrations/email";
+import {
+  sendRetentionEmail,
+  type EmailSendLogMeta,
+  sanitizeEmailSubject,
+} from "@/lib/integrations/email";
 import { logEmailSend } from "@/lib/integrations/email-send-log";
 import { DiscordProvider } from "@/lib/messaging/discord";
 
@@ -34,7 +38,7 @@ export async function trySend(
   messaging: MessagingProvider,
   msg: TrySendOptions,
 ): Promise<TrySendResult> {
-  const subject = msg.subject ?? "A message from Lumiere Med Spa";
+  const subject = sanitizeEmailSubject(msg.subject ?? "A message from Lumiere Med Spa");
   const preview = msg.text.slice(0, 120);
 
   async function logSkip(reason: string, simulated = false) {
