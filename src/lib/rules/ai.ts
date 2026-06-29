@@ -70,8 +70,8 @@ Convert plain English into JSON ONLY (no markdown):
   "trigger_config": { ... },
   "audience_filters": { optional extra filters },
   "channel": "Email" | "Discord" | "WhatsApp",
-  "message_template": "warm email with {first_name} and {credit_code}",
-  "offer_code": "CREDIT50 or SAVE20 or null"
+  "message_template": "warm email with {first_name}; use {birthday_token} for Birthday rules or {credit_code} for static offer codes",
+  "offer_code": "CREDIT50 or SAVE20 or null (omit for Birthday — tokens are auto-generated)"
 }
 
 trigger_config:
@@ -94,7 +94,9 @@ audience_filters (optional refinements):
 }
 
 Defaults: marketing/loyalty offers → Visit count + Email channel.
-Message: professional, warm, under 120 words, include offer code line when offer_code set.`;
+Message: professional, warm, under 120 words.
+For Birthday triggers: always include {birthday_token} (unique $50 chatbot code per client). Do not set offer_code.
+For other triggers: include {credit_code} when offer_code is set.`;
 
 /** Parse full rule definition from natural language */
 export async function parseRuleWithAI(input: string): Promise<ParsedRule> {
@@ -179,7 +181,7 @@ export async function generateRuleMessageWithAI(opts: {
       {
         role: "system",
         content: `Write a marketing email body for Lumière Med Spa.
-Use placeholders {first_name} and {credit_code} (for offer codes).
+Use {first_name}. For Birthday rules use {birthday_token} (auto-generated $50 chatbot code). For other rules use {credit_code} when an offer code applies.
 Warm, professional, no emojis, under 120 words. Return ONLY the message text.`,
       },
       {

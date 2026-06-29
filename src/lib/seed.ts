@@ -11,6 +11,7 @@ import type {
   AppointmentSource,
   AiTranscriptMsg,
 } from "./types";
+import { DEFAULT_BIRTHDAY_RULE_TEMPLATE } from "./credits/birthday-code";
 
 const FIRST = [
   "Sofia",
@@ -224,9 +225,8 @@ export function seedRules(): Rule[] {
       trigger_config: { days_before: 7 },
       audience_filter: [],
       channel: "WhatsApp",
-      message_template:
-        "Hi {first_name}, happy early birthday from all of us at Lumière. Enjoy a $50 credit on your next visit — code: {credit_code}.",
-      offer_code: "BDAY50",
+      message_template: DEFAULT_BIRTHDAY_RULE_TEMPLATE,
+      offer_code: undefined,
       status: "active",
       created_at: daysAgo(120),
       last_run_at: daysAgo(2),

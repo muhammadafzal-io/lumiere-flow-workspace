@@ -4,28 +4,19 @@ import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
 import type { RetentionResult, RunFlowOptions } from "@/types";
 
-const CREDIT_AMOUNT = 50;
-const CREDIT_VALID_DAYS = 30;
+import {
+  BIRTHDAY_CREDIT_AMOUNT,
+  BIRTHDAY_CREDIT_VALID_DAYS,
+  displayBirthdayCode,
+  generateBirthdayCreditCode,
+} from "@/lib/credits/birthday-code";
 
-/** Generates a code in the format BDAY-MA-X7K2|YYYY-MM-DD (expiry encoded) */
+/** @deprecated use displayBirthdayCode */
+export const displayCode = displayBirthdayCode;
+
+/** @deprecated use generateBirthdayCreditCode */
 function generateCreditCode(clientName: string): string {
-  const initials = clientName
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((n) => n[0].toUpperCase())
-    .join("");
-  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
-  const expiry = new Date(Date.now() + CREDIT_VALID_DAYS * 24 * 60 * 60_000).toLocaleDateString(
-    "en-CA",
-    { timeZone: "America/Chicago" },
-  );
-  return `BDAY-${initials}-${rand}|${expiry}`;
-}
-
-/** Returns the display code (without the expiry suffix) */
-export function displayCode(raw: string): string {
-  return raw.replace(/^USED:/, "").split("|")[0];
+  return generateBirthdayCreditCode(clientName);
 }
 
 function buildBirthdayMessage(clientName: string, creditCode: string): string {
@@ -34,9 +25,9 @@ function buildBirthdayMessage(clientName: string, creditCode: string): string {
     ``,
     `The entire Lumiere team wishes you a wonderful birthday. To celebrate, we're sending you a special gift:`,
     ``,
-    `$${CREDIT_AMOUNT} birthday credit`,
+    `$${BIRTHDAY_CREDIT_AMOUNT} birthday credit`,
     `Code: ${creditCode}`,
-    `Valid for ${CREDIT_VALID_DAYS} days — use it on any service!`,
+    `Valid for ${BIRTHDAY_CREDIT_VALID_DAYS} days — use it on any service!`,
     ``,
     `Book your birthday treat: just reply here or visit us Monday-Saturday, 9 AM - 7 PM.`,
     ``,
@@ -81,8 +72,8 @@ export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionR
     }
 
     try {
-      const creditCode = generateCreditCode(client.name);
-      const message = buildBirthdayMessage(client.name, displayCode(creditCode));
+      const creditCode = generateBirthdayCreditCode(client.name);
+      const message = buildBirthdayMessage(client.name, displayBirthdayCode(creditCode));
 
       const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
         messaging,
@@ -90,7 +81,7 @@ export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionR
           to: contactId,
           text: message,
           email: client.email,
-          subject: `Happy Birthday from the Lumière team — your $${CREDIT_AMOUNT} gift is inside`,
+          subject: `Happy Birthday from the Lumière team — your $${BIRTHDAY_CREDIT_AMOUNT} gift is inside`,
           flowType: "birthday",
           emailLog: {
             category: "birthday",
@@ -115,7 +106,7 @@ export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionR
       await logEvent(
         "birthday",
         client.name,
-        `Birthday credit ${simulated ? "queued (simulation)" : "sent"}. Code: ${displayCode(creditCode)}. Valid ${CREDIT_VALID_DAYS} days.${emailSent ? ` Email sent to ${client.email}.` : ""}`,
+        `Birthday credit ${simulated ? "queued (simulation)" : "sent"}. Code: ${displayBirthdayCode(creditCode)}. Valid ${BIRTHDAY_CREDIT_VALID_DAYS} days.${emailSent ? ` Email sent to ${client.email}.` : ""}`,
         {
           clientId: client.id,
           phone: client.phone,
@@ -131,7 +122,7 @@ export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionR
         status: "sent",
         contact: contactId,
         platform,
-        messagePreview: `Code: ${displayCode(creditCode)} — $${CREDIT_AMOUNT} birthday credit${simulated ? " (simulated)" : ""}`,
+        messagePreview: `Code: ${displayBirthdayCode(creditCode)} — $${BIRTHDAY_CREDIT_AMOUNT} birthday credit${simulated ? " (simulated)" : ""}`,
         emailAddress: client.email ?? null,
         emailSent,
         discordMirrored,

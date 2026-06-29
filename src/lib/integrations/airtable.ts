@@ -141,6 +141,13 @@ export async function getAllClients(): Promise<Client[]> {
   return (data ?? []).map(rowToClient);
 }
 
+export async function getClientById(id: string): Promise<Client | null> {
+  const sb = getSupabase();
+  const { data, error } = await sb.from(TABLE).select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? rowToClient(data) : null;
+}
+
 export async function upsertClient(data: Partial<Client> & { name: string }): Promise<Client> {
   const sb = getSupabase();
   const existing = await lookupClient({ telegramId: data.telegramId, phone: data.phone });

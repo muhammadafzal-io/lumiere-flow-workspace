@@ -16,6 +16,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Sparkles, Loader2, Wand2, RefreshCw } from "lucide-react";
 import { generateCopy } from "@/lib/ai-parse";
+import { DEFAULT_BIRTHDAY_RULE_TEMPLATE } from "@/lib/credits/birthday-code";
 import { formatLastVisit } from "@/lib/customers/last-visit";
 import type { Rule, TriggerType, Channel, Treatment } from "@/lib/types";
 import { RULE_CHANNELS, normalizeRuleChannel } from "@/lib/types";
@@ -74,6 +75,11 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
 
   // Textarea ref for inserting template tags at cursor
   const msgRef = useRef<HTMLTextAreaElement>(null);
+
+  const templateTags =
+    triggerType === "Birthday"
+      ? ["{first_name}", "{birthday_token}"]
+      : ["{first_name}", "{last_treatment}", "{credit_code}"];
 
   const insertTag = (tag: string) => {
     const el = msgRef.current;
@@ -334,9 +340,15 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
               <Select
                 value={triggerType}
                 onValueChange={(v) => {
-                  setTriggerType(v as TriggerType);
-                  setCfg(defaultCfg(v as TriggerType));
-                  setMessage(generateCopy(v as TriggerType, defaultCfg(v as TriggerType), offer));
+                  const next = v as TriggerType;
+                  setTriggerType(next);
+                  setCfg(defaultCfg(next));
+                  setMessage(
+                    next === "Birthday"
+                      ? DEFAULT_BIRTHDAY_RULE_TEMPLATE
+                      : generateCopy(next, defaultCfg(next), offer),
+                  );
+                  if (next === "Birthday") setOffer("");
                 }}
               >
                 <SelectTrigger className="mt-1.5">
@@ -396,7 +408,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
               placeholder="Write your message or let AI generate it above…"
             />
             <div className="flex flex-wrap gap-1.5 mt-2">
-              {["{first_name}", "{last_treatment}", "{credit_code}"].map((tag) => (
+              {templateTags.map((tag) => (
                 <button
                   key={tag}
                   type="button"
@@ -408,23 +420,34 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
                 </button>
               ))}
               <span className="text-[11px] text-muted-foreground self-center ml-1">
-                click to insert
+                {triggerType === "Birthday"
+                  ? "{birthday_token} is auto-generated per client for chatbot redemption"
+                  : "click to insert"}
               </span>
             </div>
           </div>
 
-          <div>
-            <Label>
-              Offer / incentive code{" "}
-              <span className="text-muted-foreground font-normal">(optional)</span>
-            </Label>
-            <Input
-              value={offer}
-              onChange={(e) => setOffer(e.target.value)}
-              className="mt-1.5"
-              placeholder="e.g., SPRING30"
-            />
-          </div>
+          {triggerType !== "Birthday" ? (
+            <div>
+              <Label>
+                Offer / incentive code{" "}
+                <span className="text-muted-foreground font-normal">(optional)</span>
+              </Label>
+              <Input
+                value={offer}
+                onChange={(e) => setOffer(e.target.value)}
+                className="mt-1.5"
+                placeholder="e.g., SPRING30"
+              />
+            </div>
+          ) : (
+            <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+              Each recipient gets a unique <span className="font-mono text-foreground">{`{birthday_token}`}</span>{" "}
+              (e.g. BDAY-JD-X7K2) saved to their profile. Clients enter it in the chatbot to redeem $
+              50 off — include <span className="font-mono text-foreground">{`{birthday_token}`}</span> in
+              your message above.
+            </div>
+          )}
 
           <div className="rounded-lg border bg-secondary/40 p-4">
             <div className="text-sm font-medium">Audience preview</div>
