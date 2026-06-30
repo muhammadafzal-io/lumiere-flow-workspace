@@ -10,6 +10,7 @@ import {
   displayBirthdayCode,
   generateBirthdayCreditCode,
 } from "@/lib/credits/birthday-code";
+import { widgetLinkLine } from "@/lib/client-channels";
 
 /** @deprecated use displayBirthdayCode */
 export const displayCode = displayBirthdayCode;
@@ -29,7 +30,7 @@ function buildBirthdayMessage(clientName: string, creditCode: string): string {
     `Code: ${creditCode}`,
     `Valid for ${BIRTHDAY_CREDIT_VALID_DAYS} days — use it on any service!`,
     ``,
-    `Book your birthday treat: just reply here or visit us Monday-Saturday, 9 AM - 7 PM.`,
+    `Book your birthday treat: ${widgetLinkLine()}`,
     ``,
     `Can't wait to see you!`,
     `- The Lumiere Team`,

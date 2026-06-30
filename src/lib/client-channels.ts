@@ -1,16 +1,20 @@
 /** Canonical production deployment — single repo: lumiere-flow-workspace. */
 export const DEFAULT_APP_URL = "https://lumiere-flow-workspace-htt1.vercel.app";
 
-/** Public URLs for client-facing chat channels (widget + Discord). */
+/** Public chat widget — use this URL everywhere (emails, portal, agent, embeds). */
+export const WIDGET_URL = `${DEFAULT_APP_URL}/widget`;
+
 export function getAppBaseUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
-  if (configured) return configured;
-  if (typeof window !== "undefined") return window.location.origin;
-  return DEFAULT_APP_URL;
+  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || DEFAULT_APP_URL;
 }
 
 export function getWidgetUrl(): string {
-  return `${getAppBaseUrl()}/widget`;
+  return WIDGET_URL;
+}
+
+/** Standard line for email/SMS bodies pointing clients to the widget. */
+export function widgetLinkLine(): string {
+  return `Chat or book online anytime: ${WIDGET_URL}`;
 }
 
 export function getDiscordInviteUrl(): string | null {

@@ -13,7 +13,7 @@ import {
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { sendRetentionEmail } from "@/lib/integrations/email";
-import { getWidgetUrl } from "@/lib/client-channels";
+import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import type { AgentResult } from "@/types";
 
 function getOpenAI() {
@@ -150,6 +150,7 @@ export async function executeTool(
             apptData.notes ? `Notes: ${apptData.notes}` : "",
             ``,
             `Need to change anything? Reply to this message or contact us Monday–Saturday, 9 AM–7 PM.`,
+            widgetLinkLine(),
             ``,
             `See you soon!`,
             `— The Lumière Team`,
@@ -201,6 +202,7 @@ export async function executeTool(
             `Original Date: ${displayTime} CT`,
             ``,
             `We'd love to rebook you at a time that works better. Reply here or visit us Monday–Saturday, 9 AM–7 PM.`,
+            widgetLinkLine(),
             ``,
             `— The Lumière Team`,
           ].join("\n"),
@@ -267,6 +269,7 @@ export async function executeTool(
             `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
             ``,
             `Need further changes? Reply here or contact us Monday–Saturday, 9 AM–7 PM.`,
+            widgetLinkLine(),
             ``,
             `See you soon!`,
             `— The Lumière Team`,

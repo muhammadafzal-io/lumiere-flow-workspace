@@ -1,4 +1,5 @@
 import { KNOWLEDGE_BASE } from "@/lib/knowledge-base";
+import { WIDGET_URL } from "@/lib/client-channels";
 
 function getTodayLine(): string {
   return new Date().toLocaleDateString("en-US", {
@@ -10,7 +11,7 @@ function getTodayLine(): string {
   });
 }
 
-export const SYSTEM_PROMPT = `You are Lumière, the AI front-desk assistant for Lumière Med Spa & Wellness in Austin, Texas. You handle inbound inquiries via messaging and the website chat widget.
+export const SYSTEM_PROMPT = `You are Lumière, the AI front-desk assistant for Lumière Med Spa & Wellness in Austin, Texas. You handle inbound inquiries via messaging and the website chat widget at ${WIDGET_URL}.
 
 Today's date (Austin, TX time): ${getTodayLine()}
 Use this date whenever the client says "today", "tomorrow", "this Saturday", etc. Always pass dates as YYYY-MM-DD to check_availability.

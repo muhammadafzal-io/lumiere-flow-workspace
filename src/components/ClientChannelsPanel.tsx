@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { Copy, Check, ExternalLink, MessageSquare, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { getDiscordInviteUrl, getWidgetUrl } from "@/lib/client-channels";
+import { getDiscordInviteUrl, WIDGET_URL } from "@/lib/client-channels";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -25,7 +25,7 @@ function DiscordIcon({ className }: { className?: string }) {
 function useChannelUrls() {
   return useMemo(
     () => ({
-      widgetUrl: getWidgetUrl(),
+      widgetUrl: WIDGET_URL,
       discordUrl: getDiscordInviteUrl(),
     }),
     [],

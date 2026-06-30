@@ -3,7 +3,7 @@ import { google } from "googleapis";
 import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
-import { getWidgetUrl } from "@/lib/client-channels";
+import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -109,6 +109,7 @@ export async function DELETE(req: NextRequest) {
             `Original Date: ${displayTime} CT`,
             ``,
             `We'd love to rebook you at a time that works better. Reply to this email or visit us Monday–Saturday, 9 AM–7 PM.`,
+            widgetLinkLine(),
             ``,
             `— The Lumière Team`,
           ].join("\n"),

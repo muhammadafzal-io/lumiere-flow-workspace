@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
+import { widgetLinkLine } from "@/lib/client-channels";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -154,6 +155,7 @@ export async function PATCH(req: NextRequest) {
             `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
             ``,
             `Need to make further changes? Reply to this email or contact us Monday–Saturday, 9 AM–7 PM.`,
+            widgetLinkLine(),
             ``,
             `See you soon!`,
             `— The Lumière Team`,

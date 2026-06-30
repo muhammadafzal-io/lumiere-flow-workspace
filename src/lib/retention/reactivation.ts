@@ -4,6 +4,7 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
 import type { Client, RetentionResult, RunFlowOptions } from "@/types";
+import { WIDGET_URL } from "@/lib/client-channels";
 
 function getOpenAI() {
   return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -28,7 +29,7 @@ async function generatePersonalisedMessage(client: Client, step: number): Promis
 Their last visit was ${client.lastVisit ?? "several months ago"} and they received ${client.lastTreatment ?? "a treatment"}.
 This is follow-up #${step} of 3.
 Tone: ${tone}
-Offer: ${CAMPAIGN.incentive} using code ${CAMPAIGN.incentiveCode} (valid ${CAMPAIGN.validDays} days).
+Offer: ${CAMPAIGN.incentive} using code ${CAMPAIGN.incentiveCode} (valid ${CAMPAIGN.validDays} days). Online booking: ${WIDGET_URL}.
 Sound like it's from their favourite spa — warm, personal, not salesy.
 Write ONLY the message text — no subject line, no quotes, no explanation. No emojis. Plain text only.`;
 
@@ -40,7 +41,7 @@ Write ONLY the message text — no subject line, no quotes, no explanation. No e
 
   return (
     response.choices[0].message.content ??
-    `Hi ${client.name}! We miss you at Lumière. Use code ${CAMPAIGN.incentiveCode} for ${CAMPAIGN.incentive}.`
+    `Hi ${client.name}! We miss you at Lumière. Use code ${CAMPAIGN.incentiveCode} for ${CAMPAIGN.incentive}. Book online: ${WIDGET_URL}`
   );
 }
 

@@ -2,7 +2,7 @@ import { getAllClients, updateClientField } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { getMessagingProvider } from "@/lib/messaging";
-import { getWidgetUrl } from "@/lib/client-channels";
+import { widgetLinkLine } from "@/lib/client-channels";
 import { trySend } from "@/lib/retention/utils";
 import type { RetentionResult, RunFlowOptions } from "@/types";
 
@@ -12,7 +12,7 @@ function buildNoshowText(clientName: string, treatment: string): string {
     ``,
     `We completely understand that life gets busy. We'd love to reschedule at a time that works better for you.`,
     ``,
-    `Book a new appointment here: ${getWidgetUrl()}`,
+    widgetLinkLine(),
     `Or simply reply to this message and we'll find you a spot.`,
     ``,
     `We're here Monday-Saturday, 9 AM - 7 PM. Talk soon.`,

@@ -3,6 +3,7 @@ import { bookAppointment } from "@/lib/services/booking-service";
 import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
+import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -84,6 +85,7 @@ export async function POST(req: NextRequest) {
             notes ? `Notes: ${notes}` : "",
             ``,
             `Need to change anything? Reply to this email or contact us Monday–Saturday, 9 AM–7 PM.`,
+            widgetLinkLine(),
             ``,
             `See you soon!`,
             `— The Lumière Team`,

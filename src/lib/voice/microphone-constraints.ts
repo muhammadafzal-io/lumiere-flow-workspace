@@ -1,3 +1,5 @@
+import { WIDGET_URL } from "@/lib/client-channels";
+
 const VOICE_MIC_CONSTRAINTS: MediaStreamConstraints = {
   audio: {
     echoCancellation: true,
@@ -51,12 +53,12 @@ function ensureMediaDevices(): MediaDevices {
 
   if (insecure) {
     throw new Error(
-      "Microphone requires a secure connection. Open http://localhost:3000/widget on this device, or use HTTPS.",
+      `Microphone requires a secure connection. Open ${WIDGET_URL} on this device, or use HTTPS.`,
     );
   }
 
   throw new Error(
-    "Microphone is not available in this browser. Try Chrome or Edge on http://localhost:3000/widget.",
+    `Microphone is not available in this browser. Try Chrome or Edge at ${WIDGET_URL}.`,
   );
 }
 
