@@ -19,15 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Check,
-  X,
-  RefreshCw,
-  Loader2,
-  Plus,
-  Pencil,
-  Trash2,
-} from "lucide-react";
+import { Check, X, RefreshCw, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import { toast } from "sonner";
 
