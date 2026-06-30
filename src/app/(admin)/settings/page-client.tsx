@@ -27,8 +27,6 @@ import {
   Plus,
   Pencil,
   Trash2,
-  ExternalLink,
-  MessageSquare,
 } from "lucide-react";
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import { toast } from "sonner";
