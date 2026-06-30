@@ -88,7 +88,18 @@ export async function GET() {
 
     const rooms = roomRows.length > 0 ? roomRows.map((r: any) => r.Name) : ["Room 1", "Room 2"];
 
-    return NextResponse.json({ clinic, team, channels: getChannelStatus(), rooms });
+    return NextResponse.json({
+      clinic,
+      team,
+      channels: getChannelStatus(),
+      rooms,
+      clientLinks: {
+        widgetUrl: process.env.NEXT_PUBLIC_APP_URL
+          ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/widget`
+          : null,
+        discordInviteUrl: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL?.trim() || null,
+      },
+    });
   } catch (error) {
     console.error("GET /api/settings error:", error);
     return NextResponse.json({ error: "Failed to load settings" }, { status: 500 });

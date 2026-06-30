@@ -19,7 +19,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, X, RefreshCw, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
+import {
+  Check,
+  X,
+  RefreshCw,
+  Loader2,
+  Plus,
+  Pencil,
+  Trash2,
+  ExternalLink,
+  MessageSquare,
+} from "lucide-react";
+import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import { toast } from "sonner";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -183,6 +194,12 @@ function ChannelsTab({ channels }: { channels: Record<string, ChannelStatus> }) 
 
   return (
     <div className="space-y-4">
+      <ClientChannelsDashboard />
+      <div className="pt-2">
+        <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
+          Integration status
+        </h3>
+      </div>
       {entries.length === 0 ? (
         <div className="rounded-lg border bg-card p-6 text-sm text-muted-foreground text-center">
           No channel configuration found.

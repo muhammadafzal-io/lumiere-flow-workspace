@@ -14,6 +14,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import type { CalendarEvent } from "@/types";
 import type { OpsLogEntry, EventType } from "@/types";
 
@@ -216,6 +217,8 @@ export default function Dashboard() {
           </button>
         </div>
       )}
+
+      <ClientChannelsDashboard />
 
       {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

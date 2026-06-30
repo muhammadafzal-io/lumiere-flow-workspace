@@ -20,7 +20,9 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarHeader,
+  SidebarFooter,
 } from "@/components/ui/sidebar";
+import { ClientChannelsSidebar } from "@/components/ClientChannelsPanel";
 import { useAuth } from "@/lib/auth-context";
 import { canAccessPage } from "@/lib/permissions";
 
@@ -53,7 +55,7 @@ export function AppSidebar() {
           </span>
         </Link>
       </SidebarHeader>
-      <SidebarContent>
+      <SidebarContent className="flex flex-col">
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -70,7 +72,13 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        <ClientChannelsSidebar />
       </SidebarContent>
+      <SidebarFooter className="border-t p-2 group-data-[collapsible=icon]:hidden">
+        <p className="text-[10px] text-center text-muted-foreground px-2">
+          Links open in a new tab for client-facing tools.
+        </p>
+      </SidebarFooter>
     </Sidebar>
   );
 }
