@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getVoiceSystemPrompt } from "@/lib/agent/voice-system-prompt";
 import { TOOLS } from "@/lib/agent/tools";
+import { getOpenAIRealtimeApiKey, OPENAI_KEY_SETUP_HINT } from "@/lib/openai-config";
 
 const REALTIME_TOOLS = [
   ...TOOLS.map((t) => ({
@@ -19,15 +20,22 @@ const REALTIME_TOOLS = [
 ];
 
 export async function POST() {
-  if (!process.env.OPENAI_API_KEY_REAL_TIME) {
-    return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 });
+  const apiKey = getOpenAIRealtimeApiKey();
+  if (!apiKey) {
+    return NextResponse.json(
+      {
+        error: "OpenAI API key not configured",
+        hint: OPENAI_KEY_SETUP_HINT,
+      },
+      { status: 500 },
+    );
   }
 
   try {
     const res = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY_REAL_TIME}`,
+        Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({

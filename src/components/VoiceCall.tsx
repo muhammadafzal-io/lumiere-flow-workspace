@@ -564,9 +564,16 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
 
         // 1. Get ephemeral token from our backend
         const tokenRes = await fetch("/api/voice/session", { method: "POST" });
-        const tokenData = (await tokenRes.json()) as { clientSecret?: string; error?: string };
+        const tokenData = (await tokenRes.json()) as {
+          clientSecret?: string;
+          error?: string;
+          hint?: string;
+        };
         if (!tokenRes.ok || !tokenData.clientSecret) {
-          throw new Error(tokenData.error ?? "Could not create voice session");
+          throw new Error(
+            [tokenData.error, tokenData.hint].filter(Boolean).join(" — ") ||
+              "Could not create voice session",
+          );
         }
         const { clientSecret } = tokenData;
 

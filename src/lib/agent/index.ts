@@ -14,10 +14,15 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
+import { getOpenAIApiKey } from "@/lib/openai-config";
 import type { AgentResult } from "@/types";
 
 function getOpenAI() {
-  return new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const apiKey = getOpenAIApiKey();
+  if (!apiKey) {
+    throw new Error("OPENAI_API_KEY is not configured");
+  }
+  return new OpenAI({ apiKey });
 }
 
 const MAX_TOOL_ROUNDS = 8;

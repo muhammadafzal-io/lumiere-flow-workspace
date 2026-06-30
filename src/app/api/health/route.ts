@@ -58,7 +58,12 @@ export async function GET() {
     check("GOOGLE_CALENDAR_ID", "Google Calendar ID for bookings"),
 
     // ── AI / LLM ───────────────────────────────────────────────────────────────
-    check("OPENAI_API_KEY", "OpenAI key (reactivation message generation)"),
+    check("OPENAI_API_KEY", "OpenAI key (chat widget, rules AI, reactivation)"),
+    check(
+      "OPENAI_API_KEY_REAL_TIME",
+      "OpenAI Realtime key (voice — falls back to OPENAI_API_KEY)",
+      true,
+    ),
 
     // ── Notifications ──────────────────────────────────────────────────────────
     check("SLACK_ESCALATION_WEBHOOK_URL", "Slack webhook for escalation alerts", true),
