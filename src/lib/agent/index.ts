@@ -21,7 +21,7 @@ function getOpenAI() {
 
 const MAX_TOOL_ROUNDS = 8;
 
-async function executeTool(
+export async function executeTool(
   toolName: string,
   input: Record<string, unknown>,
   context: { platform: string; chatId: string },

@@ -148,6 +148,22 @@ export async function getClientById(id: string): Promise<Client | null> {
   return data ? rowToClient(data) : null;
 }
 
+export async function lookupClientByPhone(phone: string): Promise<Client | null> {
+  const direct = await lookupClient({ phone }).catch(() => null);
+  if (direct) return direct;
+
+  const { phonesMatch } = await import("@/lib/phone");
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length < 7) return null;
+
+  const sb = getSupabase();
+  const { data, error } = await sb.from(TABLE).select("*");
+  if (error) throw new Error(error.message);
+
+  const row = (data ?? []).find((r) => phonesMatch(String(r["Phone"] ?? ""), phone));
+  return row ? rowToClient(row) : null;
+}
+
 export async function upsertClient(data: Partial<Client> & { name: string }): Promise<Client> {
   const sb = getSupabase();
   const existing = await lookupClient({ telegramId: data.telegramId, phone: data.phone });
