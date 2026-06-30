@@ -13,6 +13,7 @@ import {
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { sendRetentionEmail } from "@/lib/integrations/email";
+import { getWidgetUrl } from "@/lib/client-channels";
 import type { AgentResult } from "@/types";
 
 function getOpenAI() {
@@ -205,7 +206,7 @@ export async function executeTool(
           ].join("\n"),
           cta: {
             label: "Book a New Appointment",
-            url: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://lumiere-ai-system.vercel.app"}/widget`,
+            url: getWidgetUrl(),
           },
         })
           .then(() => console.log(`[agent/cancel] cancellation email sent → ${cancelEmail}`))

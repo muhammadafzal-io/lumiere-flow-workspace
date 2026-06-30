@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
+import { getWidgetUrl } from "@/lib/client-channels";
 
 export const dynamic = "force-dynamic";
 
@@ -94,9 +95,7 @@ export async function GET() {
       channels: getChannelStatus(),
       rooms,
       clientLinks: {
-        widgetUrl: process.env.NEXT_PUBLIC_APP_URL
-          ? `${process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "")}/widget`
-          : null,
+        widgetUrl: getWidgetUrl(),
         discordInviteUrl: process.env.NEXT_PUBLIC_DISCORD_INVITE_URL?.trim() || null,
       },
     });

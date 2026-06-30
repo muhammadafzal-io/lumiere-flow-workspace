@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 /**
  * /widget — embeddable chat page (separate from admin portal).
- * Embed: <iframe src="https://your-app.vercel.app/widget" ... />
+ * Embed: <iframe src="https://lumiere-flow-workspace-htt1.vercel.app/widget" ... />
  */
 export default function WidgetPage() {
   return (

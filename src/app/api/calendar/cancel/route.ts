@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
+import { getWidgetUrl } from "@/lib/client-channels";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -113,7 +114,7 @@ export async function DELETE(req: NextRequest) {
           ].join("\n"),
           cta: {
             label: "Book a New Appointment",
-            url: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://lumiere-flow-workspace-htt1.vercel.app"}/widget`,
+            url: getWidgetUrl(),
           },
         });
 
