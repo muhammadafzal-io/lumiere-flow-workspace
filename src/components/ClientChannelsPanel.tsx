@@ -1,18 +1,10 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
-import { Copy, Check, ExternalLink, MessageSquare, Mic } from "lucide-react";
+import { useMemo } from "react";
+import { MessageSquare, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { getDiscordInviteUrl, WIDGET_URL } from "@/lib/client-channels";
-import {
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
-} from "@/components/ui/sidebar";
 
 function DiscordIcon({ className }: { className?: string }) {
   return (
@@ -32,188 +24,14 @@ function useChannelUrls() {
   );
 }
 
-function CopyWidgetLink({ url }: { url: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      /* clipboard unavailable */
-    }
-  };
-
-  return (
-    <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={copy}>
-      {copied ? <Check className="h-3.5 w-3.5 mr-1.5" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
-      {copied ? "Copied" : "Copy link"}
-    </Button>
-  );
-}
-
-/** Dashboard cards — primary entry point for staff. */
+/** Dashboard cards hidden per current portal requirements. */
 export function ClientChannelsDashboard() {
-  const { widgetUrl, discordUrl } = useChannelUrls();
-
-  return (
-    <section className="rounded-xl border bg-card overflow-hidden">
-      <div className="px-5 py-4 border-b bg-secondary/30">
-        <h2 className="text-sm font-semibold tracking-tight">Client channels</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Open the AI assistant your clients use — same booking, voice, and email flows as
-          production.
-        </p>
-      </div>
-      <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x">
-        <ChannelCard
-          title="Website chat widget"
-          description="Text chat and voice concierge. Share this link or embed it on your site."
-          icon={
-            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary">
-              <MessageSquare className="h-5 w-5" />
-            </div>
-          }
-          badges={["Chat", "Voice"]}
-          primaryLabel="Open widget"
-          primaryHref={widgetUrl}
-          secondary={<CopyWidgetLink url={widgetUrl} />}
-          urlPreview={widgetUrl}
-        />
-        <ChannelCard
-          title="Discord"
-          description="Talk to Lumière in your Discord server — bookings, reminders, and escalations."
-          icon={
-            <div className="h-10 w-10 rounded-lg bg-[#5865F2]/15 flex items-center justify-center text-[#5865F2]">
-              <DiscordIcon className="h-5 w-5" />
-            </div>
-          }
-          badges={["Messaging"]}
-          primaryLabel={discordUrl ? "Open Discord" : "Invite not configured"}
-          primaryHref={discordUrl ?? undefined}
-          primaryDisabled={!discordUrl}
-          secondary={
-            !discordUrl ? (
-              <p className="text-[11px] text-muted-foreground leading-snug">
-                Set <code className="font-mono">NEXT_PUBLIC_DISCORD_INVITE_URL</code> in Vercel env.
-              </p>
-            ) : undefined
-          }
-        />
-      </div>
-    </section>
-  );
+  return null;
 }
 
-function ChannelCard({
-  title,
-  description,
-  icon,
-  badges,
-  primaryLabel,
-  primaryHref,
-  primaryDisabled,
-  secondary,
-  urlPreview,
-}: {
-  title: string;
-  description: string;
-  icon: ReactNode;
-  badges: string[];
-  primaryLabel: string;
-  primaryHref?: string;
-  primaryDisabled?: boolean;
-  secondary?: ReactNode;
-  urlPreview?: string;
-}) {
-  return (
-    <div className="p-5 flex flex-col gap-4 min-h-[180px]">
-      <div className="flex items-start gap-3">
-        {icon}
-        <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="font-medium text-sm">{title}</h3>
-            {badges.map((b) => (
-              <span
-                key={b}
-                className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium"
-              >
-                {b}
-              </span>
-            ))}
-          </div>
-          <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{description}</p>
-        </div>
-      </div>
-      {urlPreview && (
-        <p className="text-[11px] font-mono text-muted-foreground truncate bg-muted/50 rounded-md px-2.5 py-1.5 border">
-          {urlPreview}
-        </p>
-      )}
-      <div className="mt-auto flex flex-wrap items-center gap-2">
-        {primaryHref && !primaryDisabled ? (
-          <Button asChild size="sm" className="h-8">
-            <a href={primaryHref} target="_blank" rel="noopener noreferrer">
-              {primaryLabel}
-              <ExternalLink className="h-3.5 w-3.5 ml-1.5 opacity-70" />
-            </a>
-          </Button>
-        ) : (
-          <Button size="sm" className="h-8" disabled={primaryDisabled}>
-            {primaryLabel}
-          </Button>
-        )}
-        {secondary}
-      </div>
-    </div>
-  );
-}
-
-/** Sidebar footer — always visible while navigating the portal. */
+/** Sidebar shortcuts hidden per current portal requirements. */
 export function ClientChannelsSidebar() {
-  const { widgetUrl, discordUrl } = useChannelUrls();
-
-  return (
-    <SidebarGroup className="mt-auto">
-      <SidebarGroupLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
-        Client channels
-      </SidebarGroupLabel>
-      <SidebarGroupContent>
-        <SidebarMenu>
-          <SidebarMenuItem>
-            <SidebarMenuButton asChild tooltip="Open chat widget">
-              <a href={widgetUrl} target="_blank" rel="noopener noreferrer">
-                <MessageSquare className="h-4 w-4" />
-                <span>Chat widget</span>
-                <ExternalLink className="ml-auto h-3 w-3 opacity-50 group-data-[collapsible=icon]:hidden" />
-              </a>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            <SidebarMenuButton
-              asChild={!!discordUrl}
-              tooltip={discordUrl ? "Open Discord" : "Set NEXT_PUBLIC_DISCORD_INVITE_URL"}
-              disabled={!discordUrl}
-            >
-              {discordUrl ? (
-                <a href={discordUrl} target="_blank" rel="noopener noreferrer">
-                  <DiscordIcon className="h-4 w-4" />
-                  <span>Discord</span>
-                  <ExternalLink className="ml-auto h-3 w-3 opacity-50 group-data-[collapsible=icon]:hidden" />
-                </a>
-              ) : (
-                <span className="flex items-center gap-2 opacity-50 cursor-not-allowed">
-                  <DiscordIcon className="h-4 w-4" />
-                  <span>Discord</span>
-                </span>
-              )}
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-        </SidebarMenu>
-      </SidebarGroupContent>
-    </SidebarGroup>
-  );
+  return null;
 }
 
 /** Top bar quick actions. */

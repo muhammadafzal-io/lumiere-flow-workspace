@@ -36,13 +36,11 @@ function checkJson(key: string, note: string): CheckResult {
 
 export async function GET() {
   const checks: CheckResult[] = [
-    // ── Supabase ───────────────────────────────────────────────────────────────
     check("SUPABASE_URL", "Supabase project URL (server-side)"),
     check("NEXT_PUBLIC_SUPABASE_URL", "Supabase project URL (client-side)", true),
     check("SUPABASE_SERVICE_ROLE_KEY", "Supabase service role key"),
     check("NEXT_PUBLIC_SUPABASE_ANON_KEY", "Supabase anon key", true),
 
-    // ── Messaging ──────────────────────────────────────────────────────────────
     check("MESSAGING_PROVIDER", "Active messaging channel (discord/telegram/whatsapp)"),
     check("DISCORD_BOT_TOKEN", "Discord bot token for sending messages"),
     check("DISCORD_APPLICATION_ID", "Discord application ID"),
@@ -53,11 +51,9 @@ export async function GET() {
     check("WHATSAPP_ACCESS_TOKEN", "WhatsApp Cloud API token", true),
     check("WHATSAPP_PHONE_NUMBER_ID", "WhatsApp phone number ID", true),
 
-    // ── Google Calendar ────────────────────────────────────────────────────────
     checkJson("GOOGLE_SERVICE_ACCOUNT_JSON", "Google service account credentials"),
     check("GOOGLE_CALENDAR_ID", "Google Calendar ID for bookings"),
 
-    // ── AI / LLM ───────────────────────────────────────────────────────────────
     check("OPENAI_API_KEY", "OpenAI key (chat widget, rules AI, reactivation)"),
     check(
       "OPENAI_API_KEY_REAL_TIME",
@@ -65,13 +61,10 @@ export async function GET() {
       true,
     ),
 
-    // ── Notifications ──────────────────────────────────────────────────────────
     check("SLACK_ESCALATION_WEBHOOK_URL", "Slack webhook for escalation alerts", true),
 
-    // ── Cron / Scheduling ─────────────────────────────────────────────────────
     check("CRON_SECRET", "Secret to authenticate cron-job.org calls"),
 
-    // ── App ────────────────────────────────────────────────────────────────────
     check("NEXT_PUBLIC_APP_URL", "Public URL of this deployment"),
     check("TZ", "Timezone (e.g. America/Chicago)", true),
   ];

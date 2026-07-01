@@ -10,9 +10,6 @@ function hoursUntil(isoTime: string): number {
   return (new Date(isoTime).getTime() - Date.now()) / (1000 * 60 * 60);
 }
 
-// Windows are ±4h around each target (72h, 24h, 2h) so that at least one
-// cron firing (schedule: 3× daily, max gap ~12h) falls inside each window.
-// The 60-min dedup guard in the calling code prevents double-sends.
 function reminderWindow(hoursAhead: number): "T-72h" | "T-24h" | "T-2h" | null {
   if (hoursAhead >= 68 && hoursAhead <= 76) return "T-72h";
   if (hoursAhead >= 20 && hoursAhead <= 28) return "T-24h";
@@ -70,7 +67,6 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
 
   for (const appt of appointments) {
     if (!appt.clientContact) {
-      console.log(`[reminder] SKIP → ${appt.clientName} | reason: no contact info`);
       result.skipped++;
       result.details.push({
         clientId: appt.id ?? "",
@@ -94,9 +90,6 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
         minute: "2-digit",
         hour12: true,
       });
-      console.log(
-        `[reminder] SKIP → ${appt.clientName} | ${displayTime} | ${Math.round(hours)}h away — outside all reminder windows`,
-      );
       result.skipped++;
       result.details.push({
         clientId: appt.id ?? "",
@@ -108,14 +101,11 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
     }
 
     const client = await lookupClient({ phone: appt.clientContact }).catch(() => null);
+    const displayName = client?.name?.trim() || appt.clientName;
 
-    // Skip if a reminder was sent within the last 60 minutes (duplicate cron guard)
     if (client?.lastReminderSent) {
       const minsSince = (Date.now() - new Date(client.lastReminderSent).getTime()) / 60_000;
       if (minsSince < 60) {
-        console.log(
-          `[reminder] SKIP → ${appt.clientName} | reason: reminder already sent ${Math.round(minsSince)}min ago`,
-        );
         result.skipped++;
         result.details.push({
           clientId: appt.id ?? "",
@@ -130,7 +120,7 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
     const deliverTo = client?.telegramId ?? appt.clientContact;
 
     try {
-      const text = buildReminderText(appt.clientName, appt.treatment, appt.startTime, window);
+      const text = buildReminderText(displayName, appt.treatment, appt.startTime, window);
 
       const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
         messaging,
@@ -149,13 +139,9 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
             category: "reminder",
             triggerType: opts?.trigger ?? "cron",
             clientId: client?.id,
-            clientName: appt.clientName,
+            clientName: displayName,
           },
         },
-      );
-
-      console.log(
-        `[reminder] ${simulated ? "SIMULATED" : "SENT"} → ${appt.clientName} | window: ${window} | platform: ${platform} | email: ${emailSent ? client?.email : "none"} | discord-mirror: ${discordMirrored} | contact: ${deliverTo}`,
       );
 
       if (client?.id) {
@@ -164,7 +150,7 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
 
       await logEvent(
         "reminder",
-        appt.clientName,
+        displayName,
         `${window} reminder ${simulated ? "queued (simulation)" : "sent"} for ${appt.treatment}`,
         { clientId: client?.id, phone: appt.clientContact, platform },
       );
@@ -172,7 +158,7 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
       result.sent++;
       result.details.push({
         clientId: appt.id ?? "",
-        clientName: appt.clientName,
+        clientName: displayName,
         status: "sent",
         contact: deliverTo,
         platform,
@@ -186,7 +172,7 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
       if (window === "T-2h" && !client?.lastReminderSent) {
         postEscalation({
           reason: `No confirmation received — appointment in ~2 hours`,
-          clientInfo: `${appt.clientName} (${appt.clientContact})`,
+          clientInfo: `${displayName} (${appt.clientContact})`,
           conversationSummary: `${appt.treatment} at ${appt.startTime}. No response to prior reminders.`,
           platform: "reminder-flow",
         }).catch((e) => console.error("[reminder] Slack escalation failed:", e));

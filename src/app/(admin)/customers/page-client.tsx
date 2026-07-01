@@ -124,7 +124,6 @@ function customerToEditForm(c: Customer): EditForm {
   };
 }
 
-// ── Customer profile slide-over ───────────────────────────────────────────────
 function CustomerSheet({
   customer,
   onClose,
@@ -411,7 +410,6 @@ function CustomerSheet({
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);

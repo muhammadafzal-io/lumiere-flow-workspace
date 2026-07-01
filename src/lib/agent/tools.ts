@@ -4,6 +4,25 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "get_practitioners",
+      description:
+        "Get the list of active practitioners at Lumière. Call this after the client states their treatment so you can offer a practitioner preference. Returns name, specialty, and bio for each active practitioner.",
+      parameters: {
+        type: "object",
+        properties: {
+          specialty: {
+            type: "string",
+            description:
+              'Optional treatment keyword to filter practitioners (e.g. "Botox", "Microneedling"). Omit to get all active practitioners.',
+          },
+        },
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
       name: "check_availability",
       description:
         "Check available appointment slots in the Lumière Google Calendar for a given date, considering both room and practitioner availability. Returns available time slots and which rooms/practitioners are free. ALWAYS call this before suggesting any time to a client.",
@@ -23,6 +42,10 @@ export const TOOLS: ChatCompletionTool[] = [
             description:
               "If the client prefers a specific practitioner, pass their full name here to filter availability",
           },
+          practitioner_name: {
+            type: "string",
+            description: "Alias for preferred_practitioner — name of the practitioner to check",
+          },
           preferred_room: {
             type: "string",
             description:
@@ -39,7 +62,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "book_appointment",
       description:
-        "Create a confirmed appointment in the Lumière Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. If room/practitioner not specified, the system will automatically assign an available one.",
+        "Create a confirmed appointment in the Lumière Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Requires name, phone, email, and birthday (or birthday_skipped: true if they declined).",
       parameters: {
         type: "object",
         properties: {
@@ -51,7 +74,16 @@ export const TOOLS: ChatCompletionTool[] = [
           client_email: {
             type: "string",
             description:
-              "Client email address — always include if the client provided it. Used to send booking confirmation email.",
+              "REQUIRED — confirmed email for booking confirmation (e.g. sarah@gmail.com)",
+          },
+          birthday: {
+            type: "string",
+            description:
+              "Birthday in MM-DD format if the client shared it (also save via upsert_client)",
+          },
+          birthday_skipped: {
+            type: "boolean",
+            description: "Set true if the client declined to share their birthday after you asked",
           },
           practitioner_name: {
             type: "string",
@@ -68,7 +100,14 @@ export const TOOLS: ChatCompletionTool[] = [
             description: "Optional notes (new client, contraindication mentions, preferences)",
           },
         },
-        required: ["client_name", "treatment", "date_time", "duration_minutes", "client_contact"],
+        required: [
+          "client_name",
+          "treatment",
+          "date_time",
+          "duration_minutes",
+          "client_contact",
+          "client_email",
+        ],
       },
     },
   },

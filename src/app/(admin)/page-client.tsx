@@ -12,13 +12,15 @@ import {
   Calendar as CalendarIcon,
   ArrowRight,
   RefreshCw,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
+import { NewAppointmentModal } from "@/components/calendar/AppointmentDialogs";
 import type { CalendarEvent } from "@/types";
 import type { OpsLogEntry, EventType } from "@/types";
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
+import type { Customer, Practitioner } from "@/lib/types";
+import { mapTeamToPractitioners } from "@/lib/practitioners";
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", {
@@ -48,7 +50,6 @@ function eventsOnDay(events: CalendarEvent[], day: Date) {
   });
 }
 
-// ── Event type badge colours ──────────────────────────────────────────────────
 function eventTypeBadge(type: EventType | string) {
   const map: Record<string, string> = {
     booking: "bg-primary/10 text-primary border-primary/20",
@@ -69,7 +70,6 @@ function statusDot(s: string) {
   return <span className={`inline-block h-1.5 w-1.5 rounded-full flex-shrink-0 ${color}`} />;
 }
 
-// ── Trigger description ───────────────────────────────────────────────────────
 function triggerDescription(rule: any): string {
   const cfg = rule.trigger_config ?? {};
   switch (rule.trigger_type) {
@@ -88,7 +88,6 @@ function triggerDescription(rule: any): string {
   }
 }
 
-// ── Skeleton ──────────────────────────────────────────────────────────────────
 function KpiSkeleton() {
   return (
     <div className="rounded-lg border bg-card p-5 animate-pulse">
@@ -98,7 +97,6 @@ function KpiSkeleton() {
   );
 }
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 interface DashboardData {
   metrics: {
     totalCustomers: number;
@@ -113,11 +111,39 @@ interface DashboardData {
   calendarEvents: CalendarEvent[];
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [bookOpen, setBookOpen] = useState(false);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
+  const [bookingDataLoading, setBookingDataLoading] = useState(false);
+
+  const loadBookingData = useCallback(async () => {
+    setBookingDataLoading(true);
+    try {
+      const [custRes, settingsRes] = await Promise.all([
+        fetch("/api/customers?limit=500"),
+        fetch("/api/settings"),
+      ]);
+      if (custRes.ok) {
+        const custJson = await custRes.json();
+        setCustomers(custJson.customers ?? []);
+      }
+      if (settingsRes.ok) {
+        const settingsJson = await settingsRes.json();
+        setPractitioners(mapTeamToPractitioners(settingsJson.team ?? []));
+      }
+    } finally {
+      setBookingDataLoading(false);
+    }
+  }, []);
+
+  const openBooking = useCallback(() => {
+    setBookOpen(true);
+    void loadBookingData();
+  }, [loadBookingData]);
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -204,9 +230,15 @@ export default function Dashboard() {
             An overview of your automated customer communications.
           </p>
         </div>
-        <Button variant="outline" size="icon" onClick={fetchDashboard} disabled={loading}>
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button onClick={openBooking} disabled={bookingDataLoading}>
+            <Plus className="h-4 w-4 mr-1.5" />
+            Book appointment
+          </Button>
+          <Button variant="outline" size="icon" onClick={fetchDashboard} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -434,6 +466,21 @@ export default function Dashboard() {
           </table>
         </div>
       </div>
+
+      <NewAppointmentModal
+        open={bookOpen}
+        onClose={() => {
+          setBookOpen(false);
+          void fetchDashboard();
+        }}
+        customers={customers}
+        practitioners={practitioners}
+        defaultStart={null}
+        onBooked={() => {
+          void loadBookingData();
+          void fetchDashboard();
+        }}
+      />
     </div>
   );
 }

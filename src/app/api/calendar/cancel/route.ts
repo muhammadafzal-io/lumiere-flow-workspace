@@ -59,7 +59,6 @@ export async function DELETE(req: NextRequest) {
 
     await calendar.events.delete({ calendarId: calId, eventId });
 
-    // Fire-and-forget: send cancellation email
     (async () => {
       try {
         const description = event.description ?? "";
@@ -128,8 +127,6 @@ export async function DELETE(req: NextRequest) {
             email,
           },
         );
-
-        console.log(`[cancel] cancellation email sent → ${email}`);
       } catch (err) {
         console.error(`[cancel] cancellation email failed:`, err);
       }

@@ -65,7 +65,6 @@ export async function runReactivationFlow(opts?: RunFlowOptions): Promise<Retent
 
     // Stop cadence after 3 follow-ups
     if (step > 3) {
-      console.log(`[reactivation] SKIP → ${client.name} | reason: completed 3-step cadence`);
       result.skipped++;
       result.details.push({
         clientId: client.id ?? "",
@@ -78,9 +77,6 @@ export async function runReactivationFlow(opts?: RunFlowOptions): Promise<Retent
 
     // Enforce 14-day gap between each follow-up
     if (daysSince(lastSentAt) < 14) {
-      console.log(
-        `[reactivation] SKIP → ${client.name} | reason: last message sent ${Math.floor(daysSince(lastSentAt))} days ago (need 14)`,
-      );
       result.skipped++;
       result.details.push({
         clientId: client.id ?? "",
@@ -93,7 +89,6 @@ export async function runReactivationFlow(opts?: RunFlowOptions): Promise<Retent
 
     const contactId = client.telegramId ?? client.phone;
     if (!contactId) {
-      console.log(`[reactivation] SKIP → ${client.name} | reason: no contact info`);
       result.skipped++;
       result.details.push({
         clientId: client.id ?? "",
@@ -127,10 +122,6 @@ export async function runReactivationFlow(opts?: RunFlowOptions): Promise<Retent
             clientName: client.name,
           },
         },
-      );
-
-      console.log(
-        `[reactivation] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | step: ${step}/3 | platform: ${platform} | contact: ${contactId}`,
       );
 
       if (client.id) {

@@ -23,7 +23,6 @@ import { Check, X, RefreshCw, Loader2, Plus, Pencil, Trash2 } from "lucide-react
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import { toast } from "sonner";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
 interface ClinicSettings {
   recordId: string | null;
   clinicName: string;
@@ -107,7 +106,6 @@ function formatSpecialties(arr: string[]): string {
   return arr.join(", ");
 }
 
-// ── Clinic tab ────────────────────────────────────────────────────────────────
 function ClinicTab({
   initial,
   onSaved,
@@ -178,7 +176,6 @@ function ClinicTab({
   );
 }
 
-// ── Channels tab ──────────────────────────────────────────────────────────────
 function ChannelsTab({ channels }: { channels: Record<string, ChannelStatus> }) {
   const entries = Object.entries(channels);
 
@@ -224,7 +221,6 @@ function ChannelsTab({ channels }: { channels: Record<string, ChannelStatus> }) 
   );
 }
 
-// ── Practitioner dialog ───────────────────────────────────────────────────────
 function PractitionerDialog({
   open,
   editing,
@@ -442,7 +438,6 @@ function PractitionerDialog({
   );
 }
 
-// ── Team tab ──────────────────────────────────────────────────────────────────
 function TeamTab({
   team,
   loading,
@@ -698,7 +693,6 @@ function TeamTab({
   );
 }
 
-// ── Rooms tab ────────────────────────────────────────────────────────────────
 function RoomsTab({ rooms, onSaved }: { rooms: string[]; onSaved: (rooms: string[]) => void }) {
   const [form, setForm] = useState<string[]>(rooms);
   const [saving, setSaving] = useState(false);
@@ -808,7 +802,6 @@ function RoomsTab({ rooms, onSaved }: { rooms: string[]; onSaved: (rooms: string
   );
 }
 
-// ── Billing tab ───────────────────────────────────────────────────────────────
 function BillingTab() {
   return (
     <div className="rounded-lg border bg-card p-6">
@@ -834,7 +827,6 @@ function BillingTab() {
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
 export default function SettingsPage() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);

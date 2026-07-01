@@ -7,8 +7,6 @@ import {
   type EmailSendTrigger,
 } from "@/lib/integrations/email-send-log";
 
-// ─── types ───────────────────────────────────────────────────────────────────
-
 export type EmailFlowType =
   | "reminder"
   | "noshow"
@@ -25,9 +23,7 @@ export interface SendEmailOptions {
   subject: string;
   text: string;
   flowType?: EmailFlowType;
-  /** Optional CTA button shown below the message body */
   cta?: { label: string; url: string };
-  /** When set, persist send outcome to email_sends */
   logMeta?: EmailSendLogMeta;
 }
 
@@ -46,8 +42,6 @@ export interface SendEmailOutcome {
   error?: string;
 }
 
-// ─── client ──────────────────────────────────────────────────────────────────
-
 function getResend(): Resend {
   const key = process.env.RESEND_API_KEY;
   if (!key) throw new Error("RESEND_API_KEY is not set");
@@ -57,8 +51,6 @@ function getResend(): Resend {
 function getFromAddress(): string {
   return process.env.RESEND_FROM_EMAIL ?? "Lumière Med Spa <hello@lumiereflow.com>";
 }
-
-// ─── HTML template ───────────────────────────────────────────────────────────
 
 const BRAND = {
   gold: "#C9A96E",
@@ -227,8 +219,6 @@ function buildEmailHtml(opts: SendEmailOptions): string {
 </html>`;
 }
 
-// ─── Gmail SMTP transport ────────────────────────────────────────────────────
-
 function getGmailTransport() {
   const user = process.env.GMAIL_USER;
   const pass = process.env.GMAIL_APP_PASSWORD;
@@ -239,16 +229,6 @@ function getGmailTransport() {
   });
 }
 
-// ─── public API ──────────────────────────────────────────────────────────────
-
-/**
- * Send a branded retention email.
- *
- * Priority order:
- *   1. SendGrid  — SENDGRID_API_KEY + SENDGRID_FROM_EMAIL set → sends to anyone, no domain DNS needed
- *   2. Gmail     — GMAIL_USER + GMAIL_APP_PASSWORD set        → sends to anyone, no domain needed
- *   3. Resend    — RESEND_API_KEY set                         → requires verified domain for arbitrary recipients
- */
 export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEmailOutcome> {
   const subject = sanitizeEmailSubject(opts.subject);
   const preview = opts.text.slice(0, 120);
@@ -270,16 +250,11 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
     });
   }
 
-  console.log(
-    `[email] ATTEMPT → to: ${opts.to} | flow: ${opts.flowType ?? "general"} | subject: ${subject}`,
-  );
   const html = buildEmailHtml({ ...opts, subject });
 
-  // ── 1. SendGrid (single sender verification — no domain DNS needed) ──────
   const sgKey = process.env.SENDGRID_API_KEY;
   const sgFrom = process.env.SENDGRID_FROM_EMAIL;
   if (sgKey && sgFrom) {
-    console.log(`[email] provider: SendGrid | from: ${sgFrom}`);
     try {
       sgMail.setApiKey(sgKey);
       await sgMail.send({
@@ -289,7 +264,6 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
         html,
         text: opts.text,
       });
-      console.log(`[email] SENT via SendGrid → ${opts.to}`);
       await persist("sent", { provider: "sendgrid" });
       return { sent: true, provider: "sendgrid" };
     } catch (err) {
@@ -300,14 +274,11 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
     }
   }
 
-  // ── 2. Gmail SMTP (app password — no domain needed) ──────────────────────
   const gmail = getGmailTransport();
   if (gmail) {
     const from = `"${process.env.GMAIL_FROM_NAME ?? "Lumiere Med Spa"}" <${process.env.GMAIL_USER}>`;
-    console.log(`[email] provider: Gmail | from: ${process.env.GMAIL_USER}`);
     try {
       await gmail.sendMail({ from, to: opts.to, subject, text: opts.text, html });
-      console.log(`[email] SENT via Gmail → ${opts.to}`);
       await persist("sent", { provider: "gmail" });
       return { sent: true, provider: "gmail" };
     } catch (err) {
@@ -318,7 +289,6 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
     }
   }
 
-  // ── 3. Resend (requires verified domain for arbitrary recipients) ─────────
   if (!process.env.RESEND_API_KEY) {
     const reason =
       "no email provider configured (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY)";
@@ -328,7 +298,6 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
   }
 
   const from = getFromAddress();
-  console.log(`[email] provider: Resend | from: ${from}`);
   const resend = getResend();
   try {
     const { error } = await resend.emails.send({
@@ -339,7 +308,6 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
       text: opts.text,
     });
     if (error) throw new Error(`Resend error: ${error.message}`);
-    console.log(`[email] SENT via Resend → ${opts.to}`);
     await persist("sent", { provider: "resend" });
     return { sent: true, provider: "resend" };
   } catch (err) {

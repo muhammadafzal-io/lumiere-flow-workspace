@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAvailableSlots } from "@/lib/integrations/google-calendar";
+import { SLOT_BUFFER_MINUTES } from "@/lib/booking/constants";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const slots = await getAvailableSlots(date, duration, rooms, practitioners);
-    return NextResponse.json({ slots });
+    return NextResponse.json({ slots, bufferMinutes: SLOT_BUFFER_MINUTES });
   } catch (err) {
     console.error("[/api/calendar/slots]", err);
     return NextResponse.json(

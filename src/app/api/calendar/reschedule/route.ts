@@ -86,8 +86,6 @@ export async function PATCH(req: NextRequest) {
     const calendar = getCalendarClient();
     const calId = calendarId();
 
-    console.log(`[/api/calendar/reschedule] Rescheduling event ${eventId}`);
-
     const getRes = await calendar.events.get({ calendarId: calId, eventId });
     const event = getRes.data;
     const oldStartTime = event.start?.dateTime;
@@ -103,9 +101,6 @@ export async function PATCH(req: NextRequest) {
       },
     });
 
-    console.log(`[/api/calendar/reschedule] Successfully rescheduled event ${eventId}`);
-
-    // Fire-and-forget: send reschedule confirmation email
     (async () => {
       try {
         const description = event.description ?? "";
@@ -177,8 +172,6 @@ export async function PATCH(req: NextRequest) {
             email,
           },
         );
-
-        console.log(`[reschedule] reschedule email sent → ${email}`);
       } catch (err) {
         console.error(`[reschedule] reschedule email failed:`, err);
       }

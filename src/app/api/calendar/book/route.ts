@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bookAppointment } from "@/lib/services/booking-service";
-import { lookupClient } from "@/lib/integrations/airtable";
-import { sendRetentionEmail } from "@/lib/integrations/email";
-import { logEvent } from "@/lib/integrations/activity-log";
-import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
+import { lookupClient, upsertClient } from "@/lib/integrations/airtable";
+import { sendBookingConfirmationEmail } from "@/lib/booking/confirmation-email";
+import { validatePortalBooking, normalizeEmail } from "@/lib/agent/booking-guards";
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -18,11 +17,31 @@ export async function POST(req: NextRequest) {
     endTime,
     clientName,
     clientContact,
+    clientEmail,
     treatment,
     room,
     practitionerName,
     notes,
-  } = body as Record<string, string>;
+    sendConfirmation,
+    birthday,
+    birthdaySkipped,
+  } = body as Record<string, string | boolean>;
+
+  const portalError = validatePortalBooking({
+    clientName: typeof clientName === "string" ? clientName : undefined,
+    clientContact: typeof clientContact === "string" ? clientContact : undefined,
+    clientEmail: typeof clientEmail === "string" ? clientEmail : undefined,
+    treatment: typeof treatment === "string" ? treatment : undefined,
+    startTime: typeof startTime === "string" ? startTime : undefined,
+    endTime: typeof endTime === "string" ? endTime : undefined,
+    practitionerName: typeof practitionerName === "string" ? practitionerName : undefined,
+    room: typeof room === "string" ? room : undefined,
+    birthday: typeof birthday === "string" ? birthday : undefined,
+    birthdaySkipped: birthdaySkipped === true,
+  });
+  if (portalError) {
+    return NextResponse.json({ error: portalError, code: "VALIDATION_ERROR" }, { status: 400 });
+  }
 
   if (!startTime || !endTime || !clientName || !treatment || !room || !practitionerName) {
     return NextResponse.json(
@@ -33,83 +52,67 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const shouldSendConfirmation = sendConfirmation !== false;
+
   try {
+    const resolvedEmail =
+      normalizeEmail(clientEmail) ||
+      (clientContact
+        ? (await lookupClient({ phone: String(clientContact) }).catch(() => null))?.email
+        : undefined);
+
+    if (resolvedEmail || clientContact) {
+      await upsertClient({
+        name: String(clientName),
+        phone: String(clientContact || ""),
+        email: resolvedEmail,
+        ...(typeof birthday === "string" && birthday.trim() ? { birthday: birthday.trim() } : {}),
+      }).catch(() => undefined);
+    }
+
+    const clientRecord = clientContact
+      ? await lookupClient({ phone: String(clientContact) }).catch(() => null)
+      : null;
+
     const result = await bookAppointment({
-      startTime,
-      endTime,
-      clientName,
-      clientContact: clientContact || "",
-      treatment,
-      room,
-      practitionerName,
-      notes,
+      startTime: String(startTime),
+      endTime: String(endTime),
+      clientName: String(clientName),
+      clientContact: String(clientContact || ""),
+      clientEmail: resolvedEmail,
+      treatment: String(treatment),
+      room: String(room),
+      practitionerName: String(practitionerName),
+      notes: typeof notes === "string" ? notes : undefined,
     });
 
-    // Fire-and-forget: send booking confirmation email
-    (async () => {
-      try {
-        const client = clientContact
-          ? await lookupClient({ phone: clientContact }).catch(() => null)
-          : null;
-        const email = client?.email;
-        if (!email) return;
+    let emailSent = false;
+    let emailSkippedReason: string | undefined;
 
-        const displayTime = new Date(startTime).toLocaleString("en-US", {
-          timeZone: "America/Chicago",
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        });
-
-        await sendRetentionEmail({
-          to: email,
-          subject: `Appointment confirmed — ${treatment} on ${new Date(startTime).toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric" })}`,
-          flowType: "booking",
-          logMeta: {
-            category: "booking",
-            triggerType: "system",
-            clientId: client?.id,
-            clientName,
-          },
-          text: [
-            `Hi ${clientName}, your appointment at Lumière is confirmed!`,
-            ``,
-            `Treatment: ${treatment}`,
-            `Date & Time: ${displayTime} CT`,
-            `Practitioner: ${practitionerName}`,
-            `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
-            notes ? `Notes: ${notes}` : "",
-            ``,
-            `Need to change anything? Reply to this email or contact us Monday–Saturday, 9 AM–7 PM.`,
-            widgetLinkLine(),
-            ``,
-            `See you soon!`,
-            `— The Lumière Team`,
-          ]
-            .filter((l) => l !== undefined)
-            .join("\n"),
-          cta: {
-            label: "View Location",
-            url: "https://maps.google.com/?q=2847+S+Lamar+Blvd+Suite+120+Austin+TX",
-          },
-        });
-
-        await logEvent("booking", clientName, `Booking confirmation email sent to ${email}`, {
-          phone: clientContact,
-          email,
-        });
-
-        console.log(`[book] confirmation email sent → ${email}`);
-      } catch (err) {
-        console.error(`[book] confirmation email failed:`, err);
+    if (shouldSendConfirmation) {
+      if (resolvedEmail) {
+        try {
+          await sendBookingConfirmationEmail({
+            to: resolvedEmail,
+            clientName: String(clientName),
+            treatment: String(treatment),
+            startTime: String(startTime),
+            practitionerName: String(practitionerName),
+            notes: typeof notes === "string" ? notes : undefined,
+            clientId: clientRecord?.id,
+            phone: String(clientContact || ""),
+          });
+          emailSent = true;
+        } catch (err) {
+          console.error(`[book] confirmation email failed:`, err);
+          emailSkippedReason = "Email delivery failed";
+        }
+      } else {
+        emailSkippedReason = "No email on file for this client";
       }
-    })();
+    }
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, emailSent, emailSkippedReason });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Booking failed";
     const isConflict =

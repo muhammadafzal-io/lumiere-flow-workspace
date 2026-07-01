@@ -1,12 +1,5 @@
 import { useSyncExternalStore } from "react";
 import type { Customer, Rule, Activity, Practitioner, Appointment } from "./types";
-import {
-  seedCustomers,
-  seedRules,
-  seedActivity,
-  seedPractitioners,
-  seedAppointments,
-} from "./seed";
 
 const KEYS = {
   c: "lumiere.customers",
@@ -16,7 +9,7 @@ const KEYS = {
   apt: "lumiere.appointments",
   v: "lumiere.v",
 } as const;
-const VERSION = "2";
+const VERSION = "3";
 
 type State = {
   customers: Customer[];
@@ -26,7 +19,15 @@ type State = {
   appointments: Appointment[];
 };
 
-let state: State = { customers: [], rules: [], activity: [], practitioners: [], appointments: [] };
+const emptyState = (): State => ({
+  customers: [],
+  rules: [],
+  activity: [],
+  practitioners: [],
+  appointments: [],
+});
+
+let state: State = emptyState();
 let initialized = false;
 const listeners = new Set<() => void>();
 
@@ -34,14 +35,9 @@ function load() {
   if (typeof window === "undefined") return;
   if (initialized) return;
   initialized = true;
-  const v = localStorage.getItem(KEYS.v);
-  if (v !== VERSION) {
-    const customers = seedCustomers();
-    const rules = seedRules();
-    const activity = seedActivity(customers, rules);
-    const practitioners = seedPractitioners();
-    const appointments = seedAppointments(customers, practitioners);
-    state = { customers, rules, activity, practitioners, appointments };
+
+  if (localStorage.getItem(KEYS.v) !== VERSION) {
+    state = emptyState();
     persist();
     localStorage.setItem(KEYS.v, VERSION);
   } else {
@@ -55,6 +51,7 @@ function load() {
   }
   emit();
 }
+
 function persist() {
   if (typeof window === "undefined") return;
   localStorage.setItem(KEYS.c, JSON.stringify(state.customers));
@@ -63,6 +60,7 @@ function persist() {
   localStorage.setItem(KEYS.p, JSON.stringify(state.practitioners));
   localStorage.setItem(KEYS.apt, JSON.stringify(state.appointments));
 }
+
 function emit() {
   listeners.forEach((l) => l());
 }
@@ -91,7 +89,6 @@ export const store = {
     emit();
   },
   addCustomer: (c: Customer) => store.setCustomers([c, ...state.customers]),
-
   setAppointments: (appointments: Appointment[]) => {
     state = { ...state, appointments };
     persist();
@@ -105,17 +102,10 @@ export const store = {
   },
   deleteAppointment: (id: string) =>
     store.setAppointments(state.appointments.filter((a) => a.id !== id)),
-
   addActivity: (a: Activity) => {
     state = { ...state, activity: [a, ...state.activity] };
     persist();
     emit();
-  },
-
-  reset: () => {
-    localStorage.removeItem(KEYS.v);
-    initialized = false;
-    load();
   },
 };
 
@@ -123,6 +113,6 @@ export function useStore<T>(selector: (s: State) => T): T {
   return useSyncExternalStore(
     store.subscribe,
     () => selector(store.get()),
-    () => selector({ customers: [], rules: [], activity: [], practitioners: [], appointments: [] }),
+    () => selector(emptyState()),
   );
 }

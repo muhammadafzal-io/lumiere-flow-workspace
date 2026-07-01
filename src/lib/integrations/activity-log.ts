@@ -52,6 +52,6 @@ export async function logEvent(
       platform: opts.platform ?? "system",
     });
   } catch {
-    // non-fatal — never crash the caller over a log write
+    void 0;
   }
 }

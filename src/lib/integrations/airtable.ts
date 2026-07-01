@@ -1,8 +1,6 @@
 import { getSupabase } from "@/lib/supabase";
 import type { Client, Appointment } from "@/types";
 
-// ─── helpers ────────────────────────────────────────────────────────────────
-
 function normalizeToDate(raw: string | undefined): string | undefined {
   if (!raw?.trim()) return undefined;
   const d = new Date(raw);
@@ -29,8 +27,6 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-// ─── row → Client ────────────────────────────────────────────────────────────
-
 function rowToClient(row: Record<string, any>): Client {
   return {
     id: row.id,
@@ -54,8 +50,6 @@ function rowToClient(row: Record<string, any>): Client {
 
 const TABLE = "Clients";
 const APPT_TABLE = "Appointments";
-
-// ─── exports ─────────────────────────────────────────────────────────────────
 
 export async function lookupClient(opts: {
   telegramId?: string;
@@ -210,8 +204,6 @@ export async function updateClientField(
   if (error) throw new Error(error.message);
 }
 
-// ─── credit code helpers ─────────────────────────────────────────────────────
-
 export interface CreditCodeInfo {
   raw: string;
   code: string;
@@ -279,6 +271,42 @@ export async function redeemCreditCode(clientId: string, raw: string): Promise<v
   if (error) throw new Error(error.message);
 }
 
+export interface Practitioner {
+  id: string;
+  name: string;
+  email?: string;
+  role?: string;
+  specialty?: string;
+  bio?: string;
+  calendarId?: string;
+  status: "Active" | "Away";
+}
+
+function rowToPractitioner(row: Record<string, unknown>): Practitioner {
+  return {
+    id: String(row.id ?? ""),
+    name: String(row["Name"] ?? "").trim(),
+    email: (row["Email"] as string) ?? undefined,
+    role: (row["Role"] as string) ?? undefined,
+    specialty: (row["Specialty"] as string) ?? undefined,
+    bio: (row["Bio"] as string) ?? undefined,
+    calendarId: (row["Calendar ID"] as string) ?? undefined,
+    status: (row["Status"] as "Active" | "Away") ?? "Active",
+  };
+}
+
+export async function getPractitioners(filter?: { specialty?: string }): Promise<Practitioner[]> {
+  const sb = getSupabase();
+  const { data, error } = await sb.from("Practitioners").select("*").eq("Status", "Active");
+  if (error) throw new Error(`getPractitioners: ${error.message}`);
+  const all = (data ?? []).map((r) => rowToPractitioner(r as Record<string, unknown>));
+  if (filter?.specialty) {
+    const term = filter.specialty.toLowerCase();
+    return all.filter((p) => p.specialty?.toLowerCase().includes(term));
+  }
+  return all;
+}
+
 export async function createAppointmentRecord(
   appt: Omit<Appointment, "id">,
   clientId?: string,
@@ -297,6 +325,6 @@ export async function createAppointmentRecord(
     });
     if (error) console.error("createAppointmentRecord:", error.message);
   } catch {
-    // non-fatal — calendar event already created
+    void 0;
   }
 }

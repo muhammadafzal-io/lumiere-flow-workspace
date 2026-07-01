@@ -1,9 +1,14 @@
 import { google } from "googleapis";
 import type { AvailableSlot, CalendarEvent, Appointment } from "@/types";
+import {
+  SLOT_BUFFER_MINUTES,
+  SLOT_STEP_MINUTES,
+  SLOT_BUFFER_MS,
+  SLOT_STEP_MS,
+  intervalsConflict,
+} from "@/lib/booking/constants";
 
 const BUSINESS_START_HOUR = 9;
-// Appointments can start up to 7 PM (last slot ends at 7:30 PM for 30-min treatments).
-// The clinic's posted closing time is 7 PM but staff close out after the last client.
 const BUSINESS_END_HOUR = 19.5;
 const TIMEZONE = "America/Chicago";
 
@@ -25,9 +30,31 @@ function todayInChicago(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: TIMEZONE });
 }
 
-// Converts a Chicago local hour on a given date to a UTC Date.
+// Converts a Chicago local time on a given date to a UTC Date.
+// Supports fractional hours (e.g. 19.5 = 7:30 PM).
 function chicagoHourToUtc(dateStr: string, hour: number): Date {
-  const probe = new Date(`${dateStr}T${String(hour).padStart(2, "0")}:00:00Z`);
+  let wholeHour = Math.floor(hour);
+  let minutes = Math.round((hour - wholeHour) * 60);
+  let datePart = dateStr;
+
+  if (minutes >= 60) {
+    wholeHour += 1;
+    minutes = 0;
+  }
+  if (wholeHour >= 24) {
+    const next = new Date(`${dateStr}T12:00:00Z`);
+    next.setUTCDate(next.getUTCDate() + Math.floor(wholeHour / 24));
+    datePart = next.toISOString().slice(0, 10);
+    wholeHour = wholeHour % 24;
+  }
+
+  const probe = new Date(
+    `${datePart}T${String(wholeHour).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00Z`,
+  );
+  if (isNaN(probe.getTime())) {
+    throw new Error(`Invalid Chicago time for ${dateStr} at hour ${hour}`);
+  }
+
   const localHour =
     parseInt(
       new Intl.DateTimeFormat("en-US", {
@@ -37,7 +64,16 @@ function chicagoHourToUtc(dateStr: string, hour: number): Date {
       }).format(probe),
       10,
     ) % 24;
-  return new Date(probe.getTime() + (hour - localHour) * 3_600_000);
+  const localMinute = parseInt(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: TIMEZONE,
+      minute: "2-digit",
+    }).format(probe),
+    10,
+  );
+  const targetMinutes = wholeHour * 60 + minutes;
+  const localMinutes = localHour * 60 + localMinute;
+  return new Date(probe.getTime() + (targetMinutes - localMinutes) * 60_000);
 }
 
 function getCalendarClient() {
@@ -62,11 +98,46 @@ function calendarId() {
   return process.env.GOOGLE_CALENDAR_ID ?? "primary";
 }
 
-// Parses Room, Practitioner, Contact, Email, Notes from a GCal event description.
-// Returns null for room/practitioner if not present (legacy events without these fields).
+const SUMMARY_SEP = " — ";
+
+function parseEventSummary(summary: string): {
+  treatment: string;
+  clientName: string;
+  practitionerName: string | null;
+} {
+  const parts = (summary ?? "")
+    .split(SUMMARY_SEP)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  if (parts.length >= 3) {
+    return {
+      treatment: parts[0],
+      practitionerName: parts.slice(1, -1).join(SUMMARY_SEP),
+      clientName: parts[parts.length - 1],
+    };
+  }
+  if (parts.length === 2) {
+    return { treatment: parts[0], practitionerName: null, clientName: parts[1] };
+  }
+  return { treatment: "", practitionerName: null, clientName: parts[0] ?? "" };
+}
+
+function resolveEventClient(
+  summary: string,
+  description: string,
+): { treatment: string; clientName: string } {
+  const fromTitle = parseEventSummary(summary);
+  const { client: fromDesc } = parseDesc(description);
+  return {
+    treatment: fromTitle.treatment,
+    clientName: fromDesc || fromTitle.clientName,
+  };
+}
+
 function parseDesc(description: string): {
   room: string | null;
   practitioner: string | null;
+  client: string | null;
   contact: string;
   email: string;
   notes: string;
@@ -77,19 +148,17 @@ function parseDesc(description: string): {
       .find((l) => l.startsWith(prefix))
       ?.slice(prefix.length)
       .trim() ?? "";
-  // Also check for "Email: ..." pattern inside the Notes field as fallback
   const rawNotes = find("Notes:");
   const emailInNotes = rawNotes.match(/Email:\s*([^\s]+@[^\s]+)/i)?.[1] ?? "";
   return {
     room: find("Room:") || null,
     practitioner: find("Practitioner:") || null,
+    client: find("Client:") || null,
     contact: find("Contact:"),
     email: find("Email:") || emailInNotes,
     notes: rawNotes,
   };
 }
-
-// ── Available slots (per-room, per-practitioner aware) ───────────────────────
 
 export async function getAvailableSlots(
   date: string,
@@ -98,6 +167,9 @@ export async function getAvailableSlots(
   practitionerNames: string[] = [],
 ): Promise<AvailableSlot[]> {
   if (date < todayInChicago()) return [];
+
+  const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
+  if (dayOfWeek === 0) return [];
 
   const calendar = getCalendarClient();
   const calId = calendarId();
@@ -133,34 +205,31 @@ export async function getAvailableSlots(
   let cursor = new Date(dayStart);
   if (date === todayInChicago() && now > cursor) {
     const elapsed = now.getTime() - dayStart.getTime();
-    const blocks = Math.ceil(elapsed / (30 * 60_000));
-    cursor = new Date(dayStart.getTime() + blocks * 30 * 60_000);
+    const blocks = Math.ceil(elapsed / SLOT_STEP_MS);
+    cursor = new Date(dayStart.getTime() + blocks * SLOT_STEP_MS);
   }
 
   while (cursor.getTime() + durationMinutes * 60_000 <= dayEnd.getTime()) {
     const slotEnd = new Date(cursor.getTime() + durationMinutes * 60_000);
 
-    // Events that overlap this candidate slot
-    const overlapping = busyEvents.filter((b) => cursor < b.end && slotEnd > b.start);
+    // Events that conflict with this slot (including ${SLOT_BUFFER_MINUTES}-min turnover buffer)
+    const conflicting = busyEvents.filter((b) =>
+      intervalsConflict(cursor, slotEnd, b.start, b.end),
+    );
 
-    // A "global" event (no room AND no practitioner stored) is a legacy event
-    // that blocks everything — treat conservatively.
-    const hasGlobalEvent = overlapping.some((e) => e.room === null && e.practitioner === null);
+    const hasGlobalEvent = conflicting.some((e) => e.room === null && e.practitioner === null);
 
-    // Rooms busy = rooms explicitly claimed by an overlapping event
-    const busyRoomSet = new Set(overlapping.filter((e) => e.room !== null).map((e) => e.room!));
+    const busyRoomSet = new Set(conflicting.filter((e) => e.room !== null).map((e) => e.room!));
     const freeRooms = hasGlobalEvent ? [] : rooms.filter((r) => !busyRoomSet.has(r));
 
-    // Practitioners busy = practitioners explicitly claimed by an overlapping event
     const busyPracSet = new Set(
-      overlapping.filter((e) => e.practitioner !== null).map((e) => e.practitioner!),
+      conflicting.filter((e) => e.practitioner !== null).map((e) => e.practitioner!),
     );
     const freePractitioners = hasGlobalEvent
       ? []
       : practitionerNames.filter((p) => !busyPracSet.has(p));
 
     const roomAvailable = freeRooms.length > 0;
-    // Skip practitioner gating if caller didn't supply practitioner names
     const pracAvailable = practitionerNames.length === 0 || freePractitioners.length > 0;
 
     if (roomAvailable && pracAvailable) {
@@ -178,17 +247,20 @@ export async function getAvailableSlots(
           timeZoneName: "short",
         }),
         availableRooms: freeRooms,
-        availablePractitioners: freePractitioners,
+        availablePractitioners:
+          practitionerNames.length > 0
+            ? freePractitioners
+            : freePractitioners.length > 0
+              ? freePractitioners
+              : [],
       });
     }
 
-    cursor = new Date(cursor.getTime() + 30 * 60_000);
+    cursor = new Date(cursor.getTime() + SLOT_STEP_MS);
   }
 
   return slots;
 }
-
-// ── Admin booking with per-room + per-practitioner conflict check ────────────
 
 export async function bookAdminAppointment(booking: {
   startTime: string;
@@ -208,29 +280,27 @@ export async function bookAdminAppointment(booking: {
   const calendar = getCalendarClient();
   const calId = calendarId();
 
-  // Fetch all events that overlap the requested window
-  const res = await calendar.events.list({
-    calendarId: calId,
-    timeMin: booking.startTime,
-    timeMax: booking.endTime,
-    singleEvents: true,
-  });
-
   const bStart = new Date(booking.startTime);
   const bEnd = new Date(booking.endTime);
+
+  // Fetch events that could conflict including turnover buffer
+  const res = await calendar.events.list({
+    calendarId: calId,
+    timeMin: new Date(bStart.getTime() - SLOT_BUFFER_MS).toISOString(),
+    timeMax: new Date(bEnd.getTime() + SLOT_BUFFER_MS).toISOString(),
+    singleEvents: true,
+  });
 
   const conflict = (res.data.items ?? []).find((e) => {
     if (!e.start?.dateTime || !e.end?.dateTime) return false;
     const eStart = new Date(e.start.dateTime);
     const eEnd = new Date(e.end.dateTime);
-    if (eStart >= bEnd || eEnd <= bStart) return false;
+    if (!intervalsConflict(bStart, bEnd, eStart, eEnd)) return false;
 
     const { room: evRoom, practitioner: evPrac } = parseDesc(e.description ?? "");
 
-    // Legacy event (no metadata) blocks everything
     if (evRoom === null && evPrac === null) return true;
 
-    // Conflict if new booking shares the same room OR the same practitioner
     const roomConflict = evRoom === null || evRoom === booking.room;
     const pracConflict = evPrac === null || evPrac === booking.practitionerName;
     return roomConflict && pracConflict;
@@ -277,8 +347,6 @@ export async function bookAdminAppointment(booking: {
   return { id: event.data.id! };
 }
 
-// ── Legacy AI-agent booking (unchanged) ─────────────────────────────────────
-
 export async function createAppointment(appt: Omit<Appointment, "id">): Promise<Appointment> {
   if (new Date(appt.startTime) < new Date()) {
     throw new Error("Cannot book an appointment in the past");
@@ -309,8 +377,6 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
   return { ...appt, id: event.data.id! };
 }
 
-// ── Fetch events by date range ───────────────────────────────────────────────
-
 export async function getEventsByRange(from: string, to: string): Promise<CalendarEvent[]> {
   const calendar = getCalendarClient();
   const calId = calendarId();
@@ -328,10 +394,7 @@ export async function getEventsByRange(from: string, to: string): Promise<Calend
   return (res.data.items ?? [])
     .filter((e) => e.start?.dateTime)
     .map((e) => {
-      const summary = e.summary ?? "";
-      const dashIdx = summary.indexOf(" — ");
-      const treatment = dashIdx >= 0 ? summary.slice(0, dashIdx).trim() : "";
-      const clientName = dashIdx >= 0 ? summary.slice(dashIdx + 3).trim() : summary.trim();
+      const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
       const { room, practitioner, contact, notes } = parseDesc(e.description ?? "");
       return {
         id: e.id!,
@@ -358,13 +421,13 @@ export async function cancelCalendarEvent(eventId: string): Promise<{
   const calId = calendarId();
   const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
   await calendar.events.delete({ calendarId: calId, eventId });
-  const summary = event.summary ?? "";
-  const dashIdx = summary.indexOf(" — ");
-  const treatment = dashIdx >= 0 ? summary.slice(0, dashIdx).trim() : summary;
-  const clientName = dashIdx >= 0 ? summary.slice(dashIdx + 3).trim() : "Client";
+  const { treatment, clientName } = resolveEventClient(
+    event.summary ?? "",
+    event.description ?? "",
+  );
   const { contact } = parseDesc(event.description ?? "");
   return {
-    clientName,
+    clientName: clientName || "Client",
     treatment,
     clientContact: contact,
     startTime: event.start?.dateTime ?? "",
@@ -396,12 +459,18 @@ export async function rescheduleCalendarEvent(
       end: { dateTime: newEndTime, timeZone: TIMEZONE },
     },
   });
-  const summary = event.summary ?? "";
-  const dashIdx = summary.indexOf(" — ");
-  const treatment = dashIdx >= 0 ? summary.slice(0, dashIdx).trim() : summary;
-  const clientName = dashIdx >= 0 ? summary.slice(dashIdx + 3).trim() : "Client";
+  const { treatment, clientName } = resolveEventClient(
+    event.summary ?? "",
+    event.description ?? "",
+  );
   const { contact } = parseDesc(event.description ?? "");
-  return { clientName, treatment, clientContact: contact, oldStartTime, newStartTime };
+  return {
+    clientName: clientName || "Client",
+    treatment,
+    clientContact: contact,
+    oldStartTime,
+    newStartTime,
+  };
 }
 
 export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointment[]> {
@@ -422,12 +491,12 @@ export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointmen
   return (res.data.items ?? [])
     .filter((e) => e.start?.dateTime)
     .map((e) => {
-      const [treatment, clientName] = (e.summary ?? "").split(" — ");
+      const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
       const { contact } = parseDesc(e.description ?? "");
       return {
         id: e.id!,
-        treatment: treatment?.trim() ?? "",
-        clientName: clientName?.trim() ?? "",
+        treatment,
+        clientName,
         startTime: e.start!.dateTime!,
         endTime: e.end!.dateTime ?? e.start!.dateTime!,
         clientContact: contact,

@@ -13,7 +13,6 @@ interface Message {
 const SESSION_STORAGE_KEY = "lumiere_session_id";
 
 function getSessionId(): string {
-  if (typeof window === "undefined") return "";
   const existing = sessionStorage.getItem(SESSION_STORAGE_KEY);
   if (existing) return existing;
   const sessionId = `widget-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -32,9 +31,15 @@ export default function ChatWidget() {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [voiceActive, setVoiceActive] = useState(false);
-  const [sessionId] = useState(getSessionId);
+  const [sessionId, setSessionId] = useState("");
+  const [composerReady, setComposerReady] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    setSessionId(getSessionId());
+    setComposerReady(true);
+  }, []);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -42,7 +47,7 @@ export default function ChatWidget() {
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text || loading || !sessionId) return;
 
     setInput("");
     setMessages((prev) => [...prev, { role: "user", text }]);
@@ -130,55 +135,67 @@ export default function ChatWidget() {
       </div>
 
       <div className="border-t border-lumiere-ivory bg-white px-4 py-3 flex-shrink-0">
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Message Lumière..."
-            className="flex-1 resize-none bg-lumiere-cream rounded-xl px-4 py-2.5 text-sm text-lumiere-navy placeholder-lumiere-muted focus:outline-none focus:ring-2 focus:ring-lumiere-rose transition-all max-h-32 overflow-y-auto"
-            style={{ minHeight: "40px" }}
-          />
-          <button
-            onClick={() => setVoiceActive(true)}
-            disabled={loading || voiceActive}
-            className="w-10 h-10 rounded-xl bg-lumiere-rose flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
-            aria-label="Start voice call"
-            title="Talk to Lumière"
-          >
-            <svg
-              className="w-4 h-4 text-white"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
+        {composerReady ? (
+          <div className="flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Message Lumière..."
+              className="flex-1 resize-none bg-lumiere-cream rounded-xl px-4 py-2.5 text-sm text-lumiere-navy placeholder-lumiere-muted focus:outline-none focus:ring-2 focus:ring-lumiere-rose transition-all max-h-32 overflow-y-auto"
+              style={{ minHeight: "40px" }}
+            />
+            <button
+              onClick={() => setVoiceActive(true)}
+              disabled={loading || voiceActive}
+              className="w-10 h-10 rounded-xl bg-lumiere-rose flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Start voice call"
+              title="Talk to Lumière"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-              />
-            </svg>
-          </button>
-          <button
-            onClick={sendMessage}
-            disabled={loading || !input.trim()}
-            className="w-10 h-10 rounded-xl bg-lumiere-navy flex items-center justify-center flex-shrink-0 transition-all hover:bg-lumiere-navy-light disabled:opacity-40 disabled:cursor-not-allowed"
-            aria-label="Send message"
-          >
-            <svg
-              className="w-4 h-4 text-white rotate-90"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
+              <svg
+                className="w-4 h-4 text-white"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                />
+              </svg>
+            </button>
+            <button
+              onClick={sendMessage}
+              disabled={loading || !input.trim()}
+              className="w-10 h-10 rounded-xl bg-lumiere-navy flex items-center justify-center flex-shrink-0 transition-all hover:bg-lumiere-navy-light disabled:opacity-40 disabled:cursor-not-allowed"
+              aria-label="Send message"
             >
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 19l9 2-9-18-9 18 9-2v-9z" />
-            </svg>
-          </button>
-        </div>
+              <svg
+                className="w-4 h-4 text-white rotate-90"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 19l9 2-9-18-9 18 9-2v-9z"
+                />
+              </svg>
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-end gap-2" aria-hidden>
+            <div className="flex-1 h-10 rounded-xl bg-lumiere-cream" />
+            <div className="w-10 h-10 rounded-xl bg-lumiere-rose/30" />
+            <div className="w-10 h-10 rounded-xl bg-lumiere-navy/30" />
+          </div>
+        )}
         <p className="text-lumiere-muted text-[10px] text-center mt-2">
           Mon–Sat 9 AM – 7 PM · (512) 555-0192 · 2847 S Lamar Blvd, Austin TX
         </p>

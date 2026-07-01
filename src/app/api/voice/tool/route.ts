@@ -3,7 +3,6 @@ import { executeTool } from "@/lib/agent";
 import { validateBookAppointment } from "@/lib/agent/booking-guards";
 
 export async function POST(req: NextRequest) {
-  console.log("voice tool route");
   try {
     const { toolName, input, platform, chatId } = (await req.json()) as {
       toolName: string;

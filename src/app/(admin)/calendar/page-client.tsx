@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -34,7 +34,8 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { toast } from "sonner";
-import { useStore, store } from "@/lib/store";
+import { store } from "@/lib/store";
+import { mapTeamToPractitioners } from "@/lib/practitioners";
 import type { Appointment, Practitioner, Customer, Treatment } from "@/lib/types";
 import {
   BUSSINESS_TZ,
@@ -69,8 +70,8 @@ import {
 type ViewMode = "day" | "week" | "agenda";
 
 export default function CalendarPage() {
-  const customers = useStore((s) => s.customers);
-  const practitioners = useStore((s) => s.practitioners);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
   const [calEvents, setCalEvents] = useState<Appointment[]>([]);
   const [calLoading, setCalLoading] = useState(false);
 
@@ -144,76 +145,99 @@ export default function CalendarPage() {
   const goNext = () => setAnchor((d) => addDays(d, view === "day" ? 1 : 7));
   const goToday = () => setAnchor(new Date());
 
-  const fetchCalEvents = async (from: Date, to: Date) => {
-    setCalLoading(true);
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+  const loadCalendarMeta = useCallback(async () => {
     try {
-      const res = await fetch(`/api/calendar/events?from=${fmt(from)}&to=${fmt(to)}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      console.log("Fetched calendar events", data);
-      const events: Appointment[] = (data.events ?? []).map(
-        (e: {
-          id: string;
-          treatment: string;
-          clientName: string;
-          clientContact: string;
-          startTime: string;
-          endTime: string;
-          notes: string;
-          room: string;
-          practitioner: string;
-        }) => {
-          const matchedPrac = practitioners.find((p) => p.name === e.practitioner);
-          // Try to find customer by contact info
-          const matchedCustomer = customers.find(
-            (c) =>
-              c.phone === e.clientContact ||
-              c.name.toLowerCase() === (e.clientName || "").toLowerCase(),
-          );
-          return {
-            id: e.id,
-            customer_id: matchedCustomer?.id || "",
-            clientName: e.clientName || undefined,
-            clientContact: e.clientContact || undefined,
-            treatment: (e.treatment || "HydraFacial") as Appointment["treatment"],
-            duration_minutes: Math.round(
-              (new Date(e.endTime).getTime() - new Date(e.startTime).getTime()) / 60000,
-            ),
-            start_time: e.startTime,
-            end_time: e.endTime,
-            practitioner_id: matchedPrac?.id ?? practitioners[0]?.id ?? "",
-            room: e.room || "",
-            status: "confirmed" as const,
-            source: "manual" as const,
-            notes: e.notes ?? "",
-            price: 0,
-            created_at: e.startTime,
-            reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
-          };
-        },
-      );
-      setCalEvents(events);
-      setSyncedAt(new Date());
+      const [custRes, settingsRes] = await Promise.all([
+        fetch("/api/customers?limit=500"),
+        fetch("/api/settings"),
+      ]);
+      if (custRes.ok) {
+        const custJson = await custRes.json();
+        setCustomers(custJson.customers ?? []);
+      }
+      if (settingsRes.ok) {
+        const settingsJson = await settingsRes.json();
+        setPractitioners(mapTeamToPractitioners(settingsJson.team ?? []));
+      }
     } catch (err) {
-      console.error("[calendar sync]", err);
-      toast.error("Could not sync calendar");
-    } finally {
-      setCalLoading(false);
+      console.error("[calendar] meta load failed:", err);
     }
-  };
+  }, []);
 
-  const triggerSync = () => {
+  useEffect(() => {
+    void loadCalendarMeta();
+  }, [loadCalendarMeta]);
+
+  const fetchCalEvents = useCallback(
+    async (from: Date, to: Date) => {
+      setCalLoading(true);
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      try {
+        const res = await fetch(`/api/calendar/events?from=${fmt(from)}&to=${fmt(to)}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const events: Appointment[] = (data.events ?? []).map(
+          (e: {
+            id: string;
+            treatment: string;
+            clientName: string;
+            clientContact: string;
+            startTime: string;
+            endTime: string;
+            notes: string;
+            room: string;
+            practitioner: string;
+          }) => {
+            const matchedPrac = practitioners.find((p) => p.name === e.practitioner);
+            const matchedCustomer = customers.find(
+              (c) =>
+                c.phone === e.clientContact ||
+                c.name.toLowerCase() === (e.clientName || "").toLowerCase(),
+            );
+            return {
+              id: e.id,
+              customer_id: matchedCustomer?.id || "",
+              clientName: e.clientName || undefined,
+              clientContact: e.clientContact || undefined,
+              treatment: (e.treatment || "HydraFacial") as Appointment["treatment"],
+              duration_minutes: Math.round(
+                (new Date(e.endTime).getTime() - new Date(e.startTime).getTime()) / 60000,
+              ),
+              start_time: e.startTime,
+              end_time: e.endTime,
+              practitioner_id: matchedPrac?.id ?? practitioners[0]?.id ?? "",
+              room: e.room || "",
+              status: "confirmed" as const,
+              source: "manual" as const,
+              notes: e.notes ?? "",
+              price: 0,
+              created_at: e.startTime,
+              reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
+            };
+          },
+        );
+        setCalEvents(events);
+        setSyncedAt(new Date());
+      } catch (err) {
+        console.error("[calendar sync]", err);
+        toast.error("Could not sync calendar");
+      } finally {
+        setCalLoading(false);
+      }
+    },
+    [customers, practitioners],
+  );
+
+  const triggerSync = useCallback(() => {
     if (days.length === 0) return;
-    fetchCalEvents(days[0], days[days.length - 1]);
-  };
+    void fetchCalEvents(days[0], days[days.length - 1]);
+  }, [days, fetchCalEvents]);
   const syncedAgo = useRelativeTime(syncedAt);
 
   useEffect(() => {
     if (days.length === 0) return;
-    fetchCalEvents(days[0], days[days.length - 1]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days]);
+    void fetchCalEvents(days[0], days[days.length - 1]);
+  }, [days, fetchCalEvents]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -443,13 +467,19 @@ export default function CalendarPage() {
         onConfirmed={() => {
           setReschedAptId(null);
           setReschedNewStart(null);
+          void loadCalendarMeta();
+          triggerSync();
         }}
       />
       <CancelModal
         appointment={cancelApt}
         customer={cancelApt ? customerMap.get(cancelApt.customer_id) || null : null}
         onClose={() => setCancelAptId(null)}
-        onConfirmed={() => setCancelAptId(null)}
+        onConfirmed={() => {
+          setCancelAptId(null);
+          void loadCalendarMeta();
+          triggerSync();
+        }}
       />
       <NewAppointmentModal
         open={newOpen}
@@ -460,6 +490,10 @@ export default function CalendarPage() {
         customers={customers}
         practitioners={practitioners}
         defaultStart={newDefaultStart}
+        onBooked={() => {
+          void loadCalendarMeta();
+          triggerSync();
+        }}
       />
     </div>
   );

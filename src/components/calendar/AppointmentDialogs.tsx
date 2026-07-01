@@ -43,7 +43,8 @@ import type {
   Treatment,
   AppointmentStatus,
 } from "@/lib/types";
-import { TREATMENT_DURATIONS, TREATMENT_PRICES } from "@/lib/seed";
+import type { AvailableSlot } from "@/types";
+import { TREATMENT_DURATIONS, TREATMENT_PRICES } from "@/lib/treatments";
 import { store } from "@/lib/store";
 import {
   BUSSINESS_TZ,
@@ -562,8 +563,6 @@ export function RescheduleModal({
 
     setRescheduling(true);
     try {
-      console.log("[Reschedule] Sending update request for appointment:", a.id);
-
       const newEnd = new Date(ns.getTime() + a.duration_minutes * 60000);
 
       // Update Google Calendar
@@ -577,22 +576,14 @@ export function RescheduleModal({
         }),
       });
 
-      console.log("[Reschedule] API Response status:", res.status);
-
       if (!res.ok) {
         let errorMsg = "Failed to reschedule appointment";
-        try {
-          const errorData = await res.json();
-          errorMsg = errorData.error || errorMsg;
-          console.log("[Reschedule] API Error:", errorData);
-        } catch {
-          console.log("[Reschedule] Could not parse error response");
-        }
+        const errorData = await res.json().catch(() => null);
+        if (errorData?.error) errorMsg = errorData.error;
         throw new Error(errorMsg);
       }
 
-      const data = await res.json();
-      console.log("[Reschedule] Success response:", data);
+      await res.json();
 
       // Update local store
       store.upsertAppointment({
@@ -879,8 +870,6 @@ export function CancelModal({
 
     setCancelling(true);
     try {
-      console.log("[Cancel] Sending delete request for appointment:", appointment.id);
-
       // Delete from Google Calendar
       const res = await fetch("/api/calendar/cancel", {
         method: "DELETE",
@@ -888,22 +877,14 @@ export function CancelModal({
         body: JSON.stringify({ eventId: appointment.id }),
       });
 
-      console.log("[Cancel] API Response status:", res.status);
-
       if (!res.ok) {
         let errorMsg = "Failed to cancel appointment";
-        try {
-          const errorData = await res.json();
-          errorMsg = errorData.error || errorMsg;
-          console.log("[Cancel] API Error:", errorData);
-        } catch {
-          console.log("[Cancel] Could not parse error response");
-        }
+        const errorData = await res.json().catch(() => null);
+        if (errorData?.error) errorMsg = errorData.error;
         throw new Error(errorMsg);
       }
 
-      const data = await res.json();
-      console.log("[Cancel] Success response:", data);
+      await res.json();
 
       // Update local store
       store.upsertAppointment({
@@ -1081,12 +1062,14 @@ const TREATMENTS_LIST: Treatment[] = [
 export function NewAppointmentModal({
   open,
   onClose,
+  onBooked,
   customers,
   practitioners,
   defaultStart,
 }: {
   open: boolean;
   onClose: () => void;
+  onBooked?: () => void;
   customers: Customer[];
   practitioners: Practitioner[];
   defaultStart: Date | null;
@@ -1096,36 +1079,114 @@ export function NewAppointmentModal({
   const [date, setDate] = useState<string>(() =>
     (defaultStart || new Date()).toISOString().slice(0, 10),
   );
-  const [time, setTime] = useState<string>(() => {
-    const d = defaultStart || new Date();
-    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-  });
   const [practitionerId, setPractitionerId] = useState<string>(practitioners[0]?.id || "");
   const [room, setRoom] = useState<string>("Room 1");
   const [notes, setNotes] = useState("");
   const [notify, setNotify] = useState(true);
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
-  const [availableRooms, setAvailableRooms] = useState<string[]>(["Room 1", "Room 2"]);
+  const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
+  const [selectedSlotStart, setSelectedSlotStart] = useState<string>("");
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [clientPhone, setClientPhone] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [birthdaySkipped, setBirthdaySkipped] = useState(false);
+  const [clientMode, setClientMode] = useState<"existing" | "new">("existing");
+  const [modalPractitioners, setModalPractitioners] = useState<Practitioner[]>([]);
+  const [clinicRooms, setClinicRooms] = useState<string[]>(["Room 1", "Room 2"]);
+  const [loadingMeta, setLoadingMeta] = useState(false);
+
+  const cust = customers.find((c) => c.id === customerId);
+
+  // Load practitioners & rooms when modal opens (dashboard loads these async)
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadingMeta(true);
+    fetch("/api/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        if (Array.isArray(data.rooms) && data.rooms.length > 0) {
+          setClinicRooms(data.rooms);
+        }
+        if (Array.isArray(data.team)) {
+          setModalPractitioners(
+            data.team
+              .filter((p: { status?: string }) => p.status !== "Inactive" && p.status !== "Away")
+              .map(
+                (p: { id: string; name: string; role?: string; color?: string }): Practitioner => ({
+                  id: p.id,
+                  name: p.name,
+                  role: p.role ?? "",
+                  color: p.color ?? "#6366f1",
+                  avatar_initial: p.name?.charAt(0)?.toUpperCase() ?? "?",
+                }),
+              ),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingMeta(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  const practitionerList = useMemo(() => {
+    if (modalPractitioners.length > 0) return modalPractitioners;
+    return practitioners;
+  }, [practitioners, modalPractitioners]);
+
+  useEffect(() => {
+    if (!open || practitionerList.length === 0) return;
+    setPractitionerId((prev) =>
+      prev && practitionerList.some((p) => p.id === prev) ? prev : practitionerList[0].id,
+    );
+  }, [open, practitionerList]);
+
+  useEffect(() => {
+    if (clientMode !== "existing" || !cust) return;
+    setClientName(cust.name ?? "");
+    setClientPhone(cust.phone ?? "");
+    setClientEmail(cust.email ?? "");
+    if (cust.birthday) {
+      setBirthday(cust.birthday);
+      setBirthdaySkipped(false);
+    }
+  }, [cust?.id, clientMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const switchClientMode = (mode: "existing" | "new") => {
+    setClientMode(mode);
+    if (mode === "new") {
+      setCustomerId("");
+      setSearch("");
+      setClientName("");
+      setClientPhone("");
+      setClientEmail("");
+      setBirthday("");
+      setBirthdaySkipped(false);
+    }
+  };
 
   // Reset when opening
   if (open && defaultStart) {
     const ds = defaultStart.toISOString().slice(0, 10);
-    if (ds !== date && time === "00:00") {
+    if (ds !== date) {
       setDate(ds);
-      setTime(
-        `${String(defaultStart.getHours()).padStart(2, "0")}:${String(defaultStart.getMinutes()).padStart(2, "0")}`,
-      );
     }
   }
 
-  // Fetch available slots (including available rooms) when date, practitioner, or treatment changes
+  // Fetch available slots from Google Calendar (practitioner + room aware, 5-min buffer)
   useEffect(() => {
-    if (!date) return;
+    if (!date || !practitionerId) return;
 
     setLoadingSlots(true);
-    const prac = practitioners.find((p) => p.id === practitionerId);
+    setSelectedSlotStart("");
+    const prac = practitionerList.find((p) => p.id === practitionerId);
     const dur = TREATMENT_DURATIONS[treatment];
 
     const params = new URLSearchParams({
@@ -1137,56 +1198,115 @@ export function NewAppointmentModal({
     fetch(`/api/calendar/slots?${params}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(r)))
       .then((data) => {
-        const rooms = new Set<string>();
-        (data.slots ?? []).forEach((slot: any) => {
-          (slot.availableRooms ?? ["Room 1", "Room 2"]).forEach((r: string) => rooms.add(r));
-        });
-        const roomList = Array.from(rooms).sort();
-        setAvailableRooms(roomList.length > 0 ? roomList : ["Room 1", "Room 2"]);
-        // Ensure selected room is still available
-        if (!roomList.includes(room)) {
-          setRoom(roomList[0] || "Room 1");
+        const slots: AvailableSlot[] = data.slots ?? [];
+        setAvailableSlots(slots);
+        if (slots.length > 0) {
+          const first = slots[0];
+          setSelectedSlotStart(first.startTime);
+          setRoom(first.availableRooms?.[0] ?? clinicRooms[0] ?? "Room 1");
+        } else {
+          setRoom(clinicRooms[0] ?? "Room 1");
         }
       })
-      .catch(() => setAvailableRooms(["Room 1", "Room 2"]))
+      .catch(() => {
+        setAvailableSlots([]);
+        setRoom(clinicRooms[0] ?? "Room 1");
+      })
       .finally(() => setLoadingSlots(false));
-  }, [date, treatment, practitionerId, practitioners]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const cust = customers.find((c) => c.id === customerId);
+  }, [date, treatment, practitionerId, practitionerList, clinicRooms]);
   const filteredCust = search
     ? customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())).slice(0, 6)
     : customers.slice(0, 6);
 
-  const prac = practitioners.find((p) => p.id === practitionerId);
+  const prac = practitionerList.find((p) => p.id === practitionerId);
+  const selectedSlot = availableSlots.find((s) => s.startTime === selectedSlotStart);
+  const slotRooms = selectedSlot?.availableRooms ?? [];
+  const roomOptions = selectedSlot && slotRooms.length > 0 ? slotRooms : clinicRooms;
+  const roomSelectValue = selectedSlot && roomOptions.includes(room) ? room : undefined;
 
   const save = async () => {
-    if (!customerId) {
-      toast.error("Please select a client");
+    const resolvedName =
+      clientMode === "new" ? clientName.trim() : (cust?.name ?? clientName.trim());
+
+    if (clientMode === "existing" && !customerId) {
+      toast.error("Please select a client or switch to New client");
+      return;
+    }
+    if (clientMode === "new" && !resolvedName) {
+      toast.error("Please enter the client's name");
       return;
     }
     if (!practitionerId) {
       toast.error("Please select a practitioner");
       return;
     }
+    if (!clientPhone.trim()) {
+      toast.error("Phone number is required (same as chatbot booking)");
+      return;
+    }
+    if (!clientEmail.trim() || !clientEmail.includes("@")) {
+      toast.error("Valid email is required (same as chatbot booking)");
+      return;
+    }
+    if (!birthdaySkipped && !birthday.trim()) {
+      toast.error("Enter birthday (MM-DD) or mark as declined");
+      return;
+    }
+    if (!selectedSlot) {
+      toast.error("Select an available time slot from the calendar");
+      return;
+    }
+    if (!room || !slotRooms.includes(room)) {
+      toast.error("Selected room is not available for this time slot");
+      return;
+    }
 
     const dur = TREATMENT_DURATIONS[treatment];
-    const start = new Date(`${date}T${time}:00`);
-    const end = new Date(start.getTime() + dur * 60000);
+    const start = new Date(selectedSlot.startTime);
+    const end = new Date(selectedSlot.endTime);
 
     setSaving(true);
     try {
+      let bookedCustomerId = customerId;
+
+      if (clientMode === "new") {
+        const createRes = await fetch("/api/customers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: resolvedName,
+            phone: clientPhone.trim(),
+            email: clientEmail.trim(),
+            birthday: birthdaySkipped ? "" : birthday.trim(),
+            treatmentInterest: treatment,
+            status: "Active",
+          }),
+        });
+        const createData = await createRes.json();
+        if (!createRes.ok) {
+          toast.error(createData.error ?? "Could not create client");
+          return;
+        }
+        bookedCustomerId = createData.customer?.id ?? "";
+        store.addCustomer(createData.customer);
+      }
+
       const res = await fetch("/api/calendar/book", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           startTime: start.toISOString(),
           endTime: end.toISOString(),
-          clientName: cust?.name ?? "Client",
-          clientContact: cust?.phone ?? "",
+          clientName: resolvedName,
+          clientContact: clientPhone.trim(),
+          clientEmail: clientEmail.trim(),
           treatment,
           room,
           practitionerName: prac?.name ?? "",
           notes,
+          sendConfirmation: notify,
+          birthday: birthdaySkipped ? undefined : birthday.trim(),
+          birthdaySkipped,
         }),
       });
 
@@ -1200,7 +1320,7 @@ export function NewAppointmentModal({
       // Mirror to local store for immediate UI feedback
       store.upsertAppointment({
         id: data.id || `apt_new_${Date.now()}`,
-        customer_id: customerId,
+        customer_id: bookedCustomerId,
         treatment,
         duration_minutes: dur,
         start_time: start.toISOString(),
@@ -1216,24 +1336,40 @@ export function NewAppointmentModal({
         reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
       });
 
-      if (notify && cust) {
+      if (notify && bookedCustomerId) {
         store.addActivity({
           id: `a_conf_${Date.now()}`,
           timestamp: new Date().toISOString(),
-          customer_id: cust.id,
+          customer_id: bookedCustomerId,
           rule_id: "manual",
-          channel: "WhatsApp",
-          message_body: `Hi ${cust.name.split(" ")[0]} — your ${treatment} is confirmed for ${start.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at ${fmtTime(start)}. See you soon.`,
-          status: "Sent",
+          channel: "Email",
+          message_body: `Booking confirmation email for ${treatment} on ${start.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at ${fmtTime(start)}.`,
+          status: data.emailSent ? "Sent" : "Failed",
           kind: "confirmation",
         });
       }
 
-      toast.success(`Appointment created.${notify ? " Confirmation sent." : ""}`);
+      if (notify && data.emailSent) {
+        toast.success("Appointment created — confirmation email sent.");
+      } else if (notify && data.emailSkippedReason) {
+        toast.success("Appointment created.", {
+          description: data.emailSkippedReason,
+        });
+      } else {
+        toast.success("Appointment created.");
+      }
+      onBooked?.();
       onClose();
       setCustomerId("");
+      setClientName("");
+      setClientPhone("");
+      setClientEmail("");
+      setClientMode("existing");
       setNotes("");
       setSearch("");
+      setSelectedSlotStart("");
+      setBirthday("");
+      setBirthdaySkipped(false);
     } catch {
       toast.error("Network error — could not save appointment");
     } finally {
@@ -1243,167 +1379,318 @@ export function NewAppointmentModal({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col gap-0 overflow-hidden p-0">
+        <DialogHeader className="shrink-0 px-6 pt-6 pb-2">
           <DialogTitle>New appointment</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 text-sm">
-          <div>
-            <Label className="text-xs text-muted-foreground mb-1.5 block">Client</Label>
-            {cust ? (
-              <div className="flex items-center justify-between rounded-md border px-3 py-2">
-                <div>
-                  <div className="font-medium">{cust.name}</div>
-                  <div className="text-xs text-muted-foreground">{cust.phone}</div>
-                </div>
-                <button
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                  onClick={() => setCustomerId("")}
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-2">
+          <div className="space-y-4 text-sm pb-2">
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Client</Label>
+              <div className="flex gap-2 mb-3">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={clientMode === "existing" ? "default" : "outline"}
+                  className="h-8"
+                  onClick={() => switchClientMode("existing")}
                 >
-                  Change
-                </button>
+                  Existing client
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={clientMode === "new" ? "default" : "outline"}
+                  className="h-8"
+                  onClick={() => switchClientMode("new")}
+                >
+                  New client
+                </Button>
               </div>
-            ) : (
+
+              {clientMode === "new" ? (
+                <div>
+                  <Label className="text-xs text-muted-foreground mb-1.5 block">Full name *</Label>
+                  <Input
+                    value={clientName}
+                    onChange={(e) => setClientName(e.target.value)}
+                    placeholder="Jane Smith"
+                    className="h-9"
+                  />
+                </div>
+              ) : cust ? (
+                <div className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <div>
+                    <div className="font-medium">{cust.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {cust.phone}
+                      {cust.email ? ` · ${cust.email}` : " · No email on file"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setCustomerId("");
+                      setClientName("");
+                      setClientPhone("");
+                      setClientEmail("");
+                      setBirthday("");
+                      setBirthdaySkipped(false);
+                    }}
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <Input
+                    placeholder="Search clients…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="h-9"
+                  />
+                  <div className="mt-1 rounded-md border max-h-[140px] overflow-y-auto divide-y">
+                    {filteredCust.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          setCustomerId(c.id);
+                          setSearch("");
+                        }}
+                        className="w-full text-left px-3 py-2 hover:bg-muted/40 transition-colors"
+                      >
+                        <div className="font-medium text-sm">{c.name}</div>
+                        <div className="text-xs text-muted-foreground">{c.phone}</div>
+                      </button>
+                    ))}
+                    {filteredCust.length === 0 && (
+                      <div className="px-3 py-4 text-xs text-muted-foreground text-center">
+                        No matches — try{" "}
+                        <button
+                          type="button"
+                          className="text-primary underline"
+                          onClick={() => switchClientMode("new")}
+                        >
+                          New client
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
               <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Phone *</Label>
                 <Input
-                  placeholder="Search clients…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  value={clientPhone}
+                  onChange={(e) => setClientPhone(e.target.value)}
+                  placeholder="(512) 555-0199"
                   className="h-9"
                 />
-                <div className="mt-1 rounded-md border max-h-[180px] overflow-y-auto divide-y">
-                  {filteredCust.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => {
-                        setCustomerId(c.id);
-                        setSearch("");
-                      }}
-                      className="w-full text-left px-3 py-2 hover:bg-muted/40 transition-colors"
-                    >
-                      <div className="font-medium text-sm">{c.name}</div>
-                      <div className="text-xs text-muted-foreground">{c.phone}</div>
-                    </button>
-                  ))}
-                  {filteredCust.length === 0 && (
-                    <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-                      No matches
-                    </div>
-                  )}
-                </div>
               </div>
-            )}
-          </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Email *</Label>
+                <Input
+                  type="email"
+                  value={clientEmail}
+                  onChange={(e) => setClientEmail(e.target.value)}
+                  placeholder="client@email.com"
+                  className="h-9"
+                />
+              </div>
+            </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">Treatment</Label>
-              <Select value={treatment} onValueChange={(v) => setTreatment(v as Treatment)}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TREATMENTS_LIST.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {t} · {TREATMENT_DURATIONS[t]} min
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-3 items-end">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">
+                  Birthday (MM-DD) *
+                </Label>
+                <Input
+                  value={birthday}
+                  onChange={(e) => {
+                    setBirthday(e.target.value);
+                    setBirthdaySkipped(false);
+                  }}
+                  placeholder="03-15"
+                  className="h-9"
+                  disabled={birthdaySkipped}
+                />
+              </div>
+              <div className="flex items-center gap-2 pb-2">
+                <Switch
+                  id="birthday-skipped"
+                  checked={birthdaySkipped}
+                  onCheckedChange={(v) => {
+                    setBirthdaySkipped(v);
+                    if (v) setBirthday("");
+                  }}
+                />
+                <Label htmlFor="birthday-skipped" className="text-xs cursor-pointer">
+                  Client declined to share
+                </Label>
+              </div>
             </div>
-            <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">Practitioner</Label>
-              <Select value={practitionerId} onValueChange={setPractitionerId}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {practitioners.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      <span className="flex items-center gap-2">
-                        <span
-                          className="h-2 w-2 rounded-full"
-                          style={{ backgroundColor: p.color }}
-                        />
-                        {p.name}
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">Date</Label>
-              <Input
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="h-9"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Treatment</Label>
+                <Select value={treatment} onValueChange={(v) => setTreatment(v as Treatment)}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TREATMENTS_LIST.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {t} · {TREATMENT_DURATIONS[t]} min
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Practitioner</Label>
+                <Select
+                  value={practitionerId || undefined}
+                  onValueChange={setPractitionerId}
+                  disabled={loadingMeta || practitionerList.length === 0}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue
+                      placeholder={
+                        loadingMeta
+                          ? "Loading practitioners…"
+                          : practitionerList.length === 0
+                            ? "No practitioners configured"
+                            : "Select practitioner"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {practitionerList.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <span className="flex items-center gap-2">
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: p.color }}
+                          />
+                          {p.name}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">Time</Label>
-              <Input
-                type="time"
-                value={time}
-                onChange={(e) => setTime(e.target.value)}
-                step={1800}
-                className="h-9"
-              />
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Date</Label>
+                <Input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="h-9"
+                />
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">
+                  Available slot{" "}
+                  {loadingSlots && <span className="text-xs text-muted-foreground">checking…</span>}
+                </Label>
+                <Select
+                  value={selectedSlotStart || undefined}
+                  onValueChange={(v) => {
+                    setSelectedSlotStart(v);
+                    const slot = availableSlots.find((s) => s.startTime === v);
+                    if (slot?.availableRooms?.[0]) setRoom(slot.availableRooms[0]);
+                  }}
+                  disabled={loadingSlots || loadingMeta || availableSlots.length === 0}
+                >
+                  <SelectTrigger className="h-9">
+                    <SelectValue
+                      placeholder={
+                        loadingSlots
+                          ? "Loading slots…"
+                          : availableSlots.length === 0
+                            ? "No slots available"
+                            : "Select a time"
+                      }
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {availableSlots.map((slot) => (
+                      <SelectItem key={slot.startTime} value={slot.startTime}>
+                        {slot.displayTime}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {!loadingSlots && availableSlots.length === 0 && (
+                  <p className="text-xs text-destructive mt-1">
+                    No open slots for this date, practitioner, and treatment (5-min buffer applied).
+                  </p>
+                )}
+              </div>
             </div>
+
             <div>
-              <Label className="text-xs text-muted-foreground mb-1.5 block">
-                Room {loadingSlots && <span className="text-xs">checking…</span>}
-              </Label>
-              <Select
-                value={room}
-                onValueChange={setRoom}
-                disabled={loadingSlots || availableRooms.length === 0}
-              >
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableRooms.length > 0 ? (
-                    availableRooms.map((r) => (
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Room</Label>
+              {selectedSlot && slotRooms.length > 0 ? (
+                <Select value={roomSelectValue} onValueChange={setRoom}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue placeholder="Select room" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {slotRooms.map((r) => (
                       <SelectItem key={r} value={r}>
                         {r}
                       </SelectItem>
-                    ))
-                  ) : (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                      No rooms available
-                    </div>
-                  )}
-                </SelectContent>
-              </Select>
-              {availableRooms.length === 0 && (
-                <p className="text-xs text-destructive mt-1">No rooms available for this time</p>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="rounded-md border bg-muted/30 px-3 py-2 text-sm text-muted-foreground min-h-9 flex items-center">
+                  {clinicRooms.length > 0
+                    ? `${clinicRooms.join(", ")} — select a time slot first`
+                    : "Select an available time slot first"}
+                </div>
               )}
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Slots include a 5-minute buffer between appointments (e.g. 9:30 AM end → next at
+                9:35 AM).
+              </p>
+            </div>
+
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Notes</Label>
+              <Textarea
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="Optional internal notes…"
+                className="min-h-[60px]"
+              />
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <Label htmlFor="notify-new" className="text-sm cursor-pointer">
+                  Send confirmation email
+                </Label>
+                {notify && !clientEmail.trim() && (
+                  <p className="text-xs text-amber-600 mt-0.5">
+                    Enter an email address to send confirmation.
+                  </p>
+                )}
+              </div>
+              <Switch id="notify-new" checked={notify} onCheckedChange={setNotify} />
             </div>
           </div>
-
-          <div>
-            <Label className="text-xs text-muted-foreground mb-1.5 block">Notes</Label>
-            <Textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional internal notes…"
-              className="min-h-[60px]"
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <Label htmlFor="notify-new" className="text-sm cursor-pointer">
-              Send confirmation to client
-            </Label>
-            <Switch id="notify-new" checked={notify} onCheckedChange={setNotify} />
-          </div>
         </div>
-        <DialogFooter>
+        <DialogFooter className="shrink-0 border-t px-6 py-4">
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>

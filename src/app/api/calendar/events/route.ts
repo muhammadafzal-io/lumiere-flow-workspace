@@ -29,7 +29,6 @@ export async function GET(req: NextRequest) {
 
   try {
     const events = await getEventsByRange(from, to);
-    console.log("Fetched events:", events);
     return NextResponse.json({ events });
   } catch (err) {
     console.error("[/api/calendar/events]", err);

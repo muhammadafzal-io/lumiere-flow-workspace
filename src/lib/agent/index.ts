@@ -9,10 +9,13 @@ import {
   upsertClient,
   createAppointmentRecord,
   getClientByCreditCode,
+  getPractitioners,
 } from "@/lib/integrations/airtable";
+import { validateBookAppointment } from "@/lib/agent/booking-guards";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { sendRetentionEmail } from "@/lib/integrations/email";
+import { sendBookingConfirmationEmail } from "@/lib/booking/confirmation-email";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import { getOpenAIApiKey } from "@/lib/openai-config";
 import type { AgentResult } from "@/types";
@@ -33,27 +36,71 @@ export async function executeTool(
   context: { platform: string; chatId: string },
 ): Promise<{ result: unknown; escalated?: boolean; booked?: boolean }> {
   switch (toolName) {
-    case "check_availability": {
-      const availability = await checkAvailability({
-        date: input.date as string,
-        durationMinutes: (input.duration_minutes as number) ?? 60,
-        practitionerName: input.preferred_practitioner as string | undefined,
-        room: input.preferred_room as string | undefined,
-      });
+    case "get_practitioners": {
+      try {
+        const practitioners = await getPractitioners(
+          input.specialty ? { specialty: input.specialty as string } : undefined,
+        );
+        return {
+          result: practitioners.map((p) => ({
+            name: p.name,
+            specialty: p.specialty ?? p.role ?? "General",
+            bio: p.bio ?? "",
+          })),
+        };
+      } catch (err) {
+        return {
+          result: {
+            practitioners: [],
+            note: "Practitioner list unavailable — proceed with check_availability without a practitioner filter.",
+            error: err instanceof Error ? err.message : String(err),
+          },
+        };
+      }
+    }
 
-      return {
-        result: {
-          date: availability.date,
-          durationMinutes: availability.durationMinutes,
-          slots: availability.slots.slice(0, 6), // Limit to top 6 slots
-          availablePractitioners: availability.availablePractitioners,
-          availableRooms: availability.availableRooms,
-          summary: `Found ${availability.slots.length} available slots on ${availability.date}. Available practitioners: ${availability.availablePractitioners.join(", ")}. Available rooms: ${availability.availableRooms.join(", ")}`,
-        },
-      };
+    case "check_availability": {
+      try {
+        const availability = await checkAvailability({
+          date: input.date as string,
+          durationMinutes: (input.duration_minutes as number) ?? 60,
+          practitionerName:
+            (input.preferred_practitioner as string | undefined) ||
+            (input.practitioner_name as string | undefined),
+          room: input.preferred_room as string | undefined,
+        });
+
+        return {
+          result: {
+            date: availability.date,
+            durationMinutes: availability.durationMinutes,
+            slots: availability.slots.slice(0, 6),
+            availablePractitioners: availability.availablePractitioners,
+            availableRooms: availability.availableRooms,
+            summary:
+              availability.slots.length > 0
+                ? `Found ${availability.slots.length} available slots on ${availability.date}. Available practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Available rooms: ${availability.availableRooms.join(", ") || "any"}.`
+                : `No open slots on ${availability.date}. Try the next business day (Mon–Sat) — do NOT escalate.`,
+          },
+        };
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        return {
+          result: {
+            error: errMsg,
+            slots: [],
+            summary: `Calendar check failed for ${input.date}: ${errMsg}. Try the next business day — do NOT escalate for booking availability issues.`,
+          },
+        };
+      }
     }
 
     case "book_appointment": {
+      const guardError = await validateBookAppointment(input);
+      if (guardError) {
+        return { result: { error: guardError } };
+      }
+
       const durationMin = (input.duration_minutes as number) ?? 60;
       const startTime = input.date_time as string;
       const endTime = new Date(new Date(startTime).getTime() + durationMin * 60_000).toISOString();
@@ -96,18 +143,14 @@ export async function executeTool(
 
       const appt = await bookAppointment(apptData);
 
-      // Upsert client so email is saved before we look them up
       if (input.client_email || apptData.clientContact) {
         await upsertClient({
           name: apptData.clientName,
           phone: apptData.clientContact || undefined,
           email: (input.client_email as string | undefined) || undefined,
-        }).catch(() => {
-          /* non-fatal */
-        });
+        }).catch(() => undefined);
       }
 
-      // Look up Airtable client ID by phone so we can link the appointment record
       const clientRecord = await lookupClient({ phone: apptData.clientContact }).catch(() => null);
       await createAppointmentRecord(
         {
@@ -119,56 +162,21 @@ export async function executeTool(
           notes: apptData.notes,
         },
         clientRecord?.id,
-      ).catch(() => {
-        /* non-fatal */
-      });
+      ).catch(() => undefined);
 
-      // Fire-and-forget: send booking confirmation email via widget
       const clientEmail = (input.client_email as string | undefined) || clientRecord?.email;
 
-      console.log(
-        `[agent/book] email → input: ${input.client_email ?? "none"} | supabase: ${clientRecord?.email ?? "none"} → will send to: ${clientEmail ?? "NONE"}`,
-      );
-
       if (clientEmail) {
-        const displayTime = new Date(apptData.startTime).toLocaleString("en-US", {
-          timeZone: "America/Chicago",
-          weekday: "long",
-          month: "long",
-          day: "numeric",
-          year: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-          hour12: true,
-        });
-        sendRetentionEmail({
+        sendBookingConfirmationEmail({
           to: clientEmail,
-          subject: `Appointment confirmed — ${apptData.treatment} on ${new Date(apptData.startTime).toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric" })}`,
-          flowType: "booking",
-          text: [
-            `Hi ${apptData.clientName}, your appointment at Lumière is confirmed!`,
-            ``,
-            `Treatment: ${apptData.treatment}`,
-            `Date & Time: ${displayTime} CT`,
-            `Practitioner: ${apptData.practitionerName}`,
-            `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
-            apptData.notes ? `Notes: ${apptData.notes}` : "",
-            ``,
-            `Need to change anything? Reply to this message or contact us Monday–Saturday, 9 AM–7 PM.`,
-            widgetLinkLine(),
-            ``,
-            `See you soon!`,
-            `— The Lumière Team`,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-          cta: {
-            label: "View Location",
-            url: "https://maps.google.com/?q=2847+S+Lamar+Blvd+Suite+120+Austin+TX",
-          },
-        })
-          .then(() => console.log(`[agent/book] confirmation email sent → ${clientEmail}`))
-          .catch((e) => console.error(`[agent/book] confirmation email failed:`, e));
+          clientName: apptData.clientName,
+          treatment: apptData.treatment,
+          startTime: apptData.startTime,
+          practitionerName: apptData.practitionerName,
+          notes: apptData.notes,
+          clientId: clientRecord?.id,
+          phone: apptData.clientContact,
+        }).catch((e) => console.error(`[agent/book] confirmation email failed:`, e));
       }
 
       return { result: appt, booked: true };
@@ -178,7 +186,6 @@ export async function executeTool(
       const eventId = input.event_id as string;
       const cancelled = await cancelCalendarEvent(eventId);
 
-      // Fire-and-forget cancellation email
       const cancelEmail =
         (input.client_email as string | undefined) ||
         (await lookupClient({ phone: cancelled.clientContact }).catch(() => null))?.email;
@@ -215,9 +222,7 @@ export async function executeTool(
             label: "Book a New Appointment",
             url: getWidgetUrl(),
           },
-        })
-          .then(() => console.log(`[agent/cancel] cancellation email sent → ${cancelEmail}`))
-          .catch((e) => console.error(`[agent/cancel] cancellation email failed:`, e));
+        }).catch((e) => console.error(`[agent/cancel] cancellation email failed:`, e));
       }
 
       await logEvent(
@@ -244,7 +249,6 @@ export async function executeTool(
 
       const rescheduled = await rescheduleCalendarEvent(eventId, newStartTime, newEndTime);
 
-      // Fire-and-forget reschedule email
       const rescheduleEmail =
         (input.client_email as string | undefined) ||
         (await lookupClient({ phone: rescheduled.clientContact }).catch(() => null))?.email;
@@ -285,9 +289,7 @@ export async function executeTool(
             label: "View Location",
             url: "https://maps.google.com/?q=2847+S+Lamar+Blvd+Suite+120+Austin+TX",
           },
-        })
-          .then(() => console.log(`[agent/reschedule] reschedule email sent → ${rescheduleEmail}`))
-          .catch((e) => console.error(`[agent/reschedule] reschedule email failed:`, e));
+        }).catch((e) => console.error(`[agent/reschedule] reschedule email failed:`, e));
       }
 
       await logEvent(

@@ -9,8 +9,6 @@ export const SLOTS_PER_HOUR = 60 / SLOT_MIN;
 export const TOTAL_SLOTS = (HOUR_END - HOUR_START) * SLOTS_PER_HOUR;
 export const SLOT_PX = 28;
 
-// ── Timezone core ────────────────────────────────────────────────────
-
 export function chicagoParts(d: Date) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: BUSSINESS_TZ,
@@ -39,8 +37,6 @@ function chicagoMidnightMs(year: number, month: number, day: number): number {
   return noonMs - p.hour * 3_600_000 - p.minute * 60_000;
 }
 
-// ── Date arithmetic ──────────────────────────────────────────────────
-
 export function startOfDay(d: Date): Date {
   const p = chicagoParts(d);
   return new Date(chicagoMidnightMs(p.year, p.month, p.day));
@@ -66,15 +62,11 @@ export function sameDay(a: Date, b: Date): boolean {
   return pa.year === pb.year && pa.month === pb.month && pa.day === pb.day;
 }
 
-// ── Slot creation helper (exported for DayColumn) ────────────────────
-
 // Returns the UTC Date for Chicago-local hour:minute on the day represented by `day`
 // (which must be a Chicago-midnight UTC date produced by startOfDay / addDays).
 export function chicagoSlotDate(day: Date, hour: number, minute: number): Date {
   return new Date(day.getTime() + hour * 3_600_000 + minute * 60_000);
 }
-
-// ── Formatting ───────────────────────────────────────────────────────
 
 export function fmtTime(d: Date): string {
   return d.toLocaleTimeString("en-US", {
@@ -106,8 +98,6 @@ export function fmtWeekday(d: Date, len: "short" | "long" = "short"): string {
     weekday: len,
   });
 }
-
-// ── Calendar helpers ─────────────────────────────────────────────────
 
 export function isClinicOpen(d: Date): boolean {
   const p = chicagoParts(d);

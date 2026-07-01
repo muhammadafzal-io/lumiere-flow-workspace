@@ -48,7 +48,6 @@ export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionR
 
   for (const client of clients) {
     if (client.birthdayCreditSent) {
-      console.log(`[birthday] SKIP → ${client.name} | reason: credit already sent this year`);
       result.skipped++;
       result.details.push({
         clientId: client.id ?? "",
@@ -61,7 +60,6 @@ export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionR
 
     const contactId = client.telegramId ?? client.phone;
     if (!contactId) {
-      console.log(`[birthday] SKIP → ${client.name} | reason: no contact info`);
       result.skipped++;
       result.details.push({
         clientId: client.id ?? "",
@@ -91,10 +89,6 @@ export async function runBirthdayFlow(opts?: RunFlowOptions): Promise<RetentionR
             clientName: client.name,
           },
         },
-      );
-
-      console.log(
-        `[birthday] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | email: ${emailSent ? client.email : "none"} | discord-mirror: ${discordMirrored} | contact: ${contactId} | code: ${creditCode}`,
       );
 
       if (client.id) {

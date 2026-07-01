@@ -45,7 +45,6 @@ export async function runNoshowFlow(opts?: RunFlowOptions): Promise<RetentionRes
 
   for (const client of noshows) {
     if (!client.telegramId && !client.phone) {
-      console.log(`[noshow] SKIP → ${client.name} | reason: no contact info`);
       result.skipped++;
       result.details.push({
         clientId: client.id ?? "",
@@ -78,10 +77,6 @@ export async function runNoshowFlow(opts?: RunFlowOptions): Promise<RetentionRes
             clientName: client.name,
           },
         },
-      );
-
-      console.log(
-        `[noshow] ${simulated ? "SIMULATED" : "SENT"} → ${client.name} | platform: ${platform} | contact: ${contactId}`,
       );
 
       if (client.id) {

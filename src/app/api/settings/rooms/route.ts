@@ -18,7 +18,6 @@ export async function GET(req: NextRequest) {
 
     // Extract room names from data
     const rooms = data?.map((r: any) => r.Name) || ["Room 1", "Room 2"];
-    console.log("[/api/settings/rooms] GET success, rooms:", rooms);
     return NextResponse.json({ rooms });
   } catch (err) {
     console.error("[/api/settings/rooms] GET exception:", err);
@@ -26,43 +25,6 @@ export async function GET(req: NextRequest) {
       { error: "Failed to fetch rooms", code: "FETCH_ERROR" },
       { status: 500 },
     );
-  }
-}
-
-export async function POST(req: NextRequest) {
-  // Diagnostic endpoint to check setup
-  try {
-    const supabase = getSupabaseClient();
-
-    console.log("[/api/settings/rooms] Diagnostic check");
-
-    // Check if Rooms table exists and has data
-    const { data: rooms, error: roomsError } = await supabase.from("Rooms").select("*").limit(5);
-
-    if (roomsError) {
-      console.error("[Diagnostic] Error fetching rooms:", roomsError);
-      return NextResponse.json({
-        status: "error",
-        error: roomsError.message,
-        hint: roomsError.hint,
-        code: roomsError.code,
-      });
-    }
-
-    console.log("[Diagnostic] Rooms found:", rooms);
-
-    return NextResponse.json({
-      status: "ok",
-      roomsCount: rooms?.length || 0,
-      sampleRooms: rooms?.slice(0, 3),
-      message: "Diagnostic data retrieved successfully",
-    });
-  } catch (err) {
-    console.error("[Diagnostic] Exception:", err);
-    return NextResponse.json({
-      status: "error",
-      error: err instanceof Error ? err.message : String(err),
-    });
   }
 }
 
@@ -115,12 +77,6 @@ export async function PATCH(req: NextRequest) {
     const roomsToAdd =
       uniqueRooms.filter((name) => !existingRooms?.some((r: any) => r.Name === name)) || [];
 
-    console.log("[/api/settings/rooms] Update plan:", {
-      toAdd: roomsToAdd,
-      toDelete: roomsToDelete.map((r: any) => r.id),
-      total: uniqueRooms.length,
-    });
-
     // Delete removed rooms
     if (roomsToDelete.length > 0) {
       const { error: deleteError } = await supabase
@@ -163,7 +119,6 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    console.log("[/api/settings/rooms] PATCH success, updated to:", uniqueRooms);
     return NextResponse.json({ rooms: uniqueRooms, ok: true });
   } catch (err) {
     console.error("[/api/settings/rooms] PATCH exception:", err);
