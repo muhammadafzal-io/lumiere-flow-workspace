@@ -26,6 +26,7 @@ const CATEGORIES = [
   "booking",
   "cancellation",
   "reschedule",
+  "followup",
   "general",
 ] as const;
 
@@ -60,6 +61,7 @@ function categoryClass(category: string) {
     booking: "bg-emerald-500/10 text-emerald-700 border-emerald-300/30",
     cancellation: "bg-destructive/10 text-destructive border-destructive/20",
     reschedule: "bg-blue-500/10 text-blue-700 border-blue-300/30",
+    followup: "bg-teal-500/10 text-teal-700 border-teal-300/30",
   };
   return `inline-flex px-2 py-0.5 text-[11px] font-medium rounded-md border capitalize ${map[category] ?? "bg-muted text-muted-foreground border-border"}`;
 }

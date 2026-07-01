@@ -65,7 +65,9 @@ export function matchesExtraFilters(c: Customer, filters: RuleAudienceFilters): 
     const ts = c.treatments.join(" ").toLowerCase();
     if (!filters.treatment.some((x) => ts.includes(x.toLowerCase()))) return false;
   }
-  if (filters.visit_min != null && c.total_visits < filters.visit_min) return false;
+  if (filters.visit_min != null && filters.visit_min > 0 && c.total_visits < filters.visit_min) {
+    return false;
+  }
   if (filters.visit_max != null && c.total_visits > filters.visit_max) return false;
   if (filters.last_visit && filters.last_visit !== "any") {
     if (!matchesLastVisitBucket(c.last_visit, filters.last_visit)) return false;

@@ -1,4 +1,9 @@
-export type RetentionFlowKey = "birthday" | "reminders" | "noshow" | "reactivation";
+export type RetentionFlowKey =
+  | "birthday"
+  | "reminders"
+  | "noshow"
+  | "reactivation"
+  | "followup";
 
 export interface AudienceFilters {
   q?: string;
@@ -15,6 +20,12 @@ export interface AudienceFilters {
   reactivation_step?: number[];
   noshow_date?: string;
   reminder_window?: "T-72h" | "T-24h" | "T-2h" | "any";
+  /** Min days after appointment ended before follow-up (default 1) */
+  followup_min_days?: number;
+  /** Max days after appointment ended to include (default 14) */
+  followup_max_days?: number;
+  /** Exclude appointments that already received a follow-up email */
+  followup_not_sent?: boolean;
 }
 
 export interface AudienceRow {
@@ -165,6 +176,30 @@ export const FLOW_FILTER_FIELDS: FilterFieldDef[] = [
       { label: "Step 3", value: "3" },
     ],
   },
+  {
+    key: "followup_min_days",
+    label: "Min days after treatment",
+    type: "number",
+    placeholder: "1",
+    flowOnly: "followup",
+  },
+  {
+    key: "followup_max_days",
+    label: "Max days after treatment",
+    type: "number",
+    placeholder: "14",
+    flowOnly: "followup",
+  },
+  {
+    key: "followup_not_sent",
+    label: "Follow-up status",
+    type: "select",
+    flowOnly: "followup",
+    options: [
+      { label: "Not sent yet", value: "yes" },
+      { label: "Any (include sent)", value: "any" },
+    ],
+  },
 ];
 
 export function filtersForFlow(flow: RetentionFlowKey): FilterFieldDef[] {
@@ -183,6 +218,13 @@ export function defaultFiltersForFlow(flow: RetentionFlowKey): AudienceFilters {
       return { noshow_date: today, status: ["no-show"], has_contact: true };
     case "reactivation":
       return { dormant_days: 90, has_contact: true };
+    case "followup":
+      return {
+        followup_min_days: 1,
+        followup_max_days: 14,
+        followup_not_sent: true,
+        has_email: true,
+      };
   }
 }
 
@@ -206,7 +248,9 @@ export function parseFiltersFromSearchParams(
     q: params.get("q") ?? undefined,
     status: status.length ? status : defaults.status,
     treatment: treatment.length ? treatment : defaults.treatment,
-    visit_min: params.has("visit_min") ? Number(params.get("visit_min")) : defaults.visit_min,
+    visit_min: params.has("visit_min")
+      ? Math.max(1, Number(params.get("visit_min")))
+      : defaults.visit_min,
     visit_max: params.has("visit_max") ? Number(params.get("visit_max")) : defaults.visit_max,
     last_visit: (params.get("last_visit") as AudienceFilters["last_visit"]) ?? defaults.last_visit,
     has_email:
@@ -234,6 +278,18 @@ export function parseFiltersFromSearchParams(
     reminder_window:
       (params.get("reminder_window") as AudienceFilters["reminder_window"]) ??
       defaults.reminder_window,
+    followup_min_days: params.has("followup_min_days")
+      ? Number(params.get("followup_min_days"))
+      : defaults.followup_min_days,
+    followup_max_days: params.has("followup_max_days")
+      ? Number(params.get("followup_max_days"))
+      : defaults.followup_max_days,
+    followup_not_sent:
+      params.get("followup_not_sent") === "any"
+        ? false
+        : params.get("followup_not_sent") === "yes" || defaults.followup_not_sent === true
+          ? true
+          : defaults.followup_not_sent,
   };
 }
 
@@ -264,6 +320,11 @@ export function countActiveFilters(filters: AudienceFilters, flow: RetentionFlow
   if (flow === "reactivation") {
     if (filters.dormant_days != null && filters.dormant_days !== 90) n++;
     if (filters.reactivation_step?.length) n++;
+  }
+  if (flow === "followup") {
+    if (filters.followup_min_days != null && filters.followup_min_days !== 1) n++;
+    if (filters.followup_max_days != null && filters.followup_max_days !== 14) n++;
+    if (filters.followup_not_sent) n++;
   }
   return n;
 }

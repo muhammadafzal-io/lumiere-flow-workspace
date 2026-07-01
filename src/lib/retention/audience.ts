@@ -14,6 +14,8 @@ import {
   type AudienceRow,
   type RetentionFlowKey,
 } from "@/lib/retention/audience-config";
+import { countCustomerVisits } from "@/lib/customers/visit-count";
+import { listFollowupCandidates } from "@/lib/retention/followup-candidates";
 
 export type {
   AudienceFilters,
@@ -28,12 +30,8 @@ export {
   parseFiltersFromSearchParams,
 } from "@/lib/retention/audience-config";
 
-function parseVisitCount(raw?: string): number {
-  if (!raw) return 0;
-  return raw
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean).length;
+function parseVisitCount(client: Client): number {
+  return countCustomerVisits(client.appointments, client.lastVisit);
 }
 
 function daysSince(iso?: string): number {
@@ -74,8 +72,8 @@ function matchesClientFilters(client: Client, filters: AudienceFilters): boolean
     if (!filters.treatment.some((x) => t.includes(x.toLowerCase()))) return false;
   }
 
-  const visits = parseVisitCount(client.appointments);
-  if (filters.visit_min != null && visits < filters.visit_min) return false;
+  const visits = parseVisitCount(client);
+  if (filters.visit_min != null && filters.visit_min > 0 && visits < filters.visit_min) return false;
   if (filters.visit_max != null && visits > filters.visit_max) return false;
 
   if (!matchesLastVisit(client.lastVisit, filters.last_visit)) return false;
@@ -128,6 +126,8 @@ export async function buildAudience(
       return buildNoshowAudience(filters);
     case "reactivation":
       return buildReactivationAudience(filters);
+    case "followup":
+      return buildFollowupAudience(filters);
   }
 }
 
@@ -258,6 +258,39 @@ async function buildReactivationAudience(filters: AudienceFilters): Promise<Audi
     eligible: rows.length,
     rows,
     activeFilterCount: countActiveFilters(filters, "reactivation"),
+  };
+}
+
+async function buildFollowupAudience(filters: AudienceFilters): Promise<AudienceResult> {
+  const candidates = await listFollowupCandidates(filters);
+  const total = candidates.length;
+
+  const rows: AudienceRow[] = candidates.map((c) => {
+    const displayDate = new Date(c.endTime).toLocaleString("en-US", {
+      timeZone: "America/Chicago",
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    });
+    return {
+      id: c.appointmentId,
+      name: c.clientName,
+      email: c.email,
+      phone: c.clientContact,
+      treatment: c.treatment,
+      detail: `${c.daysSinceEnd}d after · ${displayDate}`,
+    };
+  });
+
+  return {
+    flow: "followup",
+    total,
+    eligible: rows.length,
+    rows,
+    activeFilterCount: countActiveFilters(filters, "followup"),
   };
 }
 

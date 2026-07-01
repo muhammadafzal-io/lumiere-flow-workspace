@@ -3,6 +3,7 @@ import { runReminderFlow } from "@/lib/retention/reminders";
 import { runNoshowFlow } from "@/lib/retention/noshow";
 import { runReactivationFlow } from "@/lib/retention/reactivation";
 import { runBirthdayFlow } from "@/lib/retention/birthday";
+import { runFollowupFlow } from "@/lib/retention/followup";
 import { processAllActiveCampaigns } from "@/lib/campaigns/process";
 import { sendAllPendingCampaignEmails } from "@/lib/campaigns/send";
 
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
     reminders: () => runReminderFlow({ trigger: "cron" }),
     noshow: () => runNoshowFlow({ trigger: "cron" }),
     reactivation: () => runReactivationFlow({ trigger: "cron" }),
-    birthday: () => runBirthdayFlow({ trigger: "cron" }),
+    followup: () => runFollowupFlow({ trigger: "cron" }),
     campaigns: async () => {
       const process = await processAllActiveCampaigns();
       const send = await sendAllPendingCampaignEmails({ trigger: "cron" });
@@ -49,11 +50,12 @@ export async function GET(req: NextRequest) {
   }
 
   // Run all flows in parallel (campaigns runs sequentially internally)
-  const [reminders, noshow, reactivation, birthday, campaigns] = await Promise.allSettled([
+  const [reminders, noshow, reactivation, birthday, followup, campaigns] = await Promise.allSettled([
     runReminderFlow({ trigger: "cron" }),
     runNoshowFlow({ trigger: "cron" }),
     runReactivationFlow({ trigger: "cron" }),
     runBirthdayFlow({ trigger: "cron" }),
+    runFollowupFlow({ trigger: "cron" }),
     runners.campaigns(),
   ]);
 
@@ -76,6 +78,10 @@ export async function GET(req: NextRequest) {
         birthday.status === "fulfilled"
           ? birthday.value
           : { error: String((birthday as PromiseRejectedResult).reason) },
+      followup:
+        followup.status === "fulfilled"
+          ? followup.value
+          : { error: String((followup as PromiseRejectedResult).reason) },
       campaigns:
         campaigns.status === "fulfilled"
           ? campaigns.value

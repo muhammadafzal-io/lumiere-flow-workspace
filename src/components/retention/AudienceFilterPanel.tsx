@@ -169,7 +169,28 @@ export function AudienceFilterPanel({ flow, filters, onChange, activeCount }: Pr
       );
     }
     if (field.key === "visit_min" || field.key === "visit_max") {
-      return null;
+      const key = field.key as "visit_min" | "visit_max";
+      return (
+        <div key={field.key}>
+          <Label className="text-xs text-muted-foreground">{field.label}</Label>
+          <Input
+            type="number"
+            min={key === "visit_min" ? 1 : undefined}
+            className="h-8 mt-1 text-sm"
+            placeholder={field.placeholder}
+            value={filters[key] ?? ""}
+            onChange={(e) => {
+              const raw = e.target.value;
+              if (!raw) {
+                set({ [key]: undefined });
+                return;
+              }
+              const n = Number(raw);
+              set({ [key]: key === "visit_min" && n < 1 ? 1 : n });
+            }}
+          />
+        </div>
+      );
     }
 
     if (field.type === "number") {
@@ -216,6 +237,7 @@ export function AudienceFilterPanel({ flow, filters, onChange, activeCount }: Pr
         value = filters.has_contact === true ? "yes" : filters.has_contact === false ? "no" : "any";
       else if (key === "reminder_window") value = filters.reminder_window ?? "any";
       else if (key === "credit_not_sent") value = filters.credit_not_sent ? "yes" : "any";
+      else if (key === "followup_not_sent") value = filters.followup_not_sent ? "yes" : "any";
       else if (key === "reactivation_step")
         value =
           filters.reactivation_step?.length === 1 ? String(filters.reactivation_step[0]) : "any";
@@ -234,6 +256,7 @@ export function AudienceFilterPanel({ flow, filters, onChange, activeCount }: Pr
               else if (key === "reminder_window")
                 set({ reminder_window: v as AudienceFilters["reminder_window"] });
               else if (key === "credit_not_sent") set({ credit_not_sent: v === "yes" });
+              else if (key === "followup_not_sent") set({ followup_not_sent: v === "yes" });
               else if (key === "reactivation_step")
                 set({ reactivation_step: v === "any" ? undefined : [Number(v)] });
             }}

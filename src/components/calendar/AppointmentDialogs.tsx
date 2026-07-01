@@ -45,6 +45,11 @@ import type {
 } from "@/lib/types";
 import type { AvailableSlot } from "@/types";
 import { TREATMENT_DURATIONS, TREATMENT_PRICES } from "@/lib/treatments";
+import {
+  birthdayToInputValue,
+  isValidBirthdayInput,
+  normalizeBirthdayForStorage,
+} from "@/lib/birthday";
 import { store } from "@/lib/store";
 import {
   BUSSINESS_TZ,
@@ -1154,7 +1159,7 @@ export function NewAppointmentModal({
     setClientPhone(cust.phone ?? "");
     setClientEmail(cust.email ?? "");
     if (cust.birthday) {
-      setBirthday(cust.birthday);
+      setBirthday(birthdayToInputValue(cust.birthday));
       setBirthdaySkipped(false);
     }
   }, [cust?.id, clientMode]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1248,8 +1253,8 @@ export function NewAppointmentModal({
       toast.error("Valid email is required (same as chatbot booking)");
       return;
     }
-    if (!birthdaySkipped && !birthday.trim()) {
-      toast.error("Enter birthday (MM-DD) or mark as declined");
+    if (!birthdaySkipped && !isValidBirthdayInput(birthday)) {
+      toast.error("Enter a valid birthday or mark as declined");
       return;
     }
     if (!selectedSlot) {
@@ -1277,7 +1282,7 @@ export function NewAppointmentModal({
             name: resolvedName,
             phone: clientPhone.trim(),
             email: clientEmail.trim(),
-            birthday: birthdaySkipped ? "" : birthday.trim(),
+            birthday: birthdaySkipped ? "" : (normalizeBirthdayForStorage(birthday.trim()) ?? ""),
             treatmentInterest: treatment,
             status: "Active",
           }),
@@ -1305,7 +1310,7 @@ export function NewAppointmentModal({
           practitionerName: prac?.name ?? "",
           notes,
           sendConfirmation: notify,
-          birthday: birthdaySkipped ? undefined : birthday.trim(),
+          birthday: birthdaySkipped ? undefined : normalizeBirthdayForStorage(birthday.trim()),
           birthdaySkipped,
         }),
       });
@@ -1506,16 +1511,14 @@ export function NewAppointmentModal({
 
             <div className="grid grid-cols-2 gap-3 items-end">
               <div>
-                <Label className="text-xs text-muted-foreground mb-1.5 block">
-                  Birthday (MM-DD) *
-                </Label>
+                <Label className="text-xs text-muted-foreground mb-1.5 block">Birthday *</Label>
                 <Input
+                  type="date"
                   value={birthday}
                   onChange={(e) => {
                     setBirthday(e.target.value);
                     setBirthdaySkipped(false);
                   }}
-                  placeholder="03-15"
                   className="h-9"
                   disabled={birthdaySkipped}
                 />

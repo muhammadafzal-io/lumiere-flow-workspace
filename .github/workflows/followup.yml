@@ -1,0 +1,37 @@
+name: Post-treatment follow-up
+
+# Vercel Hobby: GitHub Actions cron for /api/retention/run?flow=followup
+
+on:
+  schedule:
+    - cron: "0 15 * * *"
+  workflow_dispatch:
+
+jobs:
+  followup-cron:
+    name: Send post-treatment follow-ups
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger follow-up flow
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.VERCEL_APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing CRON_SECRET in GitHub repository secrets"
+            exit 1
+          fi
+          BASE="${APP_URL:-https://lumiere-flow-workspace-htt1.vercel.app}"
+          echo "Calling ${BASE}/api/retention/run?flow=followup"
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE}/api/retention/run?flow=followup")
+          body=$(echo "$response" | head -n -1)
+          status=$(echo "$response" | tail -n1)
+          echo "Status: $status"
+          echo "Response: $body"
+          if [ "$status" != "200" ]; then
+            echo "Follow-up cron failed with status $status"
+            exit 1
+          fi
+          echo "Follow-up cron completed"

@@ -78,8 +78,7 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           birthday: {
             type: "string",
-            description:
-              "Birthday in MM-DD format if the client shared it (also save via upsert_client)",
+            description: 'Birthday in YYYY-MM-DD format if the client shared it (also save via upsert_client)',
           },
           birthday_skipped: {
             type: "boolean",
@@ -204,7 +203,7 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           last_visit: { type: "string", description: 'Date only, YYYY-MM-DD, e.g. "2026-05-17"' },
           last_treatment: { type: "string", description: 'Treatment name, e.g. "Botox"' },
-          birthday: { type: "string", description: 'MM-DD format, e.g. "03-15"' },
+          birthday: { type: "string", description: 'YYYY-MM-DD format, e.g. "1990-03-15"' },
           status: { type: "string", enum: ["Active", "Dormant", "No-show", "Discard"] },
           notes: { type: "string" },
           appointments: {

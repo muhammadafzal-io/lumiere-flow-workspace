@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { mapCampaignRow, computeStats, mapRecipientRow } from "@/lib/campaigns/db";
 import { countEligibleCustomers } from "@/lib/campaigns/customers";
+import { normalizeMinVisits } from "@/lib/customers/visit-count";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export async function GET(req: NextRequest) {
     const previewVisits = req.nextUrl.searchParams.get("preview_visits");
 
     if (previewVisits) {
-      const count = await countEligibleCustomers(sb, Number(previewVisits));
+      const count = await countEligibleCustomers(sb, normalizeMinVisits(Number(previewVisits)));
       return NextResponse.json({ eligible_count: count });
     }
 
@@ -92,7 +93,7 @@ export async function PATCH(req: Request) {
     const fields: Record<string, unknown> = {};
     if (name !== undefined) fields.name = name.trim();
     if (description !== undefined) fields.description = description.trim();
-    if (visit_count !== undefined) fields.visit_count = Number(visit_count);
+    if (visit_count !== undefined) fields.visit_count = normalizeMinVisits(Number(visit_count));
     if (reward_type !== undefined) fields.reward_type = reward_type;
     if (reward_amount !== undefined) fields.reward_amount = Number(reward_amount);
     if (status !== undefined) fields.status = status;

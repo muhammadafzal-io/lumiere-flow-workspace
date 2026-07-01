@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runBirthdayFlow } from "@/lib/retention/birthday";
+import { runFollowupFlow } from "@/lib/retention/followup";
 import { runReminderFlow } from "@/lib/retention/reminders";
 import { runNoshowFlow } from "@/lib/retention/noshow";
 import { runReactivationFlow } from "@/lib/retention/reactivation";
@@ -10,6 +11,7 @@ const FLOW_MAP = {
   reminders: runReminderFlow,
   noshow: runNoshowFlow,
   reactivation: runReactivationFlow,
+  followup: runFollowupFlow,
 } as const;
 
 type FlowKey = keyof typeof FLOW_MAP;

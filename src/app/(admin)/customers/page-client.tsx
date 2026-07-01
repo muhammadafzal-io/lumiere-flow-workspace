@@ -29,6 +29,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Search, Download, Plus, MoreHorizontal, RefreshCw, Pencil, Loader2 } from "lucide-react";
 import type { Customer } from "@/lib/types";
+import { birthdayToInputValue, formatBirthdayDisplay } from "@/lib/birthday";
 import { toast } from "sonner";
 
 function statusPill(s: string) {
@@ -117,7 +118,7 @@ function customerToEditForm(c: Customer): EditForm {
     name: c.name,
     phone: c.phone ?? "",
     email: c.email ?? "",
-    birthday: c.birthday ?? "",
+    birthday: birthdayToInputValue(c.birthday),
     status: c.status,
     notes: c.notes ?? "",
     treatmentInterest: c.treatments.join(", "),
@@ -277,10 +278,7 @@ function CustomerSheet({
                 {customer.phone && <div className="text-muted-foreground">{customer.phone}</div>}
                 {customer.birthday && (
                   <div className="text-muted-foreground">
-                    Birthday{" "}
-                    {isNaN(new Date(customer.birthday).getTime())
-                      ? customer.birthday
-                      : new Date(customer.birthday).toLocaleDateString()}
+                    Birthday {formatBirthdayDisplay(customer.birthday)}
                   </div>
                 )}
                 <div className="pt-2">

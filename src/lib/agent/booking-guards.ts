@@ -1,4 +1,5 @@
 import { lookupClientByPhone } from "@/lib/integrations/airtable";
+import { isValidBirthdayInput } from "@/lib/birthday";
 import { phoneSearchVariants, extractPhoneForLookup } from "@/lib/phone";
 
 export function normalizeEmail(raw: unknown): string | undefined {
@@ -41,7 +42,7 @@ export async function validateBookAppointment(
   if (!normalizeEmail(input.client_email)) missing.push("client_email");
   if (!hasBirthdayCollected(input)) {
     missing.push(
-      "birthday (ask the caller, then pass birthday as MM-DD or birthday_skipped: true if they decline)",
+      "birthday (ask the caller, then pass birthday as YYYY-MM-DD or birthday_skipped: true if they decline)",
     );
   }
 
@@ -71,12 +72,10 @@ export function validatePortalBooking(input: {
   if (!String(input.practitionerName ?? "").trim()) missing.push("practitioner");
   if (!String(input.room ?? "").trim()) missing.push("room");
   if (
-    !hasBirthdayCollected({
-      birthday: input.birthday,
-      birthdaySkipped: input.birthdaySkipped,
-    })
+    !input.birthdaySkipped &&
+    !isValidBirthdayInput(input.birthday)
   ) {
-    missing.push("birthday (MM-DD) or mark as declined");
+    missing.push("birthday or mark as declined");
   }
 
   if (missing.length === 0) return null;

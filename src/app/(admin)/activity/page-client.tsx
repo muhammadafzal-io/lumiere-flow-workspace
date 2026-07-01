@@ -26,6 +26,7 @@ const EVENT_TYPES = [
   "reactivation",
   "birthday",
   "campaign",
+  "followup",
 ] as const;
 
 function statusPill(s: string) {
@@ -48,6 +49,7 @@ function eventBadge(t: string) {
     reactivation: "bg-purple-500/10 text-purple-600 border-purple-300/30",
     birthday: "bg-pink-500/10 text-pink-600 border-pink-300/30",
     campaign: "bg-amber-500/10 text-amber-700 border-amber-300/30",
+    followup: "bg-teal-500/10 text-teal-700 border-teal-300/30",
   };
   return `inline-flex px-2 py-0.5 text-[11px] font-medium rounded-md border capitalize ${map[t] ?? "bg-muted text-muted-foreground border-border"}`;
 }

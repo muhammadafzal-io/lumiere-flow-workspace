@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { bookAppointment } from "@/lib/services/booking-service";
 import { lookupClient, upsertClient } from "@/lib/integrations/airtable";
 import { sendBookingConfirmationEmail } from "@/lib/booking/confirmation-email";
+import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import { validatePortalBooking, normalizeEmail } from "@/lib/agent/booking-guards";
 
 export async function POST(req: NextRequest) {
@@ -66,7 +67,9 @@ export async function POST(req: NextRequest) {
         name: String(clientName),
         phone: String(clientContact || ""),
         email: resolvedEmail,
-        ...(typeof birthday === "string" && birthday.trim() ? { birthday: birthday.trim() } : {}),
+        ...(typeof birthday === "string" && birthday.trim()
+          ? { birthday: normalizeBirthdayForStorage(birthday.trim()) }
+          : {}),
       }).catch(() => undefined);
     }
 

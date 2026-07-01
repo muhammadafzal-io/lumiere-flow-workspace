@@ -23,6 +23,7 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
     }
 
     const campaign = mapCampaignRow(campaignRow);
+    const visitThreshold = Math.max(1, campaign.visit_count);
 
     const { data: recipients } = await sb
       .from("campaign_recipients")
@@ -36,17 +37,19 @@ export async function GET(_req: NextRequest, ctx: RouteCtx) {
       (rewards ?? []).map((r) => [String(r.customer_id), mapRewardRow(r)]),
     );
 
-    const mappedRecipients = (recipients ?? []).map((r) => {
-      const reward = rewardByCustomer.get(String(r.customer_id));
-      return mapRecipientRow(r, {
-        campaign_name: campaign.name,
-        reward_code: reward?.reward_code,
-        is_redeemed: reward?.is_redeemed,
-      });
-    });
+    const mappedRecipients = (recipients ?? [])
+      .map((r) => {
+        const reward = rewardByCustomer.get(String(r.customer_id));
+        return mapRecipientRow(r, {
+          campaign_name: campaign.name,
+          reward_code: reward?.reward_code,
+          is_redeemed: reward?.is_redeemed,
+        });
+      })
+      .filter((r) => r.visit_count >= visitThreshold && r.visit_count > 0);
 
     const stats = computeStats(mappedRecipients);
-    const liveEligible = await countEligibleCustomers(sb, campaign.visit_count);
+    const liveEligible = await countEligibleCustomers(sb, visitThreshold);
 
     return NextResponse.json({
       campaign,

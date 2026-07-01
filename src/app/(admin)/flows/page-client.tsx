@@ -6,6 +6,7 @@ import {
   Bell,
   UserX,
   Sparkles,
+  HeartHandshake,
   PlayCircle,
   Loader2,
   CheckCircle2,
@@ -64,6 +65,12 @@ const FLOW_META: Record<
     icon: <Sparkles className="h-4 w-4" />,
     color: "text-purple-500",
   },
+  followup: {
+    label: "Post-Treatment Follow-up",
+    description: "Satisfaction check-in after completed treatments",
+    icon: <HeartHandshake className="h-4 w-4" />,
+    color: "text-teal-600",
+  },
 };
 
 function filtersToParams(flow: RetentionFlowKey, filters: AudienceFilters): URLSearchParams {
@@ -87,6 +94,12 @@ function filtersToParams(flow: RetentionFlowKey, filters: AudienceFilters): URLS
   if (filters.noshow_date) p.set("noshow_date", filters.noshow_date);
   if (filters.reminder_window && filters.reminder_window !== "any")
     p.set("reminder_window", filters.reminder_window);
+  if (filters.followup_min_days != null)
+    p.set("followup_min_days", String(filters.followup_min_days));
+  if (filters.followup_max_days != null)
+    p.set("followup_max_days", String(filters.followup_max_days));
+  if (filters.followup_not_sent) p.set("followup_not_sent", "yes");
+  else if (flow === "followup") p.set("followup_not_sent", "any");
   return p;
 }
 
@@ -139,8 +152,9 @@ export default function FlowsClient() {
   const runPayload = useMemo(() => {
     const ids = selected.size > 0 ? [...selected] : rows.map((r) => r.id);
     if (flow === "reminders") return { appointmentIds: ids };
+    if (flow === "followup") return { appointmentIds: ids, filters };
     return { clientIds: ids };
-  }, [flow, rows, selected]);
+  }, [flow, rows, selected, filters]);
 
   async function runFlow() {
     if (eligible === 0) {
@@ -304,7 +318,9 @@ export default function FlowsClient() {
                   </th>
                   <th className="px-4 py-2.5 font-medium">Name</th>
                   <th className="px-4 py-2.5 font-medium">Email</th>
-                  {flow !== "reminders" && <th className="px-4 py-2.5 font-medium">Visits</th>}
+                  {flow !== "reminders" && flow !== "followup" && (
+                    <th className="px-4 py-2.5 font-medium">Visits</th>
+                  )}
                   <th className="px-4 py-2.5 font-medium">Status</th>
                   <th className="px-4 py-2.5 font-medium">Detail</th>
                 </tr>
@@ -339,7 +355,9 @@ export default function FlowsClient() {
                       <td className="px-4 py-2.5 text-muted-foreground">
                         {r.email || r.phone || "—"}
                       </td>
-                      {flow !== "reminders" && <td className="px-4 py-2.5">{r.visits ?? "—"}</td>}
+                      {flow !== "reminders" && flow !== "followup" && (
+                        <td className="px-4 py-2.5">{r.visits ?? "—"}</td>
+                      )}
                       <td className="px-4 py-2.5">{r.status ?? "—"}</td>
                       <td className="px-4 py-2.5 text-xs text-muted-foreground">
                         {r.detail ?? r.treatment ?? "—"}

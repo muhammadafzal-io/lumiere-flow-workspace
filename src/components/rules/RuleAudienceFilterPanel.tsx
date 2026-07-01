@@ -162,9 +162,15 @@ export function RuleAudienceFilterPanel({ filters, onChange, activeCount, ruleMi
                   type="number"
                   className="h-8 mt-1 text-sm"
                   value={filters.visit_min ?? ""}
-                  onChange={(e) =>
-                    set({ visit_min: e.target.value ? Number(e.target.value) : undefined })
-                  }
+                  onChange={(e) => {
+                    const raw = e.target.value;
+                    if (!raw) {
+                      set({ visit_min: undefined });
+                      return;
+                    }
+                    const n = Number(raw);
+                    set({ visit_min: n < 1 ? 1 : n });
+                  }}
                 />
               </div>
               <div>

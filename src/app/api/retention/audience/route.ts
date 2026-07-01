@@ -8,7 +8,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const FLOWS: RetentionFlowKey[] = ["birthday", "reminders", "noshow", "reactivation"];
+const FLOWS: RetentionFlowKey[] = ["birthday", "reminders", "noshow", "reactivation", "followup"];
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
     if (!flow || !FLOWS.includes(flow)) {
       return NextResponse.json(
-        { error: "flow is required (birthday|reminders|noshow|reactivation)" },
+        { error: "flow is required (birthday|reminders|noshow|reactivation|followup)" },
         { status: 400 },
       );
     }

@@ -100,7 +100,8 @@ export type EventType =
   | "reminder"
   | "reactivation"
   | "birthday"
-  | "campaign";
+  | "campaign"
+  | "followup";
 
 export interface OpsLogEntry {
   timestamp: string;
@@ -117,8 +118,10 @@ export interface OpsLogEntry {
 export interface RunFlowOptions {
   /** Limit processing to these client record IDs */
   clientIds?: string[];
-  /** Limit reminder processing to these appointment IDs */
+  /** Limit reminder / follow-up processing to these appointment IDs */
   appointmentIds?: string[];
+  /** Audience filters (post-treatment follow-up manual runs) */
+  filters?: import("@/lib/retention/audience-config").AudienceFilters;
   /** How the flow was triggered — used for email send logs */
   trigger?: "cron" | "manual" | "system";
 }

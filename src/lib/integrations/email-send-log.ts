@@ -14,7 +14,8 @@ export type EmailSendCategory =
   | "booking"
   | "cancellation"
   | "reschedule"
-  | "general";
+  | "general"
+  | "followup";
 
 export type EmailSendTrigger = "cron" | "manual" | "system";
 

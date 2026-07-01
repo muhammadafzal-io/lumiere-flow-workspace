@@ -1,4 +1,5 @@
 import type { Campaign, CampaignRecipient, CampaignStats, CustomerReward } from "@/lib/types";
+import { normalizeMinVisits } from "@/lib/customers/visit-count";
 
 export function mapCampaignRow(row: Record<string, unknown>): Campaign {
   return {
@@ -6,7 +7,7 @@ export function mapCampaignRow(row: Record<string, unknown>): Campaign {
     name: String(row.name ?? ""),
     description: String(row.description ?? ""),
     trigger_type: (row.trigger_type as Campaign["trigger_type"]) ?? "visit_count",
-    visit_count: Number(row.visit_count ?? 0),
+    visit_count: normalizeMinVisits(Number(row.visit_count ?? 1)),
     reward_type: (row.reward_type as Campaign["reward_type"]) ?? "credit",
     reward_amount: Number(row.reward_amount ?? 0),
     status: (row.status as Campaign["status"]) ?? "draft",

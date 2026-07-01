@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { deriveLastVisit } from "@/lib/customers/last-visit";
+import { countCustomerVisits, splitAppointmentField } from "@/lib/customers/visit-count";
+import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import { getSupabase } from "@/lib/supabase";
 import type { Customer, Status, Treatment } from "@/lib/types";
 
@@ -8,11 +10,7 @@ export const dynamic = "force-dynamic";
 const TABLE = "Clients";
 
 function parseAppointments(raw: string | null): string[] {
-  if (!raw) return [];
-  return raw
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  return splitAppointmentField(raw);
 }
 
 function parseTreatments(raw: string | null): Treatment[] {
@@ -53,7 +51,7 @@ function mapRow(row: any): Customer {
     email: row["Email"] ?? "",
     birthday: row["Birthday"] ?? "",
     last_visit: deriveLastVisit(row["Last Visit"], apptStrings),
-    total_visits: apptStrings.length,
+    total_visits: countCustomerVisits(row["Appointments"] ?? null, row["Last Visit"] ?? null),
     lifetime_value: 0,
     treatments,
     status: (row["Status"] as Status) ?? "Active",
@@ -110,13 +108,15 @@ export async function POST(req: Request) {
     const { name, phone, email, birthday, status, notes, treatmentInterest } = body;
     if (!name?.trim()) return NextResponse.json({ error: "name is required" }, { status: 400 });
 
+    const normalizedBirthday = birthday ? normalizeBirthdayForStorage(String(birthday)) : "";
+
     const { data, error } = await sb
       .from(TABLE)
       .insert({
         Name: name,
         Phone: phone ?? "",
         Email: email ?? "",
-        Birthday: birthday ?? "",
+        Birthday: normalizedBirthday ?? "",
         Status: status ?? "Active",
         Notes: notes ?? "",
         "Treatment Interest": treatmentInterest ?? "",
@@ -154,7 +154,9 @@ export async function PATCH(req: Request) {
     if (name !== undefined) fields["Name"] = name;
     if (phone !== undefined) fields["Phone"] = phone;
     if (email !== undefined) fields["Email"] = email;
-    if (birthday !== undefined) fields["Birthday"] = birthday;
+    if (birthday !== undefined) {
+      fields["Birthday"] = birthday ? (normalizeBirthdayForStorage(String(birthday)) ?? "") : "";
+    }
     if (status !== undefined) fields["Status"] = status;
     if (notes !== undefined) fields["Notes"] = notes;
     if (treatmentInterest !== undefined) fields["Treatment Interest"] = treatmentInterest;

@@ -1,4 +1,5 @@
 import { getSupabase } from "@/lib/supabase";
+import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import type { Client, Appointment } from "@/types";
 
 function normalizeToDate(raw: string | undefined): string | undefined {
@@ -6,21 +7,6 @@ function normalizeToDate(raw: string | undefined): string | undefined {
   const d = new Date(raw);
   if (isNaN(d.getTime())) return undefined;
   return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
-}
-
-function normalizeBirthday(raw: string | undefined): string | undefined {
-  if (!raw?.trim()) return undefined;
-  if (/^\d{2}-\d{2}$/.test(raw)) return raw;
-  if (/^\d{1,2}\/\d{1,2}$/.test(raw)) {
-    const [m, d] = raw.split("/").map(Number);
-    return `${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-  }
-  const probe = new Date(raw.split("-").length === 2 ? `2000-${raw}` : raw);
-  if (isNaN(probe.getTime())) return undefined;
-  return [
-    String(probe.getMonth() + 1).padStart(2, "0"),
-    String(probe.getDate()).padStart(2, "0"),
-  ].join("-");
 }
 
 function isValidEmail(email: string): boolean {
@@ -163,7 +149,7 @@ export async function upsertClient(data: Partial<Client> & { name: string }): Pr
   const existing = await lookupClient({ telegramId: data.telegramId, phone: data.phone });
 
   const lastVisit = normalizeToDate(data.lastVisit);
-  const birthday = normalizeBirthday(data.birthday);
+  const birthday = normalizeBirthdayForStorage(data.birthday);
   const email = data.email && isValidEmail(data.email) ? data.email : undefined;
 
   const fields: Record<string, unknown> = {

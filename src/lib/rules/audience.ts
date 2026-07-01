@@ -1,6 +1,7 @@
 import "server-only";
 
 import { deriveLastVisit } from "@/lib/customers/last-visit";
+import { countCustomerVisits, splitAppointmentField } from "@/lib/customers/visit-count";
 import { getSupabase } from "@/lib/supabase";
 import type { Customer, Rule } from "@/lib/types";
 import type { RuleAudienceFilters, RuleAudienceRow } from "@/lib/rules/audience-config";
@@ -9,10 +10,7 @@ import { matchesExtraFilters, matchesRuleTrigger } from "@/lib/rules/audience-ma
 
 function mapCustomer(row: Record<string, unknown>): Customer {
   const apptRaw = String(row["Appointments"] ?? "");
-  const appts = apptRaw
-    .split(";")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const appts = splitAppointmentField(apptRaw);
   const treatmentsRaw = String(row["Treatment Interest"] ?? "");
   const treatments = treatmentsRaw
     .split(/[;,]/)
@@ -26,7 +24,7 @@ function mapCustomer(row: Record<string, unknown>): Customer {
     email: String(row["Email"] ?? ""),
     birthday: String(row["Birthday"] ?? ""),
     last_visit: deriveLastVisit(String(row["Last Visit"] ?? ""), appts),
-    total_visits: appts.length,
+    total_visits: countCustomerVisits(apptRaw || null, String(row["Last Visit"] ?? "") || null),
     lifetime_value: 0,
     treatments,
     status: (row["Status"] as Customer["status"]) ?? "Active",
