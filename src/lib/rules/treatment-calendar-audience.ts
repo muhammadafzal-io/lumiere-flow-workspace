@@ -2,6 +2,7 @@ import "server-only";
 
 import { lookupClient } from "@/lib/integrations/airtable";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
+import type { Client } from "@/types";
 import type { Customer, Rule } from "@/lib/types";
 import type { RuleAudienceFilters, RuleAudienceRow } from "@/lib/rules/audience-config";
 import {
@@ -23,7 +24,7 @@ function phoneKey(phone: string): string {
 
 function customerFromEvent(
   event: { id: string; clientName: string; treatment: string; clientContact: string },
-  client: { id: string; name: string; phone?: string; email?: string; status?: string } | null,
+  client: Client | null,
   existing: Customer | undefined,
   targetDate: string,
 ): Customer {
@@ -32,7 +33,7 @@ function customerFromEvent(
   const treatments = [event.treatment] as Customer["treatments"];
   if (client) {
     return {
-      id: client.id,
+      id: client.id ?? event.id,
       name: client.name?.trim() || event.clientName,
       phone: client.phone ?? event.clientContact,
       email: client.email ?? "",
