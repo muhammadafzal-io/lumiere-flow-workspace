@@ -14,6 +14,7 @@ import {
   generateBirthdayCreditCode,
 } from "@/lib/credits/birthday-code";
 import { personalizeRuleMessage } from "@/lib/rules/personalize";
+import { parseRuleOffer } from "@/lib/rules/offer-config";
 import type { Rule } from "@/lib/types";
 import type { RetentionResult } from "@/types";
 
@@ -91,9 +92,12 @@ export async function sendRuleEmails(
       birthdayToken = displayBirthdayCode(birthdayRawCode);
     }
 
+    const offer = parseRuleOffer(rule);
     const text = personalizeRuleMessage(rule.message_template, {
       name: r.name,
       offerCode: rule.offer_code,
+      offerType: offer.type,
+      offerAmount: offer.amount,
       lastTreatment: r.treatment,
       birthdayToken,
     });

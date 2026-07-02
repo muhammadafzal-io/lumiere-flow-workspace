@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, Plus, Zap, RefreshCw, ChevronRight, Users, Mail } from "lucide-react";
 import type { Rule } from "@/lib/types";
+import { treatmentTriggerLabel } from "@/lib/rules/audience-match";
 import { RuleModal } from "@/components/RuleModal";
 import { toast } from "sonner";
 
@@ -36,7 +37,7 @@ function triggerDescription(r: Rule): string {
     case "Inactivity":
       return `No visit in ${cfg.days} days`;
     case "Treatment-based":
-      return `${cfg.days_after} days after ${cfg.treatment}`;
+      return treatmentTriggerLabel(cfg);
     case "Date-based":
       return `One-time on ${cfg.date}`;
     case "No-show recovery":

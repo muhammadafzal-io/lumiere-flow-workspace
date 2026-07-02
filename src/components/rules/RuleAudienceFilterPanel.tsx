@@ -233,6 +233,8 @@ export function RuleAudienceFilterPanel({ filters, onChange, activeCount, ruleMi
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="any">Any time</SelectItem>
+              <SelectItem value="0">Today</SelectItem>
+              <SelectItem value="1">Yesterday</SelectItem>
               <SelectItem value="7">Within 7 days (last week)</SelectItem>
               <SelectItem value="30">Within 30 days</SelectItem>
               <SelectItem value="30-90">30–90 days ago</SelectItem>

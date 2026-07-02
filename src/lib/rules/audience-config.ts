@@ -5,7 +5,7 @@ export interface RuleAudienceFilters {
   treatment?: string[];
   visit_min?: number;
   visit_max?: number;
-  last_visit?: "7" | "30" | "30-90" | "90" | "any";
+  last_visit?: "0" | "1" | "7" | "30" | "30-90" | "90" | "any";
   has_email?: boolean;
 }
 

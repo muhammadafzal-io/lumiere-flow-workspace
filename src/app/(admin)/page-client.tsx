@@ -20,7 +20,7 @@ import { NewAppointmentModal } from "@/components/calendar/AppointmentDialogs";
 import type { CalendarEvent } from "@/types";
 import type { OpsLogEntry, EventType } from "@/types";
 import type { Customer, Practitioner } from "@/lib/types";
-import { mapTeamToPractitioners } from "@/lib/practitioners";
+import { treatmentTriggerLabel } from "@/lib/rules/audience-match";
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", {
@@ -78,7 +78,7 @@ function triggerDescription(rule: any): string {
     case "Inactivity":
       return `No visit in ${cfg.days ?? "?"} days`;
     case "Treatment-based":
-      return `${cfg.days_after ?? "?"} days after ${cfg.treatment ?? "treatment"}`;
+      return treatmentTriggerLabel(cfg);
     case "Date-based":
       return `One-time on ${cfg.date ?? "?"}`;
     case "No-show recovery":

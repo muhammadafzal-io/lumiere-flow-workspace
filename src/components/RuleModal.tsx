@@ -18,7 +18,7 @@ import { Sparkles, Loader2, Wand2, RefreshCw } from "lucide-react";
 import { generateCopy } from "@/lib/ai-parse";
 import { DEFAULT_BIRTHDAY_RULE_TEMPLATE } from "@/lib/credits/birthday-code";
 import { formatLastVisit } from "@/lib/customers/last-visit";
-import type { Rule, TriggerType, Channel, Treatment } from "@/lib/types";
+import type { Rule, TriggerType, Channel, Treatment, CampaignRewardType } from "@/lib/types";
 import { RULE_CHANNELS, normalizeRuleChannel } from "@/lib/types";
 import type { RuleAudienceRow } from "@/lib/rules/audience-config";
 import { toast } from "sonner";
@@ -67,6 +67,8 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
   const [channel, setChannel] = useState<Channel>("Email");
   const [message, setMessage] = useState("");
   const [offer, setOffer] = useState("");
+  const [offerType, setOfferType] = useState<CampaignRewardType>("credit");
+  const [offerAmount, setOfferAmount] = useState(50);
 
   const [previewTotal, setPreviewTotal] = useState(0);
   const [previewEligible, setPreviewEligible] = useState(0);
@@ -79,7 +81,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
   const templateTags =
     triggerType === "Birthday"
       ? ["{first_name}", "{birthday_token}"]
-      : ["{first_name}", "{last_treatment}", "{credit_code}"];
+      : ["{first_name}", "{last_treatment}", "{credit_code}", "{offer_amount}", "{offer_summary}"];
 
   const insertTag = (tag: string) => {
     const el = msgRef.current;
@@ -115,6 +117,9 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
         setChannel(normalizeRuleChannel(editing.channel));
         setMessage(editing.message_template);
         setOffer(editing.offer_code || "");
+        setOfferType(editing.trigger_config?.offer_type === "discount" ? "discount" : "credit");
+        const amt = Number(editing.trigger_config?.offer_amount);
+        setOfferAmount(Number.isFinite(amt) && amt > 0 ? amt : 50);
         setParsed(true);
       } else {
         setNl("");
@@ -125,6 +130,8 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
         setChannel("Email");
         setMessage("");
         setOffer("");
+        setOfferType("credit");
+        setOfferAmount(50);
       }
     }
   }, [open, editing]);
@@ -153,6 +160,9 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
       setChannel(normalizeRuleChannel(p.channel));
       setMessage(p.message_template);
       setOffer(p.offer_code || "");
+      if (p.trigger_config?.offer_type === "discount") setOfferType("discount");
+      const parsedAmt = Number(p.trigger_config?.offer_amount);
+      if (Number.isFinite(parsedAmt) && parsedAmt > 0) setOfferAmount(parsedAmt);
       setParsed(true);
       toast.success("AI built your rule");
     } catch (err) {
@@ -237,7 +247,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
           ...(isEdit && { recordId: editing.id }),
           ruleName: name,
           triggerType: triggerType,
-          triggerConfig: cfg,
+          triggerConfig: { ...cfg, offer_type: offerType, offer_amount: offerAmount },
           channel: channel,
           messageTemplate: message,
           incentiveCode: offer,
@@ -428,17 +438,51 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
           </div>
 
           {triggerType !== "Birthday" ? (
-            <div>
-              <Label>
-                Offer / incentive code{" "}
-                <span className="text-muted-foreground font-normal">(optional)</span>
-              </Label>
-              <Input
-                value={offer}
-                onChange={(e) => setOffer(e.target.value)}
-                className="mt-1.5"
-                placeholder="e.g., SPRING30"
-              />
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <Label>
+                    Promo code{" "}
+                    <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    value={offer}
+                    onChange={(e) => setOffer(e.target.value.toUpperCase())}
+                    className="mt-1.5 font-mono"
+                    placeholder="e.g., SPRING30"
+                  />
+                </div>
+                <div>
+                  <Label>Offer type</Label>
+                  <Select
+                    value={offerType}
+                    onValueChange={(v) => setOfferType(v as CampaignRewardType)}
+                  >
+                    <SelectTrigger className="mt-1.5">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="credit">Credit ($)</SelectItem>
+                      <SelectItem value="discount">Discount (%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>{offerType === "credit" ? "Amount ($)" : "Discount (%)"}</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={offerType === "discount" ? 100 : 10000}
+                    value={offerAmount}
+                    onChange={(e) => setOfferAmount(Math.max(1, Number(e.target.value) || 1))}
+                    className="mt-1.5"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use {`{offer_amount}`} or {`{offer_summary}`} in your message for the dollar or
+                percent value.
+              </p>
             </div>
           ) : (
             <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
@@ -527,7 +571,7 @@ function defaultCfg(t: TriggerType): Record<string, any> {
     case "Birthday":
       return { days_before: 7 };
     case "Treatment-based":
-      return { treatment: "Botox", days_after: 14 };
+      return { treatment: "Any", treatment_timing: "within_last_days", within_last_days: 7 };
     case "Date-based":
       return { date: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10) };
     case "No-show recovery":
@@ -568,39 +612,112 @@ function TriggerDetails({
         />
       </div>
     );
-  if (t === "Treatment-based")
+  if (t === "Treatment-based") {
+    const timing =
+      cfg.treatment_timing ??
+      (cfg.exact_calendar_day ? "exact_day" : cfg.within_last_days ? "within_last_days" : "minimum_days");
     return (
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <Label>Treatment</Label>
-          <Select
-            value={cfg.treatment || "Botox"}
-            onValueChange={(v) => setCfg({ ...cfg, treatment: v })}
-          >
-            <SelectTrigger className="mt-1.5">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="Any">Any</SelectItem>
-              {TREATMENTS.map((t) => (
-                <SelectItem key={t} value={t}>
-                  {t}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Treatment</Label>
+            <Select
+              value={cfg.treatment || "Any"}
+              onValueChange={(v) => setCfg({ ...cfg, treatment: v })}
+            >
+              <SelectTrigger className="mt-1.5">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Any">Any</SelectItem>
+                {TREATMENTS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label>When to send</Label>
+            <Select
+              value={timing}
+              onValueChange={(v) => {
+                if (v === "within_last_days") {
+                  setCfg({
+                    ...cfg,
+                    treatment_timing: "within_last_days",
+                    within_last_days: cfg.within_last_days ?? cfg.days_after ?? 7,
+                    exact_calendar_day: false,
+                  });
+                } else if (v === "exact_day") {
+                  setCfg({
+                    ...cfg,
+                    treatment_timing: "exact_day",
+                    exact_calendar_day: true,
+                    days_after: cfg.days_after ?? 1,
+                  });
+                } else {
+                  setCfg({
+                    ...cfg,
+                    treatment_timing: "minimum_days",
+                    exact_calendar_day: false,
+                    days_after: cfg.days_after ?? 14,
+                  });
+                }
+              }}
+            >
+              <SelectTrigger className="mt-1.5">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="within_last_days">Had treatment within last X days</SelectItem>
+                <SelectItem value="exact_day">On a specific day after treatment</SelectItem>
+                <SelectItem value="minimum_days">At least X days after treatment</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div>
-          <Label>Days after</Label>
+          <Label>
+            {timing === "within_last_days"
+              ? "Within last (days)"
+              : timing === "exact_day"
+                ? "Days after treatment (calendar)"
+                : "Minimum days after"}
+          </Label>
           <Input
             type="number"
-            value={cfg.days_after ?? 14}
-            onChange={(e) => setCfg({ ...cfg, days_after: +e.target.value })}
+            min={1}
+            value={
+              timing === "within_last_days"
+                ? (cfg.within_last_days ?? cfg.days_after ?? 7)
+                : (cfg.days_after ?? (timing === "exact_day" ? 1 : 14))
+            }
+            onChange={(e) => {
+              const n = Math.max(1, Number(e.target.value) || 1);
+              if (timing === "within_last_days") {
+                setCfg({ ...cfg, within_last_days: n, days_after: n });
+              } else {
+                setCfg({ ...cfg, days_after: n });
+              }
+            }}
             className="mt-1.5"
           />
+          {timing === "within_last_days" && (
+            <p className="text-xs text-muted-foreground mt-1">
+              e.g. 7 = any completed treatment in the last week (Google Calendar + client records).
+            </p>
+          )}
+          {timing === "exact_day" && (
+            <p className="text-xs text-muted-foreground mt-1">
+              1 = yesterday, 0 = today. Matches one calendar day only.
+            </p>
+          )}
         </div>
       </div>
     );
+  }
   if (t === "Date-based")
     return (
       <div>

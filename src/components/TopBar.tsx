@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth-context";
 import type { UserRole } from "@/lib/permissions";
-import { ClientChannelsTopBar } from "@/components/ClientChannelsPanel";
 
 const ROLES: { value: UserRole; label: string; color: string }[] = [
   { value: "admin", label: "Admin", color: "bg-destructive" },
@@ -55,7 +54,6 @@ export function TopBar() {
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <ClientChannelsTopBar />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 px-3 py-2 rounded-md border bg-background hover:bg-muted/50 transition-colors">

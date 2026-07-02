@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import type { Campaign, CampaignRecipient, CampaignStats } from "@/lib/types";
 import { formatRewardLabel } from "@/lib/campaigns/db";
+import { CampaignRewardPanel } from "@/components/campaigns/CampaignRewardPanel";
 import { toast } from "sonner";
 
 type StatsWithLive = CampaignStats & { live_eligible?: number };
@@ -204,6 +205,8 @@ export default function CampaignDetailPage() {
           </Button>
         </div>
       </div>
+
+      <CampaignRewardPanel campaign={campaign} onSaved={fetchDetail} />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         {statCards.map((s) => (

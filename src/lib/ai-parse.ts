@@ -22,8 +22,17 @@ export function parseNaturalLanguage(input: string): ParsedRule {
   // Discount detection
   const pctMatch = text.match(/(\d{1,2})\s*%/);
   const dollarMatch = text.match(/\$(\d{1,3})/);
-  if (pctMatch) offer_code = `SAVE${pctMatch[1]}`;
-  else if (dollarMatch) offer_code = `CREDIT${dollarMatch[1]}`;
+  let offer_type: "credit" | "discount" | undefined;
+  let offer_amount: number | undefined;
+  if (pctMatch) {
+    offer_code = `SAVE${pctMatch[1]}`;
+    offer_type = "discount";
+    offer_amount = parseInt(pctMatch[1], 10);
+  } else if (dollarMatch) {
+    offer_code = `CREDIT${dollarMatch[1]}`;
+    offer_type = "credit";
+    offer_amount = parseInt(dollarMatch[1], 10);
+  }
 
   if (/(\d+)\s*(times|visits)|visited\s+(more\s+than|over)\s+(\d+)/.test(text)) {
     trigger_type = "Visit count";
@@ -51,6 +60,38 @@ export function parseNaturalLanguage(input: string): ParsedRule {
     }
     trigger_config = { days };
     name = `Win-back at ${days} days`;
+  } else if (
+    /(within|in|last)\s+(the\s+)?(\d+\s*)?(day|week)|treatment.{0,30}(last|past)\s+\d*\s*day/.test(
+      text,
+    )
+  ) {
+    trigger_type = "Treatment-based";
+    const tm = text.match(/(botox|hydrafacial|laser|microneedling|iv drip|filler)/);
+    const treat = tm ? tm[1].replace(/\b\w/g, (c) => c.toUpperCase()) : "Any";
+    const dm = text.match(/(\d+)\s*(day|week)/);
+    let within = 7;
+    if (dm) {
+      const n = parseInt(dm[1], 10);
+      within = dm[2].startsWith("week") ? n * 7 : n;
+    } else if (/week/.test(text)) within = 7;
+    trigger_config = {
+      treatment: treat,
+      treatment_timing: "within_last_days",
+      within_last_days: within,
+      days_after: within,
+    };
+    name =
+      treat === "Any"
+        ? `Treatment within last ${within} days`
+        : `${treat} clients — last ${within} days`;
+  } else if (
+    /(yesterday|last day|day after|treatment yesterday|had treatment yesterday)/.test(text)
+  ) {
+    trigger_type = "Treatment-based";
+    const tm = text.match(/(botox|hydrafacial|laser|microneedling|iv drip|filler)/);
+    const treat = tm ? tm[1].replace(/\b\w/g, (c) => c.toUpperCase()) : "Any";
+    trigger_config = { treatment: treat, days_after: 1, exact_calendar_day: true, treatment_timing: "exact_day" };
+    name = treat === "Any" ? "Post-treatment follow-up (yesterday)" : `${treat} follow-up (yesterday)`;
   } else if (/after\s+(botox|hydrafacial|laser|microneedling|iv drip|filler)/.test(text)) {
     trigger_type = "Treatment-based";
     const tm = text.match(/after\s+(botox|hydrafacial|laser|microneedling|iv drip|filler)/);
@@ -81,6 +122,9 @@ export function parseNaturalLanguage(input: string): ParsedRule {
   else if (/email/.test(text)) channel = "Email";
 
   const message_template = generateCopy(trigger_type, trigger_config, offer_code);
+  if (offer_type && offer_amount) {
+    trigger_config = { ...trigger_config, offer_type, offer_amount };
+  }
   return { name, trigger_type, trigger_config, channel, message_template, offer_code };
 }
 

@@ -78,7 +78,9 @@ trigger_config:
 - Visit count: { "min_visits": number }
 - Inactivity: { "days": number }
 - Birthday: { "days_before": number }
-- Treatment-based: { "treatment": "Botox"|"HydraFacial"|"Laser"|"Microneedling"|"IV Drip"|"Filler", "days_after": number }
+- Treatment-based: { "treatment": "Any"|"Botox"|..., "days_after": number, "exact_calendar_day": boolean }
+  When exact_calendar_day is true, audience is built from completed Google Calendar appointments on that clinic day.
+  Use exact_calendar_day: true with days_after: 1 for "had treatment yesterday". days_after: 0 = today.
 - Date-based: { "date": "YYYY-MM-DD" }
 - No-show recovery: { "hours_after": number }
 - Custom: {}
@@ -89,7 +91,7 @@ audience_filters (optional refinements):
   "treatment": ["Botox"],
   "visit_min": number,
   "visit_max": number,
-  "last_visit": "7" | "30" | "30-90" | "90" | "any",
+  "last_visit": "0" | "1" | "7" | "30" | "30-90" | "90" | "any",
   "has_email": true
 }
 
@@ -144,11 +146,13 @@ filters shape:
   "treatment": ["Botox","HydraFacial",...],
   "visit_min": number,
   "visit_max": number,
-  "last_visit": "7" | "30" | "30-90" | "90" | "any",
+  "last_visit": "0" | "1" | "7" | "30" | "30-90" | "90" | "any",
   "has_email": true | false
 }
 
 Only include fields mentioned or clearly implied. has_email defaults true for email campaigns.
+Map "yesterday" or "last day" to Treatment-based exact_calendar_day: true, days_after: 1, or last_visit "1".
+Map "today" to exact_calendar_day: true, days_after: 0, or last_visit "0".
 Map "last week" or "past 7 days" to last_visit "7". Map "last month" or "recent" to last_visit "30".`,
       },
       { role: "user", content: `${context}\n\nQuery: ${query.trim()}` },

@@ -24,8 +24,11 @@ import { defaultRuleAudienceFilters } from "@/lib/rules/audience-config";
 import { formatLastVisit } from "@/lib/customers/last-visit";
 import { RuleAudienceFilterPanel } from "@/components/rules/RuleAudienceFilterPanel";
 import { RuleSchedulePanel } from "@/components/rules/RuleSchedulePanel";
+import { RuleOfferPanel } from "@/components/rules/RuleOfferPanel";
 import { parseRuleSchedule, scheduleSummary } from "@/lib/rules/schedule-config";
 import { RuleModal } from "@/components/RuleModal";
+import { treatmentTriggerLabel } from "@/lib/rules/audience-match";
+import { formatOfferSummaryFromRule } from "@/lib/rules/offer-config";
 import { toast } from "sonner";
 
 function filtersToParams(f: RuleAudienceFilters): URLSearchParams {
@@ -226,8 +229,13 @@ export default function RuleAudiencePage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">{rule.name}</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              {triggerSummary(rule)}
-              {rule.offer_code ? ` · Offer ${rule.offer_code}` : ""}
+              {rule.trigger_type === "Treatment-based"
+                ? treatmentTriggerLabel(rule.trigger_config ?? {})
+                : triggerSummary(rule)}
+              {rule.offer_code ? ` · Code ${rule.offer_code}` : ""}
+              {formatOfferSummaryFromRule(rule)
+                ? ` · ${formatOfferSummaryFromRule(rule)}`
+                : ""}
             </p>
             <div className="flex gap-2 mt-2 flex-wrap">
               <Badge variant="outline">{rule.status}</Badge>
@@ -260,8 +268,11 @@ export default function RuleAudiencePage() {
             </Button>
           </div>
         </div>
-        <div className="mt-3 max-h-[42vh] overflow-y-auto pr-1">
-          <RuleSchedulePanel rule={rule} filters={filters} onSaved={load} />
+        <div className="px-6 pb-4 border-b">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <RuleOfferPanel rule={rule} filters={filters} onSaved={load} />
+            <RuleSchedulePanel rule={rule} filters={filters} onSaved={load} />
+          </div>
         </div>
       </div>
 
@@ -369,7 +380,15 @@ export default function RuleAudiencePage() {
                 ) : rows.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="px-4 py-16 text-center text-muted-foreground">
-                      No clients match this rule — adjust filters or edit the rule criteria.
+                      <p>No clients match this rule — adjust filters or edit the rule criteria.</p>
+                      {rule.trigger_type === "Treatment-based" && (
+                        <p className="text-xs mt-2 max-w-md mx-auto">
+                          For &quot;last 7 days&quot;, use{" "}
+                          <strong>Had treatment within last X days</strong> (X = 7) when editing
+                          the rule. If clients have no email, set <strong>Has email</strong> to Any
+                          in the filters sidebar.
+                        </p>
+                      )}
                     </td>
                   </tr>
                 ) : (

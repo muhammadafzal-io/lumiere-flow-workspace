@@ -6,7 +6,18 @@ import { getSupabase } from "@/lib/supabase";
 import type { Customer, Rule } from "@/lib/types";
 import type { RuleAudienceFilters, RuleAudienceRow } from "@/lib/rules/audience-config";
 import { countRuleFilters } from "@/lib/rules/audience-config";
-import { matchesExtraFilters, matchesRuleTrigger } from "@/lib/rules/audience-match";
+import {
+  daysSince,
+  isCampaignDateReached,
+  matchesExtraFilters,
+  matchesRuleTrigger,
+  normalizeRuleForAudience,
+  treatmentTriggerLabel,
+} from "@/lib/rules/audience-match";
+import {
+  buildTreatmentCalendarRuleAudience,
+} from "@/lib/rules/treatment-calendar-audience";
+import { usesTreatmentCalendarSource } from "@/lib/rules/audience-match";
 
 function mapCustomer(row: Record<string, unknown>): Customer {
   const apptRaw = String(row["Appointments"] ?? "");
@@ -53,8 +64,6 @@ async function fetchAllCustomers(): Promise<Customer[]> {
   return all;
 }
 
-import { daysSince, isCampaignDateReached } from "@/lib/rules/audience-match";
-
 function toRow(c: Customer, detail: string): RuleAudienceRow {
   return {
     id: c.id,
@@ -79,7 +88,7 @@ function triggerDetail(rule: Rule, c: Customer): string {
     case "Birthday":
       return `Birthday ${c.birthday}`;
     case "Treatment-based":
-      return `${cfg.treatment ?? "Any"} · ${Math.floor(daysSince(c.last_visit))}d since visit`;
+      return treatmentTriggerLabel(cfg);
     case "Date-based": {
       const date = cfg.date as string | undefined;
       const active = isCampaignDateReached(date);
@@ -103,29 +112,45 @@ export async function buildRuleAudience(
 }> {
   const customers = await fetchAllCustomers();
   const total = customers.length;
+  const normalizedRule = normalizeRuleForAudience(rule);
 
   const mergedFilters: RuleAudienceFilters = {
-    ...(rule.trigger_config?.audience_filters as RuleAudienceFilters | undefined),
+    ...(normalizedRule.trigger_config?.audience_filters as RuleAudienceFilters | undefined),
     ...extraFilters,
-    ...(rule.trigger_type === "Visit count" && rule.trigger_config?.min_visits != null
+    ...(normalizedRule.trigger_type === "Visit count" &&
+    normalizedRule.trigger_config?.min_visits != null
       ? {
           visit_min: Math.max(
             extraFilters.visit_min ?? 0,
-            rule.trigger_config.min_visits as number,
+            normalizedRule.trigger_config.min_visits as number,
           ),
         }
       : {}),
   };
 
-  const rows = customers
-    .filter((c) => matchesRuleTrigger(c, rule))
-    .filter((c) => matchesExtraFilters(c, mergedFilters))
-    .map((c) => toRow(c, triggerDetail(rule, c)));
-
   const ruleMinVisits =
-    rule.trigger_type === "Visit count"
-      ? (rule.trigger_config.min_visits ?? rule.trigger_config.visit_count)
+    normalizedRule.trigger_type === "Visit count"
+      ? (normalizedRule.trigger_config.min_visits ?? normalizedRule.trigger_config.visit_count)
       : undefined;
+
+  if (usesTreatmentCalendarSource(normalizedRule)) {
+    const rows = await buildTreatmentCalendarRuleAudience(
+      normalizedRule,
+      mergedFilters,
+      customers,
+    );
+    return {
+      total: customers.length,
+      eligible: rows.length,
+      rows,
+      activeFilterCount: countRuleFilters(mergedFilters, ruleMinVisits as number | undefined),
+    };
+  }
+
+  const rows = customers
+    .filter((c) => matchesRuleTrigger(c, normalizedRule))
+    .filter((c) => matchesExtraFilters(c, mergedFilters))
+    .map((c) => toRow(c, triggerDetail(normalizedRule, c)));
 
   return {
     total,

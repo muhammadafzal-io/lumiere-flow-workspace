@@ -8,7 +8,9 @@ import {
   matchesExtraFilters,
   matchesLastVisitBucket,
   matchesRuleTrigger,
+  normalizeTreatmentRuleConfig,
   sanitizeAudienceFilters,
+  treatmentTimingMode,
 } from "@/lib/rules/audience-match";
 
 function customer(partial: Partial<Customer> & Pick<Customer, "id" | "name">): Customer {
@@ -70,6 +72,87 @@ describe("matchesRuleTrigger", () => {
     expect(matchesRuleTrigger(customer({ id: "2", name: "B", birthday: "12-25" }), r, now)).toBe(
       birthdayWithinDays("12-25", 7, now),
     );
+  });
+
+  it("normalizeTreatmentRuleConfig fixes minimum_days + last_visit 30 conflict", () => {
+    const cfg = normalizeTreatmentRuleConfig(
+      {
+        treatment: "Any",
+        days_after: 30,
+        exact_calendar_day: false,
+        audience_filters: { status: ["Active"], last_visit: "30" },
+      },
+      "Treatment Offer for Last Month",
+    );
+    expect(treatmentTimingMode(cfg)).toBe("exact_day");
+    expect(cfg.days_after).toBe(30);
+    expect((cfg.audience_filters as { last_visit?: string }).last_visit).toBe("any");
+  });
+
+  it("normalizeTreatmentRuleConfig maps last N days from rule name", () => {
+    const cfg = normalizeTreatmentRuleConfig(
+      { treatment: "Any", exact_calendar_day: true, days_after: 7 },
+      "Most visited Customers in 7 days",
+    );
+    expect(treatmentTimingMode(cfg)).toBe("within_last_days");
+    expect(cfg.within_last_days).toBe(7);
+  });
+
+  it("normalizeTreatmentRuleConfig keeps exact_day for 30-day month offer", () => {
+    const cfg = normalizeTreatmentRuleConfig(
+      { treatment: "Any", treatment_timing: "exact_day", exact_calendar_day: true, days_after: 30 },
+      "Treatment Offer for Last Month",
+    );
+    expect(treatmentTimingMode(cfg)).toBe("exact_day");
+    expect(cfg.days_after).toBe(30);
+  });
+
+  it("Treatment-based within_last_days matches recent visits", () => {
+    const r = rule({
+      trigger_type: "Treatment-based",
+      trigger_config: {
+        treatment: "Any",
+        treatment_timing: "within_last_days",
+        within_last_days: 7,
+      },
+    });
+    const recent = new Date(Date.now() - 3 * 86400000).toISOString();
+    const old = new Date(Date.now() - 20 * 86400000).toISOString();
+    expect(
+      matchesRuleTrigger(customer({ id: "1", name: "A", last_visit: recent }), r),
+    ).toBe(true);
+    expect(
+      matchesRuleTrigger(customer({ id: "2", name: "B", last_visit: old }), r),
+    ).toBe(false);
+  });
+
+  it("Treatment-based exact calendar day matches yesterday only", () => {
+    const now = new Date("2026-07-02T18:00:00Z");
+    const r = rule({
+      trigger_type: "Treatment-based",
+      trigger_config: { treatment: "Any", days_after: 1, exact_calendar_day: true, treatment_timing: "exact_day" },
+    });
+    expect(
+      matchesRuleTrigger(
+        customer({ id: "1", name: "A", treatments: ["Botox"], last_visit: "2026-07-01" }),
+        r,
+        now,
+      ),
+    ).toBe(true);
+    expect(
+      matchesRuleTrigger(
+        customer({ id: "2", name: "B", treatments: ["Botox"], last_visit: "2026-06-30" }),
+        r,
+        now,
+      ),
+    ).toBe(false);
+    expect(
+      matchesRuleTrigger(
+        customer({ id: "3", name: "C", treatments: ["Botox"], last_visit: "2026-07-02" }),
+        r,
+        now,
+      ),
+    ).toBe(false);
   });
 
   it("Treatment-based requires treatment and days_after since last visit", () => {
@@ -145,6 +228,12 @@ describe("matchesRuleTrigger", () => {
 });
 
 describe("matchesExtraFilters", () => {
+  it("last_visit 1 keeps yesterday only", () => {
+    const now = new Date("2026-07-02T18:00:00Z");
+    expect(matchesLastVisitBucket("2026-07-01", "1", now)).toBe(true);
+    expect(matchesLastVisitBucket("2026-06-30", "1", now)).toBe(false);
+  });
+
   it("last_visit 7 keeps visits within last week", () => {
     const c = customer({
       id: "1",
@@ -177,6 +266,10 @@ describe("matchesExtraFilters", () => {
 });
 
 describe("sanitizeAudienceFilters", () => {
+  it("accepts yesterday bucket", () => {
+    expect(sanitizeAudienceFilters({ last_visit: "1" }).last_visit).toBe("1");
+  });
+
   it("accepts 7-day bucket", () => {
     expect(sanitizeAudienceFilters({ last_visit: "7" }).last_visit).toBe("7");
   });
