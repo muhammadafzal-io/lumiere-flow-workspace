@@ -96,7 +96,7 @@ function clientToRow(client: Client, detail?: string): AudienceRow {
     email: client.email,
     phone: client.phone,
     status: client.status,
-    visits: parseVisitCount(client.appointments),
+    visits: parseVisitCount(client),
     lastVisit: client.lastVisit,
     treatment: client.lastTreatment,
     detail,
