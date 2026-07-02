@@ -1,9 +1,4 @@
-export type RetentionFlowKey =
-  | "birthday"
-  | "reminders"
-  | "noshow"
-  | "reactivation"
-  | "followup";
+export type RetentionFlowKey = "birthday" | "reminders" | "noshow" | "reactivation" | "followup";
 
 export interface AudienceFilters {
   q?: string;

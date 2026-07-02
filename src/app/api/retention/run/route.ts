@@ -50,14 +50,16 @@ export async function GET(req: NextRequest) {
   }
 
   // Run all flows in parallel (campaigns runs sequentially internally)
-  const [reminders, noshow, reactivation, birthday, followup, campaigns] = await Promise.allSettled([
-    runReminderFlow({ trigger: "cron" }),
-    runNoshowFlow({ trigger: "cron" }),
-    runReactivationFlow({ trigger: "cron" }),
-    runBirthdayFlow({ trigger: "cron" }),
-    runFollowupFlow({ trigger: "cron" }),
-    runners.campaigns(),
-  ]);
+  const [reminders, noshow, reactivation, birthday, followup, campaigns] = await Promise.allSettled(
+    [
+      runReminderFlow({ trigger: "cron" }),
+      runNoshowFlow({ trigger: "cron" }),
+      runReactivationFlow({ trigger: "cron" }),
+      runBirthdayFlow({ trigger: "cron" }),
+      runFollowupFlow({ trigger: "cron" }),
+      runners.campaigns(),
+    ],
+  );
 
   return NextResponse.json({
     ok: true,

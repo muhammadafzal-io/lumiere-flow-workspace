@@ -54,9 +54,7 @@ export function parseRuleAudienceParams(params: URLSearchParams): RuleAudienceFi
     q: params.get("q") ?? undefined,
     status: params.getAll("status").filter(Boolean),
     treatment: params.getAll("treatment").filter(Boolean),
-    visit_min: params.has("visit_min")
-      ? Math.max(1, Number(params.get("visit_min")))
-      : undefined,
+    visit_min: params.has("visit_min") ? Math.max(1, Number(params.get("visit_min"))) : undefined,
     visit_max: params.has("visit_max") ? Number(params.get("visit_max")) : undefined,
     last_visit: (params.get("last_visit") as RuleAudienceFilters["last_visit"]) ?? "any",
     has_email:

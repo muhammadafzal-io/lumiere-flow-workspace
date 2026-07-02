@@ -83,10 +83,7 @@ export function CampaignRewardPanel({ campaign, onSaved }: Props) {
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Reward type</Label>
-          <Select
-            value={rewardType}
-            onValueChange={(v) => setRewardType(v as CampaignRewardType)}
-          >
+          <Select value={rewardType} onValueChange={(v) => setRewardType(v as CampaignRewardType)}>
             <SelectTrigger className="h-8 mt-1 text-sm">
               <SelectValue />
             </SelectTrigger>

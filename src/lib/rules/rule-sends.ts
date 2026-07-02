@@ -28,10 +28,7 @@ export async function recordRuleSends(
 }
 
 /** True when this client was emailed a specific rule (cron or manual). */
-export async function clientReceivedRuleEmail(
-  ruleId: string,
-  clientId: string,
-): Promise<boolean> {
+export async function clientReceivedRuleEmail(ruleId: string, clientId: string): Promise<boolean> {
   const sb = getSupabase();
 
   const { data: ruleSend } = await sb

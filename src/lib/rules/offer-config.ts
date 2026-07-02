@@ -32,7 +32,9 @@ export function formatOfferSummary(type: RuleOfferType, amount: number): string 
   return `$${amount} credit`;
 }
 
-export function formatOfferSummaryFromRule(rule: Pick<Rule, "offer_code" | "trigger_config">): string {
+export function formatOfferSummaryFromRule(
+  rule: Pick<Rule, "offer_code" | "trigger_config">,
+): string {
   const o = parseRuleOffer(rule);
   if (!o.code && o.amount <= 0) return "";
   const summary = formatOfferSummary(o.type, o.amount);

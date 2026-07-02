@@ -98,7 +98,8 @@ export const TOOLS: ChatCompletionTool[] = [
         properties: {
           client_name: {
             type: "string",
-            description: "Client's full legal name — first and last (e.g. Sarah Johnson). Single first names are rejected.",
+            description:
+              "Client's full legal name — first and last (e.g. Sarah Johnson). Single first names are rejected.",
           },
           treatment: { type: "string", description: "Name of the treatment being booked" },
           date_time: { type: "string", description: "Appointment start time in ISO 8601 format" },
@@ -256,7 +257,8 @@ export const TOOLS: ChatCompletionTool[] = [
         properties: {
           name: {
             type: "string",
-            description: "Full legal name — first and last (e.g. Michael Smith). Single first names are rejected.",
+            description:
+              "Full legal name — first and last (e.g. Michael Smith). Single first names are rejected.",
           },
           phone: { type: "string" },
           email: {

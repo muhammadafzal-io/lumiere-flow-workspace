@@ -90,8 +90,14 @@ export function parseNaturalLanguage(input: string): ParsedRule {
     trigger_type = "Treatment-based";
     const tm = text.match(/(botox|hydrafacial|laser|microneedling|iv drip|filler)/);
     const treat = tm ? tm[1].replace(/\b\w/g, (c) => c.toUpperCase()) : "Any";
-    trigger_config = { treatment: treat, days_after: 1, exact_calendar_day: true, treatment_timing: "exact_day" };
-    name = treat === "Any" ? "Post-treatment follow-up (yesterday)" : `${treat} follow-up (yesterday)`;
+    trigger_config = {
+      treatment: treat,
+      days_after: 1,
+      exact_calendar_day: true,
+      treatment_timing: "exact_day",
+    };
+    name =
+      treat === "Any" ? "Post-treatment follow-up (yesterday)" : `${treat} follow-up (yesterday)`;
   } else if (/after\s+(botox|hydrafacial|laser|microneedling|iv drip|filler)/.test(text)) {
     trigger_type = "Treatment-based";
     const tm = text.match(/after\s+(botox|hydrafacial|laser|microneedling|iv drip|filler)/);

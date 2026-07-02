@@ -233,9 +233,7 @@ export default function RuleAudiencePage() {
                 ? treatmentTriggerLabel(rule.trigger_config ?? {})
                 : triggerSummary(rule)}
               {rule.offer_code ? ` · Code ${rule.offer_code}` : ""}
-              {formatOfferSummaryFromRule(rule)
-                ? ` · ${formatOfferSummaryFromRule(rule)}`
-                : ""}
+              {formatOfferSummaryFromRule(rule) ? ` · ${formatOfferSummaryFromRule(rule)}` : ""}
             </p>
             <div className="flex gap-2 mt-2 flex-wrap">
               <Badge variant="outline">{rule.status}</Badge>
@@ -384,9 +382,9 @@ export default function RuleAudiencePage() {
                       {rule.trigger_type === "Treatment-based" && (
                         <p className="text-xs mt-2 max-w-md mx-auto">
                           For &quot;last 7 days&quot;, use{" "}
-                          <strong>Had treatment within last X days</strong> (X = 7) when editing
-                          the rule. If clients have no email, set <strong>Has email</strong> to Any
-                          in the filters sidebar.
+                          <strong>Had treatment within last X days</strong> (X = 7) when editing the
+                          rule. If clients have no email, set <strong>Has email</strong> to Any in
+                          the filters sidebar.
                         </p>
                       )}
                     </td>

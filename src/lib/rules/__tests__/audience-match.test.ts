@@ -118,19 +118,20 @@ describe("matchesRuleTrigger", () => {
     });
     const recent = new Date(Date.now() - 3 * 86400000).toISOString();
     const old = new Date(Date.now() - 20 * 86400000).toISOString();
-    expect(
-      matchesRuleTrigger(customer({ id: "1", name: "A", last_visit: recent }), r),
-    ).toBe(true);
-    expect(
-      matchesRuleTrigger(customer({ id: "2", name: "B", last_visit: old }), r),
-    ).toBe(false);
+    expect(matchesRuleTrigger(customer({ id: "1", name: "A", last_visit: recent }), r)).toBe(true);
+    expect(matchesRuleTrigger(customer({ id: "2", name: "B", last_visit: old }), r)).toBe(false);
   });
 
   it("Treatment-based exact calendar day matches yesterday only", () => {
     const now = new Date("2026-07-02T18:00:00Z");
     const r = rule({
       trigger_type: "Treatment-based",
-      trigger_config: { treatment: "Any", days_after: 1, exact_calendar_day: true, treatment_timing: "exact_day" },
+      trigger_config: {
+        treatment: "Any",
+        days_after: 1,
+        exact_calendar_day: true,
+        treatment_timing: "exact_day",
+      },
     });
     expect(
       matchesRuleTrigger(

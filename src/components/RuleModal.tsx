@@ -442,8 +442,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <Label>
-                    Promo code{" "}
-                    <span className="text-muted-foreground font-normal">(optional)</span>
+                    Promo code <span className="text-muted-foreground font-normal">(optional)</span>
                   </Label>
                   <Input
                     value={offer}
@@ -615,7 +614,11 @@ function TriggerDetails({
   if (t === "Treatment-based") {
     const timing =
       cfg.treatment_timing ??
-      (cfg.exact_calendar_day ? "exact_day" : cfg.within_last_days ? "within_last_days" : "minimum_days");
+      (cfg.exact_calendar_day
+        ? "exact_day"
+        : cfg.within_last_days
+          ? "within_last_days"
+          : "minimum_days");
     return (
       <div className="space-y-3">
         <div className="grid grid-cols-2 gap-3">

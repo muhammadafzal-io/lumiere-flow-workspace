@@ -14,9 +14,7 @@ import {
   normalizeRuleForAudience,
   treatmentTriggerLabel,
 } from "@/lib/rules/audience-match";
-import {
-  buildTreatmentCalendarRuleAudience,
-} from "@/lib/rules/treatment-calendar-audience";
+import { buildTreatmentCalendarRuleAudience } from "@/lib/rules/treatment-calendar-audience";
 import { usesTreatmentCalendarSource } from "@/lib/rules/audience-match";
 
 function mapCustomer(row: Record<string, unknown>): Customer {
@@ -134,11 +132,7 @@ export async function buildRuleAudience(
       : undefined;
 
   if (usesTreatmentCalendarSource(normalizedRule)) {
-    const rows = await buildTreatmentCalendarRuleAudience(
-      normalizedRule,
-      mergedFilters,
-      customers,
-    );
+    const rows = await buildTreatmentCalendarRuleAudience(normalizedRule, mergedFilters, customers);
     return {
       total: customers.length,
       eligible: rows.length,

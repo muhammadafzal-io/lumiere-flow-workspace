@@ -73,7 +73,8 @@ function matchesClientFilters(client: Client, filters: AudienceFilters): boolean
   }
 
   const visits = parseVisitCount(client);
-  if (filters.visit_min != null && filters.visit_min > 0 && visits < filters.visit_min) return false;
+  if (filters.visit_min != null && filters.visit_min > 0 && visits < filters.visit_min)
+    return false;
   if (filters.visit_max != null && visits > filters.visit_max) return false;
 
   if (!matchesLastVisit(client.lastVisit, filters.last_visit)) return false;

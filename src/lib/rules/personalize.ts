@@ -15,14 +15,9 @@ export function personalizeRuleMessage(
   const token = opts.birthdayToken ?? opts.offerCode ?? "";
   const amount = opts.offerAmount ?? 0;
   const offerType = opts.offerType ?? "credit";
-  const offerAmountText =
-    offerType === "discount" ? `${amount}%` : amount > 0 ? `$${amount}` : "";
+  const offerAmountText = offerType === "discount" ? `${amount}%` : amount > 0 ? `$${amount}` : "";
   const offerSummary =
-    amount > 0
-      ? offerType === "discount"
-        ? `${amount}% off`
-        : `$${amount} credit`
-      : "";
+    amount > 0 ? (offerType === "discount" ? `${amount}% off` : `$${amount} credit`) : "";
 
   return template
     .replace(/\{first_name\}/g, first)
