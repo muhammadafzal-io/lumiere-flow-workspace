@@ -19,12 +19,14 @@ interface VoiceCallProps {
 
 const TOOL_LABELS: Record<string, string> = {
   check_availability: "Checking the calendar...",
+  find_earliest_availability: "Finding the soonest opening...",
   book_appointment: "Confirming your booking...",
+  resend_booking_confirmation: "Sending your confirmation email...",
   get_practitioners: "Looking up practitioners...",
   find_appointment: "Looking up your booking...",
   cancel_appointment: "Cancelling your appointment...",
   reschedule_appointment: "Updating your appointment...",
-  validate_credit_code: "Checking your birthday credit...",
+  validate_credit_code: "Checking your promo code...",
   escalate_to_human: "Connecting you to our team...",
 };
 

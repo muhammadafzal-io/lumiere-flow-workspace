@@ -21,6 +21,7 @@ import type { CalendarEvent } from "@/types";
 import type { OpsLogEntry, EventType } from "@/types";
 import type { Customer, Practitioner } from "@/lib/types";
 import { treatmentTriggerLabel } from "@/lib/rules/audience-match";
+import { mapTeamToPractitioners } from "@/lib/practitioners";
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", {

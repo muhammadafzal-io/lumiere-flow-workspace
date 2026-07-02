@@ -25,7 +25,6 @@ export async function POST(req: NextRequest) {
     notes,
     sendConfirmation,
     birthday,
-    birthdaySkipped,
   } = body as Record<string, string | boolean>;
 
   const portalError = validatePortalBooking({
@@ -38,7 +37,6 @@ export async function POST(req: NextRequest) {
     practitionerName: typeof practitionerName === "string" ? practitionerName : undefined,
     room: typeof room === "string" ? room : undefined,
     birthday: typeof birthday === "string" ? birthday : undefined,
-    birthdaySkipped: birthdaySkipped === true,
   });
   if (portalError) {
     return NextResponse.json({ error: portalError, code: "VALIDATION_ERROR" }, { status: 400 });

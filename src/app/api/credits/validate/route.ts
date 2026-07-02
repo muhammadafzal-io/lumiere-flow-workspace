@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getClientByCreditCode } from "@/lib/integrations/airtable";
+import { validatePromoCode } from "@/lib/credits/validate-code";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(req: NextRequest) {
   const code = req.nextUrl.searchParams.get("code")?.trim().toUpperCase();
+  const phone = req.nextUrl.searchParams.get("phone")?.trim() ?? "";
 
   if (!code) {
     return NextResponse.json(
@@ -19,44 +20,44 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  if (!phone) {
+    return NextResponse.json(
+      { valid: false, error: "Missing ?phone= query parameter (required for validation)" },
+      { status: 400 },
+    );
+  }
+
   try {
-    const result = await getClientByCreditCode(code);
+    const result = await validatePromoCode(code, { phone });
 
-    if (!result) {
-      return NextResponse.json({ valid: false, error: "Code not found" }, { status: 404 });
-    }
-
-    const { client, codeInfo } = result;
-
-    if (codeInfo.isUsed) {
-      return NextResponse.json({
-        valid: false,
-        error: "This code has already been redeemed",
-        code: codeInfo.code,
-        clientName: client.name,
-      });
-    }
-
-    if (codeInfo.isExpired) {
-      return NextResponse.json({
-        valid: false,
-        error: `Code expired on ${codeInfo.expiresAt}`,
-        code: codeInfo.code,
-        clientName: client.name,
-        expiresAt: codeInfo.expiresAt,
-      });
+    if (!result.valid) {
+      const status = result.error === "Code not found" ? 404 : 200;
+      return NextResponse.json(
+        {
+          valid: false,
+          error: result.error,
+          clientName: result.clientName,
+        },
+        { status },
+      );
     }
 
     return NextResponse.json({
       valid: true,
-      code: codeInfo.code,
-      clientId: client.id,
-      clientName: client.name,
-      clientPhone: client.phone ?? null,
-      clientEmail: client.email ?? null,
-      creditAmount: codeInfo.creditAmount,
-      expiresAt: codeInfo.expiresAt,
-      daysRemaining: codeInfo.daysRemaining,
+      code: result.code,
+      codeType: result.codeType,
+      clientId: result.clientId ?? null,
+      clientName: result.clientName ?? null,
+      offerType: result.offerType,
+      offerAmount: result.offerAmount,
+      creditAmount: result.creditAmount ?? null,
+      discountPercent: result.discountPercent ?? null,
+      offerSummary: result.offerSummary,
+      ruleName: result.ruleName ?? null,
+      campaignName: result.campaignName ?? null,
+      expiresAt: result.expiresAt ?? null,
+      daysRemaining: result.daysRemaining ?? null,
+      message: result.message,
     });
   } catch (err) {
     return NextResponse.json(

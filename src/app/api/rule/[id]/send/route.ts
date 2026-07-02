@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { sendRuleEmails } from "@/lib/rules/send";
+import { recordRuleSends } from "@/lib/rules/rule-sends";
 import type { Rule } from "@/lib/types";
 import { normalizeRuleChannel } from "@/lib/types";
 
@@ -71,6 +72,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
     }
 
     const result = await sendRuleEmails(rule, recipients, { trigger: "manual" });
+    await recordRuleSends(rule.id, result.details);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("POST /api/rule/[id]/send error:", error);

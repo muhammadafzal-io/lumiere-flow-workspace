@@ -2,20 +2,41 @@ import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources";
 import { SYSTEM_PROMPT } from "./system-prompt";
 import { TOOLS } from "./tools";
-import { checkAvailability, bookAppointment, suggestSlot } from "@/lib/services/booking-service";
+import {
+  checkAvailability,
+  bookAppointment,
+  suggestSlot,
+  findEarliestAvailability,
+} from "@/lib/services/booking-service";
 import { cancelCalendarEvent, rescheduleCalendarEvent } from "@/lib/integrations/google-calendar";
 import {
   lookupClient,
   upsertClient,
   createAppointmentRecord,
-  getClientByCreditCode,
   getPractitioners,
 } from "@/lib/integrations/airtable";
-import { validateBookAppointment } from "@/lib/agent/booking-guards";
+import { validatePromoCode } from "@/lib/credits/validate-code";
+import {
+  validateBookAppointment,
+  validateUpsertClientName,
+  normalizeEmail,
+  sanitizeBookingEmails,
+} from "@/lib/agent/booking-guards";
+import { normalizeBirthdayForStorage } from "@/lib/birthday";
+import {
+  dateOfBirthNotPromoCodeError,
+  looksLikeDateOfBirthInput,
+  phoneRequiredForPromoError,
+} from "@/lib/credits/promo-code-input";
+import { extractPhoneForLookup, phoneDigits } from "@/lib/phone";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { sendBookingConfirmationEmail } from "@/lib/booking/confirmation-email";
+import {
+  findUpcomingAppointmentEventId,
+  resendBookingConfirmation,
+} from "@/lib/booking/resend-confirmation";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import { getOpenAIApiKey } from "@/lib/openai-config";
 import type { AgentResult } from "@/types";
@@ -80,7 +101,7 @@ export async function executeTool(
             summary:
               availability.slots.length > 0
                 ? `Found ${availability.slots.length} available slots on ${availability.date}. Available practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Available rooms: ${availability.availableRooms.join(", ") || "any"}.`
-                : `No open slots on ${availability.date}. Try the next business day (Mon–Sat) — do NOT escalate.`,
+                : `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`,
           },
         };
       } catch (err) {
@@ -89,7 +110,35 @@ export async function executeTool(
           result: {
             error: errMsg,
             slots: [],
-            summary: `Calendar check failed for ${input.date}: ${errMsg}. Try the next business day — do NOT escalate for booking availability issues.`,
+            summary: `Calendar check failed for ${input.date}: ${errMsg}. Try find_earliest_availability or the next business day — do NOT escalate for booking availability issues.`,
+          },
+        };
+      }
+    }
+
+    case "find_earliest_availability": {
+      try {
+        const result = await findEarliestAvailability({
+          durationMinutes: (input.duration_minutes as number) ?? 60,
+          practitionerName:
+            (input.preferred_practitioner as string | undefined) ||
+            (input.practitioner_name as string | undefined),
+          room: input.preferred_room as string | undefined,
+        });
+        return {
+          result: {
+            earliestDate: result.earliestDate,
+            datesChecked: result.datesChecked,
+            slots: result.slots,
+            summary: result.summary,
+          },
+        };
+      } catch (err) {
+        return {
+          result: {
+            error: err instanceof Error ? err.message : String(err),
+            slots: [],
+            summary: "Could not search for earliest availability.",
           },
         };
       }
@@ -132,7 +181,7 @@ export async function executeTool(
       const apptData = {
         clientName: input.client_name as string,
         clientContact: input.client_contact as string,
-        clientEmail: (input.client_email as string | undefined) || undefined,
+        clientEmail: normalizeEmail(input.client_email) || undefined,
         treatment: input.treatment as string,
         startTime,
         endTime,
@@ -144,10 +193,12 @@ export async function executeTool(
       const appt = await bookAppointment(apptData);
 
       if (input.client_email || apptData.clientContact) {
+        const storedBirthday = normalizeBirthdayForStorage(String(input.birthday ?? ""));
         await upsertClient({
           name: apptData.clientName,
           phone: apptData.clientContact || undefined,
-          email: (input.client_email as string | undefined) || undefined,
+          email: normalizeEmail(input.client_email) || undefined,
+          ...(storedBirthday ? { birthday: storedBirthday } : {}),
         }).catch(() => undefined);
       }
 
@@ -166,20 +217,65 @@ export async function executeTool(
 
       const clientEmail = (input.client_email as string | undefined) || clientRecord?.email;
 
+      let confirmationEmailSent = false;
       if (clientEmail) {
-        sendBookingConfirmationEmail({
-          to: clientEmail,
-          clientName: apptData.clientName,
-          treatment: apptData.treatment,
-          startTime: apptData.startTime,
-          practitionerName: apptData.practitionerName,
-          notes: apptData.notes,
-          clientId: clientRecord?.id,
-          phone: apptData.clientContact,
-        }).catch((e) => console.error(`[agent/book] confirmation email failed:`, e));
+        try {
+          await sendBookingConfirmationEmail({
+            to: clientEmail,
+            clientName: apptData.clientName,
+            treatment: apptData.treatment,
+            startTime: apptData.startTime,
+            practitionerName: apptData.practitionerName,
+            notes: apptData.notes,
+            clientId: clientRecord?.id,
+            phone: apptData.clientContact,
+          });
+          confirmationEmailSent = true;
+        } catch (e) {
+          console.error(`[agent/book] confirmation email failed:`, e);
+        }
       }
 
-      return { result: appt, booked: true };
+      return {
+        result: {
+          ...appt,
+          event_id: appt.id,
+          confirmation_email_sent: confirmationEmailSent,
+          confirmation_sent_to: confirmationEmailSent ? clientEmail : undefined,
+        },
+        booked: true,
+      };
+    }
+
+    case "resend_booking_confirmation": {
+      const email = normalizeEmail(input.client_email);
+      if (!email) {
+        return { result: { error: "Valid client_email is required to resend the confirmation." } };
+      }
+
+      let eventId = String(input.event_id ?? "").trim() || undefined;
+      if (!eventId && input.client_contact) {
+        eventId = (await findUpcomingAppointmentEventId(String(input.client_contact))) ?? undefined;
+      }
+      if (!eventId) {
+        return {
+          result: {
+            error:
+              "Could not find the appointment. Pass event_id from book_appointment, or client_contact (phone) to look up their upcoming booking.",
+          },
+        };
+      }
+
+      try {
+        const sent = await resendBookingConfirmation({ eventId, to: email });
+        return { result: sent };
+      } catch (err) {
+        return {
+          result: {
+            error: err instanceof Error ? err.message : "Failed to resend booking confirmation",
+          },
+        };
+      }
     }
 
     case "cancel_appointment": {
@@ -315,14 +411,21 @@ export async function executeTool(
     }
 
     case "upsert_client": {
+      const nameError = validateUpsertClientName(input.name);
+      if (nameError) {
+        return { result: { error: nameError } };
+      }
+      sanitizeBookingEmails(input);
+      const storedBirthday = normalizeBirthdayForStorage(String(input.birthday ?? ""));
+      const storedEmail = normalizeEmail(input.email);
       const client = await upsertClient({
         name: input.name as string,
         phone: input.phone as string | undefined,
-        email: input.email as string | undefined,
+        email: storedEmail,
         telegramId: input.telegram_id as string | undefined,
         lastVisit: input.last_visit as string | undefined,
         lastTreatment: input.last_treatment as string | undefined,
-        birthday: input.birthday as string | undefined,
+        birthday: storedBirthday,
         status:
           (input.status as "Active" | "Dormant" | "No-show" | "Discard" | undefined) ?? "Active",
         notes: input.notes as string | undefined,
@@ -348,37 +451,25 @@ export async function executeTool(
     }
 
     case "validate_credit_code": {
-      const code = (input.code as string)?.trim().toUpperCase();
-      const result = await getClientByCreditCode(code);
-      if (!result) {
-        return { result: { valid: false, error: "Code not found" } };
+      const code = (input.code as string)?.trim();
+      const phone = String(input.phone ?? input.client_contact ?? "").trim();
+      if (!phone || phoneDigits(extractPhoneForLookup(phone)).length < 7) {
+        return { result: { valid: false, error: phoneRequiredForPromoError() } };
       }
-      const { client, codeInfo } = result;
-      if (codeInfo.isUsed) {
-        return {
-          result: { valid: false, error: "Code already redeemed", clientName: client.name },
-        };
+      if (code && looksLikeDateOfBirthInput(code)) {
+        return { result: { valid: false, error: dateOfBirthNotPromoCodeError() } };
       }
-      if (codeInfo.isExpired) {
+      const result = await validatePromoCode(code, { phone });
+      if (!result.valid) {
         return {
           result: {
             valid: false,
-            error: `Code expired on ${codeInfo.expiresAt}`,
-            clientName: client.name,
+            error: result.error,
+            clientName: result.clientName,
           },
         };
       }
-      return {
-        result: {
-          valid: true,
-          code: codeInfo.code,
-          clientName: client.name,
-          creditAmount: codeInfo.creditAmount,
-          expiresAt: codeInfo.expiresAt,
-          daysRemaining: codeInfo.daysRemaining,
-          message: `Valid! $${codeInfo.creditAmount} birthday credit for ${client.name}. Expires ${codeInfo.expiresAt} (${codeInfo.daysRemaining} days remaining). Staff will apply the discount at checkout.`,
-        },
-      };
+      return { result };
     }
 
     case "escalate_to_human": {

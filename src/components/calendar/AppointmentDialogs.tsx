@@ -1097,7 +1097,6 @@ export function NewAppointmentModal({
   const [clientEmail, setClientEmail] = useState("");
   const [clientName, setClientName] = useState("");
   const [birthday, setBirthday] = useState("");
-  const [birthdaySkipped, setBirthdaySkipped] = useState(false);
   const [clientMode, setClientMode] = useState<"existing" | "new">("existing");
   const [modalPractitioners, setModalPractitioners] = useState<Practitioner[]>([]);
   const [clinicRooms, setClinicRooms] = useState<string[]>(["Room 1", "Room 2"]);
@@ -1160,7 +1159,6 @@ export function NewAppointmentModal({
     setClientEmail(cust.email ?? "");
     if (cust.birthday) {
       setBirthday(birthdayToInputValue(cust.birthday));
-      setBirthdaySkipped(false);
     }
   }, [cust?.id, clientMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1173,7 +1171,6 @@ export function NewAppointmentModal({
       setClientPhone("");
       setClientEmail("");
       setBirthday("");
-      setBirthdaySkipped(false);
     }
   };
 
@@ -1253,8 +1250,8 @@ export function NewAppointmentModal({
       toast.error("Valid email is required (same as chatbot booking)");
       return;
     }
-    if (!birthdaySkipped && !isValidBirthdayInput(birthday)) {
-      toast.error("Enter a valid birthday or mark as declined");
+    if (!isValidBirthdayInput(birthday)) {
+      toast.error("Birthday is required (same as chatbot booking)");
       return;
     }
     if (!selectedSlot) {
@@ -1282,7 +1279,7 @@ export function NewAppointmentModal({
             name: resolvedName,
             phone: clientPhone.trim(),
             email: clientEmail.trim(),
-            birthday: birthdaySkipped ? "" : (normalizeBirthdayForStorage(birthday.trim()) ?? ""),
+            birthday: normalizeBirthdayForStorage(birthday.trim()) ?? "",
             treatmentInterest: treatment,
             status: "Active",
           }),
@@ -1310,8 +1307,7 @@ export function NewAppointmentModal({
           practitionerName: prac?.name ?? "",
           notes,
           sendConfirmation: notify,
-          birthday: birthdaySkipped ? undefined : normalizeBirthdayForStorage(birthday.trim()),
-          birthdaySkipped,
+          birthday: normalizeBirthdayForStorage(birthday.trim()),
         }),
       });
 
@@ -1374,7 +1370,6 @@ export function NewAppointmentModal({
       setSearch("");
       setSelectedSlotStart("");
       setBirthday("");
-      setBirthdaySkipped(false);
     } catch {
       toast.error("Network error — could not save appointment");
     } finally {
@@ -1441,7 +1436,6 @@ export function NewAppointmentModal({
                       setClientPhone("");
                       setClientEmail("");
                       setBirthday("");
-                      setBirthdaySkipped(false);
                     }}
                   >
                     Change
@@ -1509,33 +1503,14 @@ export function NewAppointmentModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 items-end">
-              <div>
-                <Label className="text-xs text-muted-foreground mb-1.5 block">Birthday *</Label>
-                <Input
-                  type="date"
-                  value={birthday}
-                  onChange={(e) => {
-                    setBirthday(e.target.value);
-                    setBirthdaySkipped(false);
-                  }}
-                  className="h-9"
-                  disabled={birthdaySkipped}
-                />
-              </div>
-              <div className="flex items-center gap-2 pb-2">
-                <Switch
-                  id="birthday-skipped"
-                  checked={birthdaySkipped}
-                  onCheckedChange={(v) => {
-                    setBirthdaySkipped(v);
-                    if (v) setBirthday("");
-                  }}
-                />
-                <Label htmlFor="birthday-skipped" className="text-xs cursor-pointer">
-                  Client declined to share
-                </Label>
-              </div>
+            <div>
+              <Label className="text-xs text-muted-foreground mb-1.5 block">Birthday *</Label>
+              <Input
+                type="date"
+                value={birthday}
+                onChange={(e) => setBirthday(e.target.value)}
+                className="h-9"
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">

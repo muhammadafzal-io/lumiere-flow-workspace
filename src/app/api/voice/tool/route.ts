@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeTool } from "@/lib/agent";
-import { validateBookAppointment } from "@/lib/agent/booking-guards";
+import { validateBookAppointment, validateUpsertClientName } from "@/lib/agent/booking-guards";
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,6 +18,13 @@ export async function POST(req: NextRequest) {
       const guardError = await validateBookAppointment(input);
       if (guardError) {
         return NextResponse.json({ error: guardError }, { status: 400 });
+      }
+    }
+
+    if (toolName === "upsert_client") {
+      const nameError = validateUpsertClientName(input.name);
+      if (nameError) {
+        return NextResponse.json({ error: nameError }, { status: 400 });
       }
     }
 

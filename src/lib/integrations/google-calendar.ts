@@ -434,6 +434,77 @@ export async function cancelCalendarEvent(eventId: string): Promise<{
   };
 }
 
+export type CalendarBookingDetails = {
+  id: string;
+  clientName: string;
+  treatment: string;
+  clientContact: string;
+  clientEmail: string;
+  startTime: string;
+  endTime: string;
+  practitionerName: string;
+  room: string;
+  notes: string;
+};
+
+export async function getCalendarBookingDetails(eventId: string): Promise<CalendarBookingDetails> {
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+  const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+  const { treatment, clientName } = resolveEventClient(
+    event.summary ?? "",
+    event.description ?? "",
+  );
+  const parsed = parseDesc(event.description ?? "");
+  const fromSummary = parseEventSummary(event.summary ?? "");
+  return {
+    id: eventId,
+    clientName,
+    treatment,
+    clientContact: parsed.contact,
+    clientEmail: parsed.email,
+    startTime: event.start?.dateTime ?? "",
+    endTime: event.end?.dateTime ?? "",
+    practitionerName: parsed.practitioner ?? fromSummary.practitionerName ?? "",
+    room: parsed.room ?? "",
+    notes: parsed.notes,
+  };
+}
+
+function setDescriptionEmail(description: string, email: string): string {
+  const lines = description.split("\n");
+  let found = false;
+  const updated = lines.map((line) => {
+    if (line.startsWith("Email:")) {
+      found = true;
+      return `Email: ${email}`;
+    }
+    return line;
+  });
+  if (!found) {
+    const contactIdx = updated.findIndex((l) => l.startsWith("Contact:"));
+    if (contactIdx >= 0) {
+      updated.splice(contactIdx + 1, 0, `Email: ${email}`);
+    } else {
+      updated.push(`Email: ${email}`);
+    }
+  }
+  return updated.join("\n");
+}
+
+export async function updateCalendarBookingEmail(eventId: string, email: string): Promise<void> {
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+  const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+  await calendar.events.patch({
+    calendarId: calId,
+    eventId,
+    requestBody: {
+      description: setDescriptionEmail(event.description ?? "", email),
+    },
+  });
+}
+
 /** Reschedule a calendar event to a new start/end time. Returns old and new start times. */
 export async function rescheduleCalendarEvent(
   eventId: string,

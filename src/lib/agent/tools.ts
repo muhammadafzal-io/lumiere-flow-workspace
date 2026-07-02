@@ -60,13 +60,46 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "book_appointment",
+      name: "find_earliest_availability",
       description:
-        "Create a confirmed appointment in the Lumière Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Requires name, phone, email, and birthday (or birthday_skipped: true if they declined).",
+        "Find the soonest available appointment slots starting from TODAY (then tomorrow, etc.). REQUIRED when the client asks for earliest, soonest, next available, ASAP, or first open slot. Searches day-by-day automatically — do not skip ahead to dates 3–4 days out without checking today and tomorrow first.",
       parameters: {
         type: "object",
         properties: {
-          client_name: { type: "string", description: "Full name of the client" },
+          duration_minutes: {
+            type: "number",
+            description: "Duration of the treatment in minutes. Defaults to 60 if unknown.",
+          },
+          preferred_practitioner: {
+            type: "string",
+            description: "Optional practitioner name to filter availability",
+          },
+          practitioner_name: {
+            type: "string",
+            description: "Alias for preferred_practitioner",
+          },
+          preferred_room: {
+            type: "string",
+            description: "Optional room name to filter availability",
+          },
+        },
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "book_appointment",
+      description:
+        "Create a confirmed appointment in the Lumière Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Requires full name (first and last), phone, email, and birthday (YYYY-MM-DD).",
+      parameters: {
+        type: "object",
+        properties: {
+          client_name: {
+            type: "string",
+            description: "Client's full legal name — first and last (e.g. Sarah Johnson). Single first names are rejected.",
+          },
           treatment: { type: "string", description: "Name of the treatment being booked" },
           date_time: { type: "string", description: "Appointment start time in ISO 8601 format" },
           duration_minutes: { type: "number", description: "Duration in minutes" },
@@ -74,15 +107,12 @@ export const TOOLS: ChatCompletionTool[] = [
           client_email: {
             type: "string",
             description:
-              "REQUIRED — confirmed email for booking confirmation (e.g. sarah@gmail.com)",
+              "REQUIRED — confirmed email for booking confirmation. Remove ALL spaces (e.g. talhaazeem@gmail.com, never talha azeem@gmail.com).",
           },
           birthday: {
             type: "string",
-            description: 'Birthday in YYYY-MM-DD format if the client shared it (also save via upsert_client)',
-          },
-          birthday_skipped: {
-            type: "boolean",
-            description: "Set true if the client declined to share their birthday after you asked",
+            description:
+              "REQUIRED — client's date of birth in YYYY-MM-DD format (also save via upsert_client before booking)",
           },
           practitioner_name: {
             type: "string",
@@ -106,7 +136,37 @@ export const TOOLS: ChatCompletionTool[] = [
           "duration_minutes",
           "client_contact",
           "client_email",
+          "birthday",
         ],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "resend_booking_confirmation",
+      description:
+        "Re-send the booking confirmation email — REQUIRED when the client corrects or updates their email after an appointment was already booked. Updates the calendar event and client record, then emails the new address. Only tell the client the confirmation was sent after this tool returns confirmation_email_sent: true.",
+      parameters: {
+        type: "object",
+        properties: {
+          client_email: {
+            type: "string",
+            description: "Corrected email address to send the confirmation to",
+          },
+          event_id: {
+            type: "string",
+            description:
+              "Google Calendar event ID from book_appointment (event_id field). Preferred when available.",
+          },
+          client_contact: {
+            type: "string",
+            description:
+              "Client phone — used to find their upcoming appointment if event_id is not known",
+          },
+        },
+        required: ["client_email"],
       },
     },
   },
@@ -190,13 +250,19 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "upsert_client",
       description:
-        "Create a new client record or update an existing one in Airtable. Call as soon as you know the client's name (even before booking), and again after collecting phone/email. Pass platform user ID (Discord ID, Telegram ID) as telegram_id. The returned id field is the Airtable record ID — store it and pass it as client_id in every subsequent log_operation call.",
+        "Create a new client record or update an existing one in Airtable. Call as soon as you have the client's full name (first and last — required), and again after collecting phone/email. Pass platform user ID (Discord ID, Telegram ID) as telegram_id. The returned id field is the Airtable record ID — store it and pass it as client_id in every subsequent log_operation call.",
       parameters: {
         type: "object",
         properties: {
-          name: { type: "string" },
+          name: {
+            type: "string",
+            description: "Full legal name — first and last (e.g. Michael Smith). Single first names are rejected.",
+          },
           phone: { type: "string" },
-          email: { type: "string" },
+          email: {
+            type: "string",
+            description: "No spaces before @ — e.g. talhaazeem@gmail.com",
+          },
           telegram_id: {
             type: "string",
             description: "Platform user ID — Discord user ID, Telegram ID, or similar",
@@ -275,17 +341,26 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "validate_credit_code",
       description:
-        "Check whether a client's credit or promo code is valid and how much discount it provides. Call this whenever a client mentions they have a birthday credit, promo code, or discount code. Returns validity, client name, credit amount, and expiry. Do NOT redeem — only validate.",
+        "Check whether a promo code is valid for THIS client's phone: birthday credits (BDAY-…, must match code owner), rule codes (e.g. CREDIT200, SAVE30 — active rule + phone on file), or loyalty codes (CAMP-…, must match owner). REQUIRED: collect phone first — pass phone with code.",
       parameters: {
         type: "object",
         properties: {
           code: {
             type: "string",
             description:
-              "The credit or promo code exactly as the client provided it (e.g. BDAY-MA-IP1L)",
+              "The promo code exactly as the client provided it (e.g. BDAY-M-K8R9, SAVE30, CAMP-JS-ABC123)",
+          },
+          phone: {
+            type: "string",
+            description:
+              "REQUIRED — client phone number. Code is validated against this phone (must match the client who received or owns the code).",
+          },
+          client_contact: {
+            type: "string",
+            description: "Alias for phone if already collected in the booking flow",
           },
         },
-        required: ["code"],
+        required: ["code", "phone"],
       },
     },
   },

@@ -9,6 +9,7 @@ import {
   parseRuleSchedule,
   type RuleScheduleConfig,
 } from "@/lib/rules/schedule-config";
+import { recordRuleSends } from "@/lib/rules/rule-sends";
 import type { Rule } from "@/lib/types";
 import type { RetentionResult } from "@/types";
 
@@ -54,23 +55,6 @@ async function fetchSentClientIds(ruleId: string): Promise<Set<string>> {
     return new Set();
   }
   return new Set((data ?? []).map((row) => String(row.client_id)));
-}
-
-async function recordSends(ruleId: string, details: RetentionResult["details"]): Promise<void> {
-  const sb = getSupabase();
-  const rows = details
-    .filter((d) => d.status === "sent" && d.clientId)
-    .map((d) => ({
-      rule_id: ruleId,
-      client_id: d.clientId!,
-      client_email: d.emailAddress ?? "",
-      status: "sent",
-    }));
-
-  if (!rows.length) return;
-
-  const { error } = await sb.from(SENDS_TABLE).insert(rows);
-  if (error) console.warn("[rules/cron] rule_sends insert failed:", error.message);
 }
 
 async function updateScheduleAfterRun(
@@ -171,7 +155,7 @@ export async function runScheduledRules(opts?: {
       { trigger: "cron" },
     );
 
-    await recordSends(rule.id, sendResult.details);
+    await recordRuleSends(rule.id, sendResult.details);
     await updateScheduleAfterRun(rule.id, rule.trigger_config, schedule);
 
     results.push({ ruleId: rule.id, ruleName: rule.name, due: true, send: sendResult });

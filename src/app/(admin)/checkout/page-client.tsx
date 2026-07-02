@@ -46,6 +46,7 @@ interface RedemptionRecord {
 
 export default function CheckoutClient() {
   const [code, setCode] = useState("");
+  const [phone, setPhone] = useState("");
   const [validating, setValidating] = useState(false);
   const [redeeming, setRedeeming] = useState(false);
   const [validation, setValidation] = useState<ValidateResult | null>(null);
@@ -55,12 +56,15 @@ export default function CheckoutClient() {
 
   async function handleValidate() {
     const trimmed = code.trim().toUpperCase();
-    if (!trimmed) return;
+    const phoneTrimmed = phone.trim();
+    if (!trimmed || !phoneTrimmed) return;
     setValidating(true);
     setValidation(null);
     setRedeemResult(null);
     try {
-      const res = await fetch(`/api/credits/validate?code=${encodeURIComponent(trimmed)}`);
+      const res = await fetch(
+        `/api/credits/validate?code=${encodeURIComponent(trimmed)}&phone=${encodeURIComponent(phoneTrimmed)}`,
+      );
       const data = (await res.json()) as ValidateResult;
       setValidation(data);
     } catch {
@@ -101,6 +105,7 @@ export default function CheckoutClient() {
 
   function handleReset() {
     setCode("");
+    setPhone("");
     setValidation(null);
     setRedeemResult(null);
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -122,6 +127,15 @@ export default function CheckoutClient() {
       <div className="rounded-xl border bg-card p-6 space-y-4 shadow-sm">
         <div className="flex gap-2">
           <Input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="Client phone"
+            className="text-base"
+            disabled={validating || isRedeemed}
+          />
+        </div>
+        <div className="flex gap-2">
+          <Input
             ref={inputRef}
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -131,7 +145,10 @@ export default function CheckoutClient() {
             disabled={validating || isRedeemed}
             autoFocus
           />
-          <Button onClick={handleValidate} disabled={!code.trim() || validating || !!validation}>
+          <Button
+            onClick={handleValidate}
+            disabled={!code.trim() || !phone.trim() || validating || !!validation}
+          >
             {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : "Check"}
           </Button>
           {(validation || redeemResult) && (

@@ -9,6 +9,12 @@ import {
   getEventsByRange,
 } from "@/lib/integrations/google-calendar";
 import type { AvailableSlot } from "@/types";
+import {
+  addChicagoDays,
+  isSundayChicago,
+  nextOpenChicagoDay,
+  todayInChicago,
+} from "@/lib/booking/dates";
 
 export interface BookingRequest {
   clientName: string;
@@ -229,4 +235,57 @@ export async function suggestSlot(request: {
  */
 export async function getAppointmentsInRange(from: string, to: string) {
   return getEventsByRange(from, to);
+}
+
+/** Search day-by-day from today for the soonest open slots (skips Sundays). */
+export async function findEarliestAvailability(request: {
+  durationMinutes?: number;
+  practitionerName?: string;
+  room?: string;
+  maxDaysAhead?: number;
+}): Promise<{
+  slots: AvailableSlot[];
+  earliestDate: string | null;
+  datesChecked: string[];
+  summary: string;
+}> {
+  const durationMinutes = request.durationMinutes ?? 60;
+  const maxDays = request.maxDaysAhead ?? 14;
+  let date = nextOpenChicagoDay(todayInChicago());
+  const datesChecked: string[] = [];
+  const collected: AvailableSlot[] = [];
+  let earliestDate: string | null = null;
+
+  for (let i = 0; i < maxDays; i++) {
+    if (isSundayChicago(date)) {
+      date = addChicagoDays(date, 1);
+      continue;
+    }
+
+    datesChecked.push(date);
+    const day = await checkAvailability({
+      date,
+      durationMinutes,
+      practitionerName: request.practitionerName,
+      room: request.room,
+    });
+
+    if (day.slots.length > 0) {
+      if (!earliestDate) earliestDate = date;
+      for (const slot of day.slots) {
+        if (collected.length >= 3) break;
+        collected.push(slot);
+      }
+      if (collected.length >= 3) break;
+    }
+
+    date = addChicagoDays(date, 1);
+  }
+
+  const summary =
+    collected.length > 0
+      ? `Earliest availability starts ${earliestDate}. Found ${collected.length} slot(s) across ${datesChecked.length} day(s) checked (from today forward). Present these times to the client — do not skip to later dates if earlier slots exist.`
+      : `No open slots in the next ${datesChecked.length} business day(s) checked (from today). Try a different treatment duration or practitioner.`;
+
+  return { slots: collected, earliestDate, datesChecked, summary };
 }
