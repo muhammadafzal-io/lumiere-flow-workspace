@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { executeTool } from "@/lib/agent";
-import { validateBookAppointment, validateUpsertClientName } from "@/lib/agent/booking-guards";
+import {
+  validateBookAppointment,
+  validateUpsertClientName,
+  validateEscalation,
+} from "@/lib/agent/booking-guards";
+
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,8 +34,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    if (toolName === "escalate_to_human") {
+      const guardError = await validateEscalation(input);
+      if (guardError) {
+        return NextResponse.json({ error: guardError }, { status: 400 });
+      }
+    }
+
     const { result } = await executeTool(toolName, input, {
-      platform: platform ?? "widget",
+      platform: platform ?? "voice",
       chatId: chatId ?? "voice-session",
     });
 

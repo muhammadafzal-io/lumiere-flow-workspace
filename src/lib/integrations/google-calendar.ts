@@ -25,6 +25,9 @@ function getDefaultRooms(): string[] {
 
 const DEFAULT_ROOMS = getDefaultRooms();
 
+const EVENTS_RANGE_CACHE_MS = 45_000;
+const eventsRangeCache = new Map<string, { at: number; events: CalendarEvent[] }>();
+
 // Returns today's date string (YYYY-MM-DD) in Chicago CT
 function todayInChicago(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: TIMEZONE });
@@ -247,12 +250,7 @@ export async function getAvailableSlots(
           timeZoneName: "short",
         }),
         availableRooms: freeRooms,
-        availablePractitioners:
-          practitionerNames.length > 0
-            ? freePractitioners
-            : freePractitioners.length > 0
-              ? freePractitioners
-              : [],
+        availablePractitioners: freePractitioners,
       });
     }
 
@@ -378,6 +376,12 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
 }
 
 export async function getEventsByRange(from: string, to: string): Promise<CalendarEvent[]> {
+  const cacheKey = `${from}|${to}`;
+  const cached = eventsRangeCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < EVENTS_RANGE_CACHE_MS) {
+    return cached.events;
+  }
+
   const calendar = getCalendarClient();
   const calId = calendarId();
   const timeMin = chicagoHourToUtc(from, 0).toISOString();
@@ -391,11 +395,11 @@ export async function getEventsByRange(from: string, to: string): Promise<Calend
     orderBy: "startTime",
   });
 
-  return (res.data.items ?? [])
+  const events = (res.data.items ?? [])
     .filter((e) => e.start?.dateTime)
     .map((e) => {
       const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
-      const { room, practitioner, contact, notes } = parseDesc(e.description ?? "");
+      const { room, practitioner, contact, email, notes } = parseDesc(e.description ?? "");
       return {
         id: e.id!,
         treatment,
@@ -403,11 +407,15 @@ export async function getEventsByRange(from: string, to: string): Promise<Calend
         startTime: e.start!.dateTime!,
         endTime: e.end!.dateTime ?? e.start!.dateTime!,
         clientContact: contact,
+        clientEmail: email || undefined,
         notes,
         room: room ?? "",
         practitioner: practitioner ?? "",
       };
     });
+
+  eventsRangeCache.set(cacheKey, { at: Date.now(), events });
+  return events;
 }
 
 /** Cancel (delete) a calendar event by ID. Returns the event data before deletion. */

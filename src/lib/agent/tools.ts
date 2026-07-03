@@ -102,7 +102,16 @@ export const TOOLS: ChatCompletionTool[] = [
               "Client's full legal name — first and last (e.g. Sarah Johnson). Single first names are rejected.",
           },
           treatment: { type: "string", description: "Name of the treatment being booked" },
-          date_time: { type: "string", description: "Appointment start time in ISO 8601 format" },
+          date_time: {
+            type: "string",
+            description:
+              "EXACT startTime ISO from check_availability / find_earliest_availability for the slot the client chose. Do not invent from spoken time alone.",
+          },
+          date: {
+            type: "string",
+            description:
+              "Appointment date YYYY-MM-DD (Austin). Pass with date_time when the client confirmed a day (e.g. tomorrow).",
+          },
           duration_minutes: { type: "number", description: "Duration in minutes" },
           client_contact: { type: "string", description: "Client phone number or Telegram ID" },
           client_email: {
@@ -175,22 +184,76 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "cancel_appointment",
+      name: "find_upcoming_appointment",
       description:
-        "Cancel (delete) an existing appointment in the Lumière Google Calendar. Use when a client wants to cancel. Always confirm with the client before calling this. A cancellation confirmation email is sent automatically.",
+        "Look up the client's next upcoming appointment using phone ONLY. Returns name, treatment, time, duration_minutes, and event_id from the calendar/CRM. Use for cancel or reschedule — NEVER ask the client for name, email, or birthday when using this tool.",
       parameters: {
         type: "object",
         properties: {
-          event_id: {
+          phone: {
             type: "string",
-            description: "The Google Calendar event ID to cancel",
+            description: "Client phone number — only field required",
           },
-          client_email: {
+          client_contact: {
             type: "string",
-            description: "Client email address to send the cancellation confirmation to",
+            description: "Alias for phone",
           },
         },
-        required: ["event_id"],
+        required: ["phone"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "check_reschedule_availability",
+      description:
+        "Check open slots when RESCHEDULING an existing appointment. ONLY phone + date required — looks up their upcoming appointment automatically (treatment, duration, practitioner). NEVER ask for name, email, or birthday. Call after find_upcoming_appointment confirms the appointment and the client gives a new date.",
+      parameters: {
+        type: "object",
+        properties: {
+          phone: {
+            type: "string",
+            description: "Client phone number — used to load their existing appointment",
+          },
+          client_contact: {
+            type: "string",
+            description: "Alias for phone",
+          },
+          date: {
+            type: "string",
+            description: "New date to check in YYYY-MM-DD (Austin)",
+          },
+        },
+        required: ["phone", "date"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "cancel_appointment",
+      description:
+        "Cancel an existing appointment. ONLY phone is required — system looks up the appointment, client name, and email automatically. NEVER ask for name, email, or event_id. Confirm with the client before calling.",
+      parameters: {
+        type: "object",
+        properties: {
+          phone: {
+            type: "string",
+            description: "Client phone number — used to find their upcoming appointment",
+          },
+          client_contact: {
+            type: "string",
+            description: "Alias for phone",
+          },
+          event_id: {
+            type: "string",
+            description: "Optional — auto-filled from phone if omitted",
+          },
+        },
+        required: ["phone"],
       },
     },
   },
@@ -200,28 +263,36 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "reschedule_appointment",
       description:
-        "Reschedule an existing appointment to a new date and time. Always call check_availability first to confirm the new slot is free, then confirm with the client before calling this. A reschedule confirmation email is sent automatically.",
+        "Reschedule an existing appointment. ONLY phone + new_date_time required (exact startTime from check_reschedule_availability). System looks up appointment and emails confirmation. NEVER ask for name, email, birthday, or event_id.",
       parameters: {
         type: "object",
         properties: {
-          event_id: {
+          phone: {
             type: "string",
-            description: "The Google Calendar event ID to reschedule",
+            description: "Client phone number — used to find their upcoming appointment",
+          },
+          client_contact: {
+            type: "string",
+            description: "Alias for phone",
           },
           new_date_time: {
             type: "string",
-            description: "New appointment start time in ISO 8601 format",
+            description: "EXACT startTime ISO from check_availability for the new slot",
+          },
+          date: {
+            type: "string",
+            description: "New appointment date YYYY-MM-DD (Austin) — pass with new_date_time",
           },
           duration_minutes: {
             type: "number",
-            description: "Duration of the appointment in minutes (default 60)",
+            description: "Duration in minutes (default from original treatment)",
           },
-          client_email: {
+          event_id: {
             type: "string",
-            description: "Client email address to send the reschedule confirmation to",
+            description: "Optional — auto-filled from phone if omitted",
           },
         },
-        required: ["event_id", "new_date_time"],
+        required: ["phone", "new_date_time"],
       },
     },
   },
@@ -372,7 +443,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "escalate_to_human",
       description:
-        "Post an escalation alert in the Lumière #lumiere-escalations Slack channel so a human team member can follow up. Use when the agent cannot or should not answer.",
+        "Post an escalation alert in the Lumière #lumiere-escalations Slack channel so a human team member can follow up. REQUIRED: full name, phone, and email must be collected first — the system blocks escalation without them.",
       parameters: {
         type: "object",
         properties: {
@@ -380,16 +451,28 @@ export const TOOLS: ChatCompletionTool[] = [
             type: "string",
             description: "Why this is being escalated (specific, one sentence)",
           },
-          client_info: {
+          client_name: {
             type: "string",
-            description: "Name, Telegram handle, or phone of the client",
+            description: "Client's full legal name — first and last (required)",
+          },
+          phone: {
+            type: "string",
+            description: "Client phone number (required)",
+          },
+          client_email: {
+            type: "string",
+            description: "Client email address — no spaces before @ (required)",
           },
           conversation_summary: {
             type: "string",
             description: "Brief summary of the conversation so the human has context",
           },
+          client_info: {
+            type: "string",
+            description: "Deprecated — use client_name, phone, and client_email instead",
+          },
         },
-        required: ["reason", "conversation_summary"],
+        required: ["reason", "client_name", "phone", "client_email", "conversation_summary"],
       },
     },
   },

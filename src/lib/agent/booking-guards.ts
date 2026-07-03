@@ -1,6 +1,6 @@
 import { lookupClientByPhone } from "@/lib/integrations/airtable";
 import { isValidBirthdayInput, normalizeBirthdayForStorage } from "@/lib/birthday";
-import { phoneSearchVariants, extractPhoneForLookup } from "@/lib/phone";
+import { phoneSearchVariants, extractPhoneForLookup, phoneDigits } from "@/lib/phone";
 import { fullNameValidationError, isFullName } from "@/lib/agent/client-name";
 
 export function normalizeEmail(raw: unknown): string | undefined {
@@ -20,6 +20,27 @@ export function sanitizeBookingEmails(input: Record<string, unknown>): void {
 export function hasValidBirthday(input: Record<string, unknown>): boolean {
   const bday = input.birthday;
   return typeof bday === "string" && isValidBirthdayInput(bday);
+}
+
+function normalizeNamePart(part: string): string {
+  return part.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+function areNamesLikelySame(a: string, b: string): boolean {
+  const aParts = a.trim().split(/\s+/).map(normalizeNamePart).filter(Boolean);
+  const bParts = b.trim().split(/\s+/).map(normalizeNamePart).filter(Boolean);
+
+  if (!aParts.length || !bParts.length) return false;
+  if (aParts.join("") === bParts.join("")) return true;
+
+  const aFirst = aParts[0];
+  const aLast = aParts[aParts.length - 1];
+  const bFirst = bParts[0];
+  const bLast = bParts[bParts.length - 1];
+
+  if (aFirst === bFirst && aLast === bLast) return true;
+  if (aFirst === bLast && aLast === bFirst) return true;
+  return false;
 }
 
 /** @deprecated Use hasValidBirthday — birthday cannot be skipped. */
@@ -61,6 +82,14 @@ export async function validateBookAppointment(
   }
   if (!hasValidBirthday(input)) {
     missing.push("birthday (required — YYYY-MM-DD, e.g. 1990-03-15)");
+  }
+
+  const phone = String(input.client_contact ?? "").trim();
+  if (phone && clientName && isFullName(clientName)) {
+    const existing = await lookupClientByPhone(phone).catch(() => null);
+    if (existing?.name && !areNamesLikelySame(existing.name, clientName)) {
+      return `This phone number is already linked to ${existing.name}. Use the same client name for this phone, or confirm a different phone number before booking.`;
+    }
   }
 
   if (missing.length === 0) return null;
@@ -136,4 +165,108 @@ export function validateUpsertClientName(name: unknown): string | null {
 
 export async function enrichCancelRescheduleInput(input: Record<string, unknown>): Promise<void> {
   await enrichClientFromPhone(input);
+}
+
+/** Resolve upcoming appointment + client email from phone only (cancel / reschedule). */
+export async function prepareCancelRescheduleInput(
+  input: Record<string, unknown>,
+): Promise<string | null> {
+  const rawPhone = String(input.phone ?? input.client_contact ?? "").trim();
+  if (!rawPhone) {
+    return "Phone number is required. Ask only for the client's phone — the system looks up their appointment and email automatically.";
+  }
+
+  const normalized = extractPhoneForLookup(rawPhone);
+  if (phoneDigits(normalized).length < 7) {
+    return "Please provide a valid phone number so we can find the appointment.";
+  }
+
+  input.phone = normalized;
+  if (!input.client_contact) input.client_contact = normalized;
+
+  await enrichClientFromPhone(input);
+
+  if (!input.event_id) {
+    const { findUpcomingAppointmentByPhone } = await import("@/lib/booking/appointment-by-phone");
+    const appt = await findUpcomingAppointmentByPhone(normalized);
+    if (!appt) {
+      return "No upcoming appointment found for this phone number. Confirm the number is correct or check if the appointment already passed.";
+    }
+    input.event_id = appt.eventId;
+    if (!String(input.client_name ?? "").trim()) input.client_name = appt.clientName;
+    if (!normalizeEmail(input.client_email)) input.client_email = appt.clientEmail;
+    input.appointment_treatment = appt.treatment;
+    input.appointment_start_time = appt.startTime;
+    input.appointment_end_time = appt.endTime;
+    if (!input.duration_minutes) {
+      const { durationMinutesForAppointment } = await import("@/lib/booking/appointment-duration");
+      input.duration_minutes = durationMinutesForAppointment(appt);
+    }
+  } else if (!normalizeEmail(input.client_email)) {
+    const { resolveAppointmentNotificationEmail } = await import(
+      "@/lib/booking/appointment-by-phone"
+    );
+    const email = await resolveAppointmentNotificationEmail({
+      phone: normalized,
+      eventId: String(input.event_id),
+    });
+    if (email) input.client_email = email;
+  }
+
+  return null;
+}
+
+export async function validateCancelAppointment(
+  input: Record<string, unknown>,
+): Promise<string | null> {
+  return prepareCancelRescheduleInput(input);
+}
+
+export async function validateRescheduleAppointment(
+  input: Record<string, unknown>,
+): Promise<string | null> {
+  const base = await prepareCancelRescheduleInput(input);
+  if (base) return base;
+  if (!String(input.new_date_time ?? "").trim()) {
+    return "new_date_time is required — use the exact startTime from check_availability for the new slot.";
+  }
+  return null;
+}
+
+/** Fill escalation contact fields from CRM when phone is known. */
+export async function enrichEscalationInput(input: Record<string, unknown>): Promise<void> {
+  sanitizeBookingEmails(input);
+  const phone = String(input.phone ?? input.client_contact ?? "").trim();
+  if (phone && !input.phone) input.phone = phone;
+
+  if (!phone) return;
+
+  const client = await lookupClientByPhone(phone).catch(() => null);
+  if (!client) return;
+
+  if (!String(input.client_name ?? "").trim() && client.name) {
+    input.client_name = client.name;
+  }
+  if (!normalizeEmail(input.client_email ?? input.email) && client.email) {
+    input.client_email = client.email;
+  }
+  if (!input.phone && client.phone) input.phone = client.phone;
+}
+
+export async function validateEscalation(input: Record<string, unknown>): Promise<string | null> {
+  await enrichEscalationInput(input);
+
+  const missing: string[] = [];
+  const clientName = String(input.client_name ?? "").trim();
+  const phone = String(input.phone ?? input.client_contact ?? "").trim();
+  const email = normalizeEmail(input.client_email ?? input.email);
+
+  if (!clientName) missing.push("client_name (full first and last name)");
+  else if (!isFullName(clientName)) missing.push("client_name (full first and last name)");
+  if (!phone) missing.push("phone");
+  if (!email) missing.push("client_email");
+
+  if (missing.length === 0) return null;
+
+  return `Cannot escalate yet — collect ${missing.join(", ")} before calling escalate_to_human. Ask: "Before I connect you with our team, may I have your full name, phone number, and email so they can reach you?" Then call upsert_client, then escalate.`;
 }

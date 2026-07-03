@@ -8,10 +8,15 @@ import {
   bookAdminAppointment,
   getEventsByRange,
 } from "@/lib/integrations/google-calendar";
+import { getPractitioners } from "@/lib/integrations/airtable";
 import type { AvailableSlot } from "@/types";
 import {
   addChicagoDays,
+  chicagoDateFromIso,
+  chicagoHour,
+  chicagoTimeKey,
   isSundayChicago,
+  isSundayChicagoFromIso,
   nextOpenChicagoDay,
   todayInChicago,
 } from "@/lib/booking/dates";
@@ -26,6 +31,8 @@ export interface BookingRequest {
   practitionerName: string;
   room: string;
   notes?: string;
+  /** YYYY-MM-DD clinic date when date_time may be wrong but spoken time is correct */
+  bookingDate?: string;
 }
 
 export interface BookingResult {
@@ -53,6 +60,111 @@ export interface AvailabilityResult {
   availableRooms: string[];
 }
 
+function sameInstant(a: string, b: string): boolean {
+  return new Date(a).getTime() === new Date(b).getTime();
+}
+
+async function rosterPractitionerNames(preferred?: string): Promise<string[]> {
+  if (preferred) return [preferred];
+  try {
+    const list = await getPractitioners();
+    const names = list.map((p) => p.name).filter(Boolean);
+    return names.length > 0 ? names : [];
+  } catch {
+    return [];
+  }
+}
+
+function naiveWallClockFromIso(iso: string): string | null {
+  const match = iso.match(/T(\d{2}):(\d{2})/);
+  if (!match) return null;
+  return `${match[1]}:${match[2]}`;
+}
+
+/** Match a requested ISO (or wrong-offset ISO) to a slot from check_availability. */
+export function findMatchingSlot(
+  slots: AvailableSlot[],
+  requestedStartTime: string,
+  dateHint?: string,
+): AvailableSlot | undefined {
+  const exact = slots.find((slot) => sameInstant(slot.startTime, requestedStartTime));
+  if (exact) return exact;
+
+  const targetDate = dateHint ?? chicagoDateFromIso(requestedStartTime);
+  const chicagoTarget = chicagoTimeKey(requestedStartTime);
+  const wallClock = naiveWallClockFromIso(requestedStartTime);
+
+  const byChicagoTime = slots.find(
+    (slot) =>
+      chicagoDateFromIso(slot.startTime) === targetDate &&
+      chicagoTimeKey(slot.startTime) === chicagoTarget,
+  );
+  if (byChicagoTime) return byChicagoTime;
+
+  if (wallClock && wallClock !== chicagoTarget) {
+    return slots.find(
+      (slot) =>
+        chicagoDateFromIso(slot.startTime) === targetDate &&
+        chicagoTimeKey(slot.startTime) === wallClock,
+    );
+  }
+
+  return undefined;
+}
+
+export async function resolveRequestedSlot(request: {
+  startTime: string;
+  durationMinutes: number;
+  preferredPractitioner?: string;
+  preferredRoom?: string;
+  date?: string;
+}): Promise<{
+  slot: AvailableSlot;
+  practitioner: string;
+  room: string;
+}> {
+  const date = request.date ?? chicagoDateFromIso(request.startTime);
+
+  const availability = await checkAvailability({
+    date,
+    durationMinutes: request.durationMinutes,
+    practitionerName: request.preferredPractitioner,
+    room: request.preferredRoom,
+  });
+
+  const requestedSlot = findMatchingSlot(availability.slots, request.startTime, date);
+  if (!requestedSlot) {
+    const alternatives = availability.slots
+      .slice(0, 3)
+      .map((slot) => `${slot.displayTime} (startTime: ${slot.startTime})`)
+      .join("; ");
+    throw new Error(
+      alternatives
+        ? `That time is not available on ${date}. Offer one of these instead: ${alternatives}`
+        : `No open slots on ${date}. Try another day — do not escalate.`,
+    );
+  }
+
+  const practitioner =
+    request.preferredPractitioner &&
+    requestedSlot.availablePractitioners.includes(request.preferredPractitioner)
+      ? request.preferredPractitioner
+      : requestedSlot.availablePractitioners[0];
+
+  const room =
+    request.preferredRoom && requestedSlot.availableRooms.includes(request.preferredRoom)
+      ? request.preferredRoom
+      : requestedSlot.availableRooms[0];
+
+  if (!practitioner || !room) {
+    throw new Error(
+      `No practitioner and room are open at that time. Pick another slot from check_availability — do not escalate.`,
+    );
+  }
+
+  return { slot: requestedSlot, practitioner, room };
+}
+
 /**
  * Check availability with room and practitioner awareness
  * Returns all available room+practitioner combinations for a given date
@@ -60,13 +172,11 @@ export interface AvailabilityResult {
 export async function checkAvailability(request: AvailabilityRequest): Promise<AvailabilityResult> {
   const { date, durationMinutes = 60, practitionerName, room } = request;
 
-  // Get all available slots, optionally filtered by practitioner/room
-  const practitioners = practitionerName ? [practitionerName] : [];
+  const practitioners = await rosterPractitionerNames(practitionerName);
   const rooms = room ? [room] : undefined;
 
   const slots = await getAvailableSlots(date, durationMinutes, rooms, practitioners);
 
-  // Collect all unique available practitioners and rooms across all slots
   const allPractitioners = new Set<string>();
   const allRooms = new Set<string>();
 
@@ -90,79 +200,49 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
  * Used by both admin UI and chatbot
  */
 export async function bookAppointment(request: BookingRequest): Promise<BookingResult> {
-  // Validate required fields
   if (
     !request.clientName ||
     !request.clientContact ||
     !request.treatment ||
     !request.startTime ||
-    !request.endTime ||
     !request.practitionerName ||
     !request.room
   ) {
     throw new Error("Missing required booking fields");
   }
 
-  // Validate business hours (9 AM - 7 PM, no Sundays)
-  const startDate = new Date(request.startTime);
-  const dayOfWeek = startDate.getDay();
-  const hours = startDate.getHours();
-
-  if (dayOfWeek === 0) {
+  if (isSundayChicagoFromIso(request.startTime)) {
     throw new Error("Appointments cannot be booked on Sundays — clinic is closed");
   }
 
-  if (hours < 9 || hours >= 19) {
-    throw new Error("Appointments can only be booked between 9:00 AM and 7:00 PM");
+  const hour = chicagoHour(request.startTime);
+  if (hour < 9 || hour >= 19) {
+    throw new Error("Appointments can only be booked between 9:00 AM and 7:00 PM Austin time");
   }
 
-  // Check if this room+practitioner combo is actually available
-  const date = request.startTime.split("T")[0];
-  const duration = Math.round(
-    (new Date(request.endTime).getTime() - new Date(request.startTime).getTime()) / 60000,
-  );
+  const duration = request.endTime
+    ? Math.round(
+        (new Date(request.endTime).getTime() - new Date(request.startTime).getTime()) / 60000,
+      )
+    : 60;
 
-  const availability = await checkAvailability({
-    date,
+  const resolved = await resolveRequestedSlot({
+    startTime: request.startTime,
     durationMinutes: duration,
-    practitionerName: request.practitionerName,
-    room: request.room,
+    preferredPractitioner: request.practitionerName,
+    preferredRoom: request.room,
+    date: request.bookingDate,
   });
 
-  // Find a slot that matches the requested time
-  const requestedSlot = availability.slots.find(
-    (slot) =>
-      slot.startTime === request.startTime &&
-      slot.availablePractitioners?.includes(request.practitionerName) &&
-      slot.availableRooms?.includes(request.room),
-  );
-
-  if (!requestedSlot) {
-    // The requested time is no longer available
-    const availableSlots = availability.slots
-      .filter((s) => s.availablePractitioners?.includes(request.practitionerName))
-      .filter((s) => s.availableRooms?.includes(request.room))
-      .slice(0, 3)
-      .map((s) => `${s.displayTime}`)
-      .join(", ");
-
-    throw new Error(
-      availableSlots
-        ? `${request.room} with ${request.practitionerName} is not available at that time. Try: ${availableSlots}`
-        : `${request.room} with ${request.practitionerName} has no availability on ${date}`,
-    );
-  }
-
-  // Book via the same function both admin and agent use
   const result = await bookAdminAppointment({
-    startTime: request.startTime,
-    endTime: request.endTime,
+    startTime: resolved.slot.startTime,
+    endTime: resolved.slot.endTime,
     clientName: request.clientName,
     clientContact: request.clientContact,
     clientEmail: request.clientEmail,
     treatment: request.treatment,
-    room: request.room,
-    practitionerName: request.practitionerName,
+    room: resolved.room,
+    practitionerName: resolved.practitioner,
     notes: request.notes,
   });
 
@@ -170,10 +250,10 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     id: result.id,
     clientName: request.clientName,
     treatment: request.treatment,
-    startTime: request.startTime,
-    endTime: request.endTime,
-    practitionerName: request.practitionerName,
-    room: request.room,
+    startTime: resolved.slot.startTime,
+    endTime: resolved.slot.endTime,
+    practitionerName: resolved.practitioner,
+    room: resolved.room,
   };
 }
 
@@ -205,17 +285,12 @@ export async function suggestSlot(request: {
     );
   }
 
-  // Pick the first available slot
   const slot = availability.slots[0];
-
-  // If preferred practitioner is available in this slot, suggest them
   const practitioner =
     request.preferredPractitioner &&
     slot.availablePractitioners?.includes(request.preferredPractitioner)
       ? request.preferredPractitioner
       : (slot.availablePractitioners?.[0] ?? "Available Practitioner");
-
-  // If preferred room is available in this slot, suggest it
   const room =
     request.preferredRoom && slot.availableRooms?.includes(request.preferredRoom)
       ? request.preferredRoom
@@ -284,7 +359,7 @@ export async function findEarliestAvailability(request: {
 
   const summary =
     collected.length > 0
-      ? `Earliest availability starts ${earliestDate}. Found ${collected.length} slot(s) across ${datesChecked.length} day(s) checked (from today forward). Present these times to the client — do not skip to later dates if earlier slots exist.`
+      ? `Earliest availability starts ${earliestDate}. Found ${collected.length} slot(s). Each slot has startTime — copy that EXACT startTime into book_appointment date_time when the client picks a time.`
       : `No open slots in the next ${datesChecked.length} business day(s) checked (from today). Try a different treatment duration or practitioner.`;
 
   return { slots: collected, earliestDate, datesChecked, summary };

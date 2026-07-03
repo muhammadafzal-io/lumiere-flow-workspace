@@ -6,27 +6,65 @@ import {
   updateCalendarBookingEmail,
 } from "@/lib/integrations/google-calendar";
 import { upsertClient, lookupClient } from "@/lib/integrations/airtable";
-import { phonesMatchAny } from "@/lib/phone";
+import { extractPhoneForLookup, phonesMatchAny, phoneSearchVariants } from "@/lib/phone";
+import type { CalendarEvent } from "@/types";
+
+const UPCOMING_LOOKAHEAD_DAYS = 120;
 
 function todayChicago(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
 
-/** Next future calendar event for this phone/contact, if any. */
-export async function findUpcomingAppointmentEventId(contact: string): Promise<string | null> {
+function upcomingRange(): { from: string; to: string } {
   const from = todayChicago();
   const toDate = new Date();
-  toDate.setDate(toDate.getDate() + 120);
-  const to = toDate.toISOString().slice(0, 10);
-  const now = Date.now();
+  toDate.setDate(toDate.getDate() + UPCOMING_LOOKAHEAD_DAYS);
+  return { from, to: toDate.toISOString().slice(0, 10) };
+}
 
+/** Future calendar events (single API fetch, cached via getEventsByRange). */
+export async function loadUpcomingCalendarEvents(): Promise<CalendarEvent[]> {
+  const { from, to } = upcomingRange();
   const events = await getEventsByRange(from, to);
-  const upcoming = events
+  const now = Date.now();
+  return events
     .filter((e) => new Date(e.startTime).getTime() >= now)
-    .filter((e) => phonesMatchAny(e.clientContact, contact))
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+}
 
-  return upcoming[0]?.id ?? null;
+export function findUpcomingEventForContact(
+  events: CalendarEvent[],
+  contact: string,
+): CalendarEvent | undefined {
+  return events.find((e) => phonesMatchAny(e.clientContact, contact));
+}
+
+/** Match any phone variant against one pre-loaded event list (avoids N calendar API calls). */
+export async function findUpcomingAppointmentEventForPhones(
+  ...phones: string[]
+): Promise<CalendarEvent | null> {
+  const events = await loadUpcomingCalendarEvents();
+  const variants = new Set<string>();
+  for (const phone of phones) {
+    if (!phone?.trim()) continue;
+    for (const variant of phoneSearchVariants(phone, extractPhoneForLookup(phone))) {
+      variants.add(variant);
+    }
+  }
+
+  for (const event of events) {
+    for (const variant of variants) {
+      if (phonesMatchAny(event.clientContact, variant)) return event;
+    }
+  }
+  return null;
+}
+
+/** Next future calendar event for this phone/contact, if any. */
+export async function findUpcomingAppointmentEventId(contact: string): Promise<string | null> {
+  const events = await loadUpcomingCalendarEvents();
+  const match = findUpcomingEventForContact(events, contact);
+  return match?.id ?? null;
 }
 
 export async function resendBookingConfirmation(opts: { eventId: string; to: string }): Promise<{

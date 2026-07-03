@@ -1,6 +1,9 @@
 export interface EscalationPayload {
   reason: string;
   clientInfo?: string;
+  clientName?: string;
+  phone?: string;
+  email?: string;
   conversationSummary: string;
   platform?: string;
 }
@@ -24,11 +27,16 @@ export async function postEscalation(payload: EscalationPayload): Promise<void> 
           { type: "mrkdwn", text: `*Platform:*\n${payload.platform ?? "Unknown"}` },
         ],
       },
-      ...(payload.clientInfo
+      ...(payload.clientName || payload.phone || payload.email || payload.clientInfo
         ? [
             {
               type: "section",
-              text: { type: "mrkdwn", text: `*Client:*\n${payload.clientInfo}` },
+              text: {
+                type: "mrkdwn",
+                text: payload.clientName
+                  ? `*Client:*\n${payload.clientName}\n*Phone:*\n${payload.phone ?? "—"}\n*Email:*\n${payload.email ?? "—"}`
+                  : `*Client:*\n${payload.clientInfo}`,
+              },
             },
           ]
         : []),

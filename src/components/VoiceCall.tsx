@@ -24,6 +24,8 @@ const TOOL_LABELS: Record<string, string> = {
   resend_booking_confirmation: "Sending your confirmation email...",
   get_practitioners: "Looking up practitioners...",
   find_appointment: "Looking up your booking...",
+  find_upcoming_appointment: "Looking up your appointment...",
+  check_reschedule_availability: "Checking openings for your reschedule...",
   cancel_appointment: "Cancelling your appointment...",
   reschedule_appointment: "Updating your appointment...",
   validate_credit_code: "Checking your promo code...",
@@ -32,6 +34,27 @@ const TOOL_LABELS: Record<string, string> = {
 
 /** No loader — these run in the background during booking flow */
 const SILENT_TOOLS = new Set(["upsert_client", "log_operation", "end_call"]);
+
+/** Calendar / CRM tools that may take longer than a quick lookup */
+const SLOW_TOOLS = new Set([
+  "check_availability",
+  "find_earliest_availability",
+  "book_appointment",
+  "find_upcoming_appointment",
+  "check_reschedule_availability",
+  "cancel_appointment",
+  "reschedule_appointment",
+  "resend_booking_confirmation",
+]);
+
+const VOICE_TOOL_TIMEOUT_MS = 45_000;
+
+/** Max reconnect attempts per "stable window" — reset after a successful reconnect (FIX #R2) */
+const MAX_RECONNECT_ATTEMPTS = 2;
+/** Grace period before treating a "disconnected" ICE state as a real failure (FIX #R3) */
+const DISCONNECTED_GRACE_MS = 2500;
+/** How long a reconnect must stay stable before the attempt counter resets (FIX #R2) */
+const RECONNECT_STABLE_MS = 3000;
 
 export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
   const [status, setStatus] = useState<CallStatus>("connecting");
@@ -59,6 +82,14 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
   const callEndPendingRef = useRef(false);
   const aiSpeakingRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
+  // FIX #R1: Mutex so dc.onclose and pc.onconnectionstatechange can never both trigger
+  // a reconnect for the same drop (previously caused two concurrent RTCPeerConnections)
+  const reconnectingRef = useRef(false);
+  // FIX #R2: Timer that resets the attempt budget once a reconnect has held for a while,
+  // so a second, unrelated network blip later in a long call still gets its own retry
+  const reconnectStableTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // FIX #R3: Debounce timer for the ICE "disconnected" state, which is often transient
+  const disconnectedGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // FIX #1: Use a ref (not state) to capture transcript for reconnect — always current value
   const transcriptRef = useRef<TranscriptLine[]>([]);
   // FIX #5: Track whether stop() was intentionally called to suppress spurious error states
@@ -160,9 +191,13 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
   );
 
   const stop = useCallback(() => {
+    // FIX #R4: Make stop() idempotent — guards against end_call's own timeout firing
+    // stop() a second time after the user has already hit the hang-up button
+    if (intentionalStopRef.current) return;
     // FIX #5: Mark as intentional so dc.onclose / dc.onerror don't trigger error state
     intentionalStopRef.current = true;
     reconnectAttemptsRef.current = 99;
+    reconnectingRef.current = false;
     toolFetchCountRef.current = 0;
     responseHadToolCallRef.current = false;
     // FIX #3: Always clear the resume timer on stop to prevent post-close response.create
@@ -173,6 +208,15 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
     if (micUnmuteTimerRef.current) {
       clearTimeout(micUnmuteTimerRef.current);
       micUnmuteTimerRef.current = null;
+    }
+    // FIX #R2/#R3: Clear the reconnect-related timers too, or they can fire after teardown
+    if (reconnectStableTimerRef.current) {
+      clearTimeout(reconnectStableTimerRef.current);
+      reconnectStableTimerRef.current = null;
+    }
+    if (disconnectedGraceTimerRef.current) {
+      clearTimeout(disconnectedGraceTimerRef.current);
+      disconnectedGraceTimerRef.current = null;
     }
     const dc = dcRef.current;
     const pc = pcRef.current;
@@ -236,6 +280,14 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
           const isReconnect = reconnectAttemptsRef.current > 0;
           if (isReconnect && transcriptRef.current.length > 0) {
             setTranscript(transcriptRef.current);
+            // FIX #R2: This reconnect worked — once it's held for a bit without dropping
+            // again, reset the attempt budget so a *later, unrelated* blip in this same
+            // call still gets its own retry instead of failing immediately.
+            if (reconnectStableTimerRef.current) clearTimeout(reconnectStableTimerRef.current);
+            reconnectStableTimerRef.current = setTimeout(() => {
+              reconnectStableTimerRef.current = null;
+              reconnectAttemptsRef.current = 0;
+            }, RECONNECT_STABLE_MS);
             const resumeDc = dcRef.current;
             if (resumeDc && resumeDc.readyState === "open") {
               resumeDc.send(
@@ -435,6 +487,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
 
                 let output: unknown;
                 try {
+                  const timeoutMs = SLOW_TOOLS.has(toolName) ? VOICE_TOOL_TIMEOUT_MS : 20_000;
                   const res = await fetchWithTimeout(
                     "/api/voice/tool",
                     {
@@ -443,13 +496,23 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                       body: JSON.stringify({
                         toolName,
                         input,
-                        platform: "widget",
+                        platform: "voice",
                         chatId: sessionId,
                       }),
                     },
-                    20000,
+                    timeoutMs,
                   );
                   output = await res.json();
+                  if (!res.ok) {
+                    const err =
+                      output &&
+                      typeof output === "object" &&
+                      "error" in output &&
+                      typeof (output as { error: unknown }).error === "string"
+                        ? (output as { error: string }).error
+                        : `Request failed (${res.status})`;
+                    output = { error: err };
+                  }
                 } catch (err) {
                   const msg = err instanceof Error ? err.message : String(err);
                   output = {
@@ -500,7 +563,14 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
             } else {
               clearProcessing();
             }
-          } else if (toolCalls.length === 0) {
+          } else if (toolCalls.length > 0) {
+            // FIX #R5: The data channel dropped between the tool call being queued and
+            // response.done firing (e.g. mid-reconnect). Without this branch,
+            // toolFetchCountRef never gets decremented and the "Checking the calendar..."
+            // spinner stays stuck forever, silently freezing the booking flow.
+            toolCalls.forEach(({ toolName }) => endToolFetch(toolName));
+            clearProcessing();
+          } else {
             clearProcessing();
           }
 
@@ -609,9 +679,17 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
           // FIX #5: Suppress close events that fire as part of intentional stop()
           if (intentionalStopRef.current) return;
           if (!pcRef.current) return;
-          if (reconnectAttemptsRef.current < 1) {
+          // FIX #R1: Mutex guard — pc.onconnectionstatechange may already be reconnecting
+          // for this exact drop. Without this, both handlers race to spin up a second
+          // RTCPeerConnection, breaking or silently corrupting an in-progress booking call.
+          if (reconnectingRef.current) return;
+          if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+            reconnectingRef.current = true;
             reconnectAttemptsRef.current += 1;
-            setTimeout(() => start(true), 1500);
+            setTimeout(() => {
+              reconnectingRef.current = false;
+              start(true);
+            }, 1500);
           } else {
             setError("Call disconnected — please retry");
             setStatus("error");
@@ -620,14 +698,50 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
 
         pc.onconnectionstatechange = () => {
           if (intentionalStopRef.current) return;
-          if (pc.connectionState === "failed" || pc.connectionState === "disconnected") {
-            if (reconnectAttemptsRef.current < 1) {
+
+          if (pc.connectionState === "failed") {
+            // FIX #R1: Same mutex guard as dc.onclose above
+            if (reconnectingRef.current) return;
+            if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+              reconnectingRef.current = true;
               reconnectAttemptsRef.current += 1;
-              setTimeout(() => start(true), 1500);
+              setTimeout(() => {
+                reconnectingRef.current = false;
+                start(true);
+              }, 1500);
             } else {
               setError("Network connection lost — please retry");
               setStatus("error");
             }
+            return;
+          }
+
+          if (pc.connectionState === "disconnected") {
+            // FIX #R3: "disconnected" is frequently transient (brief Wi-Fi/cellular blip)
+            // and often self-heals within a couple seconds. Reconnecting immediately tears
+            // down and rebuilds the whole call for something that may not need it — give
+            // it a short grace window before treating it as a real failure.
+            if (disconnectedGraceTimerRef.current) clearTimeout(disconnectedGraceTimerRef.current);
+            disconnectedGraceTimerRef.current = setTimeout(() => {
+              disconnectedGraceTimerRef.current = null;
+              if (intentionalStopRef.current || reconnectingRef.current) return;
+              if (pcRef.current !== pc || pc.connectionState !== "disconnected") return; // recovered on its own
+              if (reconnectAttemptsRef.current < MAX_RECONNECT_ATTEMPTS) {
+                reconnectingRef.current = true;
+                reconnectAttemptsRef.current += 1;
+                setTimeout(() => {
+                  reconnectingRef.current = false;
+                  start(true);
+                }, 1500);
+              } else {
+                setError("Network connection lost — please retry");
+                setStatus("error");
+              }
+            }, DISCONNECTED_GRACE_MS);
+          } else if (disconnectedGraceTimerRef.current) {
+            // Connection recovered (e.g. back to "connected") before the grace period elapsed
+            clearTimeout(disconnectedGraceTimerRef.current);
+            disconnectedGraceTimerRef.current = null;
           }
         };
 
@@ -667,6 +781,9 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
     return () => {
       // FIX #3: Cleanup resume timer on unmount
       if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+      // FIX #R2/#R3: Also clean up the reconnect-related timers on unmount
+      if (reconnectStableTimerRef.current) clearTimeout(reconnectStableTimerRef.current);
+      if (disconnectedGraceTimerRef.current) clearTimeout(disconnectedGraceTimerRef.current);
       dcRef.current?.close();
       pcRef.current?.close();
       streamRef.current?.getTracks().forEach((t) => t.stop());

@@ -45,6 +45,7 @@ export interface CalendarEvent {
   treatment: string;
   clientName: string;
   clientContact: string;
+  clientEmail?: string;
   startTime: string;
   endTime: string;
   notes: string;
