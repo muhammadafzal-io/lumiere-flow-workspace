@@ -203,9 +203,8 @@ export async function prepareCancelRescheduleInput(
       input.duration_minutes = durationMinutesForAppointment(appt);
     }
   } else if (!normalizeEmail(input.client_email)) {
-    const { resolveAppointmentNotificationEmail } = await import(
-      "@/lib/booking/appointment-by-phone"
-    );
+    const { resolveAppointmentNotificationEmail } =
+      await import("@/lib/booking/appointment-by-phone");
     const email = await resolveAppointmentNotificationEmail({
       phone: normalized,
       eventId: String(input.event_id),

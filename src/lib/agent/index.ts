@@ -209,7 +209,9 @@ export async function executeTool(
           }).catch(() => undefined);
         }
 
-        const clientRecord = await lookupClient({ phone: apptData.clientContact }).catch(() => null);
+        const clientRecord = await lookupClient({ phone: apptData.clientContact }).catch(
+          () => null,
+        );
         await createAppointmentRecord(
           {
             clientName: apptData.clientName,
@@ -301,9 +303,8 @@ export async function executeTool(
       const eventId = input.event_id as string;
       const phone = String(input.phone ?? input.client_contact ?? "");
 
-      const { resolveAppointmentNotificationEmail } = await import(
-        "@/lib/booking/appointment-by-phone"
-      );
+      const { resolveAppointmentNotificationEmail } =
+        await import("@/lib/booking/appointment-by-phone");
       const { getCalendarBookingDetails } = await import("@/lib/integrations/google-calendar");
       const bookingBefore = await getCalendarBookingDetails(eventId).catch(() => null);
 
@@ -404,17 +405,16 @@ export async function executeTool(
       const durationMin =
         (input.duration_minutes as number | undefined) ??
         (input.appointment_treatment
-          ? (
-              await import("@/lib/booking/appointment-duration")
-            ).durationMinutesForTreatmentName(String(input.appointment_treatment))
+          ? (await import("@/lib/booking/appointment-duration")).durationMinutesForTreatmentName(
+              String(input.appointment_treatment),
+            )
           : 60);
       const newEndTime = new Date(
         new Date(newStartTime).getTime() + durationMin * 60_000,
       ).toISOString();
 
-      const { resolveAppointmentNotificationEmail } = await import(
-        "@/lib/booking/appointment-by-phone"
-      );
+      const { resolveAppointmentNotificationEmail } =
+        await import("@/lib/booking/appointment-by-phone");
       const { getCalendarBookingDetails } = await import("@/lib/integrations/google-calendar");
       const bookingBefore = await getCalendarBookingDetails(eventId).catch(() => null);
 
