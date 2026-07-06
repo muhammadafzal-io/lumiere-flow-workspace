@@ -1,68 +1,25 @@
 import "server-only";
 
 import { getSupabase } from "@/lib/supabase";
+import type {
+  EmailSendCategory,
+  EmailSendLogEntry,
+  EmailSendStatus,
+  EmailSendTrigger,
+  LogEmailSendInput,
+  ReadEmailSendLogFilters,
+} from "@/lib/integrations/email-send-log-types";
+
+export type {
+  EmailSendCategory,
+  EmailSendLogEntry,
+  EmailSendStatus,
+  EmailSendTrigger,
+  LogEmailSendInput,
+  ReadEmailSendLogFilters,
+} from "@/lib/integrations/email-send-log-types";
 
 const TABLE = "email_sends";
-
-export type EmailSendCategory =
-  | "rule"
-  | "campaign"
-  | "reminder"
-  | "birthday"
-  | "noshow"
-  | "reactivation"
-  | "booking"
-  | "cancellation"
-  | "reschedule"
-  | "general"
-  | "followup";
-
-export type EmailSendTrigger = "cron" | "manual" | "system";
-
-export type EmailSendStatus = "sent" | "failed" | "skipped";
-
-export interface EmailSendLogEntry {
-  id: string;
-  createdAt: string;
-  category: EmailSendCategory;
-  triggerType: EmailSendTrigger;
-  sourceId?: string;
-  sourceName?: string;
-  clientId?: string;
-  clientName?: string;
-  toEmail: string;
-  subject?: string;
-  status: EmailSendStatus;
-  failReason?: string;
-  provider?: string;
-  simulated: boolean;
-  messagePreview?: string;
-}
-
-export interface LogEmailSendInput {
-  category: EmailSendCategory;
-  triggerType: EmailSendTrigger;
-  sourceId?: string;
-  sourceName?: string;
-  clientId?: string;
-  clientName?: string;
-  toEmail: string;
-  subject?: string;
-  status: EmailSendStatus;
-  failReason?: string;
-  provider?: string;
-  simulated?: boolean;
-  messagePreview?: string;
-}
-
-export interface ReadEmailSendLogFilters {
-  category?: EmailSendCategory | "all";
-  categories?: EmailSendCategory[];
-  status?: EmailSendStatus | "all";
-  triggerType?: EmailSendTrigger | "all";
-  search?: string;
-  limit?: number;
-}
 
 function mapRow(row: Record<string, unknown>): EmailSendLogEntry {
   return {

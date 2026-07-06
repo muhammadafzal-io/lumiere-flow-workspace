@@ -315,7 +315,25 @@ export async function executeTool(
         calendarEmail: bookingBefore?.clientEmail,
       });
 
-      const cancelled = await cancelCalendarEvent(eventId);
+      let cancelled: Awaited<ReturnType<typeof cancelCalendarEvent>>;
+      try {
+        cancelled = await cancelCalendarEvent(eventId);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const notFound =
+          message.includes("404") ||
+          message.toLowerCase().includes("not found") ||
+          (err as { code?: number })?.code === 404;
+        if (notFound) {
+          return {
+            result: {
+              error:
+                "That appointment was not found — it may have already been cancelled. Call find_upcoming_appointment with their phone to confirm.",
+            },
+          };
+        }
+        return { result: { error: `Could not cancel appointment: ${message}` } };
+      }
 
       let confirmationEmailSent = false;
       let emailSkippedReason: string | undefined;

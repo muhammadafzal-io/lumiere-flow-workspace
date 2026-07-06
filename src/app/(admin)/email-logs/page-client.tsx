@@ -14,7 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RefreshCw, Mail } from "lucide-react";
-import type { EmailSendLogEntry, EmailSendCategory } from "@/lib/integrations/email-send-log";
+import type { EmailSendLogEntry, EmailSendCategory } from "@/lib/integrations/email-send-log-types";
 
 const CATEGORIES = [
   "rule",

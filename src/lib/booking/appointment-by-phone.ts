@@ -1,7 +1,11 @@
-import { normalizeEmail } from "@/lib/agent/booking-guards";
-import { lookupClient, lookupClientByPhone } from "@/lib/integrations/airtable";
+import { normalizeEmail } from "@/lib/email";
+import { lookupClientByPhone } from "@/lib/integrations/airtable";
 import { extractPhoneForLookup, phoneSearchVariants } from "@/lib/phone";
-import { findUpcomingAppointmentEventForPhones } from "@/lib/booking/resend-confirmation";
+import {
+  findUpcomingEventByClientName,
+  findUpcomingEventInList,
+} from "@/lib/booking/upcoming-event-match";
+import { loadUpcomingCalendarEvents } from "@/lib/booking/resend-confirmation";
 
 export type UpcomingAppointment = {
   eventId: string;
@@ -22,7 +26,24 @@ export async function findUpcomingAppointmentByPhone(
   const normalized = extractPhoneForLookup(phone);
   if (!normalized) return null;
 
-  const matched = await findUpcomingAppointmentEventForPhones(phone, normalized);
+  const events = await loadUpcomingCalendarEvents();
+  let matched = findUpcomingEventInList(events, phone, normalized);
+
+  if (!matched) {
+    for (const variant of phoneSearchVariants(normalized, phone)) {
+      const client = await lookupClientByPhone(variant).catch(() => null);
+      if (!client) continue;
+
+      if (client.phone) {
+        matched = findUpcomingEventInList(events, client.phone, phone, normalized);
+      }
+      if (!matched && client.name) {
+        matched = findUpcomingEventByClientName(events, client.name);
+      }
+      if (matched) break;
+    }
+  }
+
   if (!matched) return null;
 
   let clientEmail = normalizeEmail(matched.clientEmail);
@@ -74,6 +95,7 @@ export async function resolveAppointmentNotificationEmail(opts: {
       const email = normalizeEmail(byPhone?.email);
       if (email) return email;
 
+      const { lookupClient } = await import("@/lib/integrations/airtable");
       const byLookup = await lookupClient({ phone: variant }).catch(() => null);
       const email2 = normalizeEmail(byLookup?.email);
       if (email2) return email2;

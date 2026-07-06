@@ -1,13 +1,10 @@
 import { lookupClientByPhone } from "@/lib/integrations/airtable";
 import { isValidBirthdayInput, normalizeBirthdayForStorage } from "@/lib/birthday";
+import { normalizeEmail } from "@/lib/email";
 import { phoneSearchVariants, extractPhoneForLookup, phoneDigits } from "@/lib/phone";
 import { fullNameValidationError, isFullName } from "@/lib/agent/client-name";
 
-export function normalizeEmail(raw: unknown): string | undefined {
-  if (typeof raw !== "string" || !raw.includes("@")) return undefined;
-  const email = raw.trim().toLowerCase().replace(/\s+/g, "");
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : undefined;
-}
+export { normalizeEmail };
 
 /** Normalize email on booking payloads (strips spaces from speech/typing, e.g. "talha azeem@gmail.com"). */
 export function sanitizeBookingEmails(input: Record<string, unknown>): void {
@@ -186,9 +183,17 @@ export async function prepareCancelRescheduleInput(
 
   await enrichClientFromPhone(input);
 
+  const lookupPhones = [normalized, rawPhone, input.crm_record_phone as string | undefined].filter(
+    (p): p is string => Boolean(p?.trim()),
+  );
+
   if (!input.event_id) {
     const { findUpcomingAppointmentByPhone } = await import("@/lib/booking/appointment-by-phone");
-    const appt = await findUpcomingAppointmentByPhone(normalized);
+    let appt = null as Awaited<ReturnType<typeof findUpcomingAppointmentByPhone>>;
+    for (const phoneCandidate of lookupPhones) {
+      appt = await findUpcomingAppointmentByPhone(phoneCandidate);
+      if (appt) break;
+    }
     if (!appt) {
       return "No upcoming appointment found for this phone number. Confirm the number is correct or check if the appointment already passed.";
     }

@@ -196,10 +196,10 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           client_contact: {
             type: "string",
-            description: "Alias for phone",
+            description: "Alias for phone — pass phone here if that is what you collected",
           },
         },
-        required: ["phone"],
+        required: [],
       },
     },
   },
@@ -226,7 +226,7 @@ export const TOOLS: ChatCompletionTool[] = [
             description: "New date to check in YYYY-MM-DD (Austin)",
           },
         },
-        required: ["phone", "date"],
+        required: ["date"],
       },
     },
   },
@@ -236,7 +236,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "cancel_appointment",
       description:
-        "Cancel an existing appointment. ONLY phone is required — system looks up the appointment, client name, and email automatically. NEVER ask for name, email, or event_id. Confirm with the client before calling.",
+        "Cancel an existing appointment. Pass phone OR client_contact — system looks up the appointment automatically. Optional event_id if you already have it from find_upcoming_appointment or book_appointment. NEVER ask for name or email. Confirm with the client before calling.",
       parameters: {
         type: "object",
         properties: {
@@ -250,10 +250,10 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           event_id: {
             type: "string",
-            description: "Optional — auto-filled from phone if omitted",
+            description: "Optional — from find_upcoming_appointment or book_appointment; auto-filled from phone if omitted",
           },
         },
-        required: ["phone"],
+        required: [],
       },
     },
   },
@@ -273,7 +273,7 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           client_contact: {
             type: "string",
-            description: "Alias for phone",
+            description: "Alias for phone — pass phone here if that is what you collected",
           },
           new_date_time: {
             type: "string",
@@ -289,10 +289,10 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           event_id: {
             type: "string",
-            description: "Optional — auto-filled from phone if omitted",
+            description: "Optional — from find_upcoming_appointment; auto-filled from phone if omitted",
           },
         },
-        required: ["phone", "new_date_time"],
+        required: ["new_date_time"],
       },
     },
   },

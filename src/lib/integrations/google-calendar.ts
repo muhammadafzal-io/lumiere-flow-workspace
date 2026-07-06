@@ -28,6 +28,11 @@ const DEFAULT_ROOMS = getDefaultRooms();
 const EVENTS_RANGE_CACHE_MS = 45_000;
 const eventsRangeCache = new Map<string, { at: number; events: CalendarEvent[] }>();
 
+/** Clear cached calendar ranges after book/cancel/reschedule so lookups see fresh data. */
+export function invalidateEventsRangeCache(): void {
+  eventsRangeCache.clear();
+}
+
 // Returns today's date string (YYYY-MM-DD) in Chicago CT
 function todayInChicago(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: TIMEZONE });
@@ -342,6 +347,7 @@ export async function bookAdminAppointment(booking: {
     },
   });
 
+  invalidateEventsRangeCache();
   return { id: event.data.id! };
 }
 
@@ -372,6 +378,7 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
     },
   });
 
+  invalidateEventsRangeCache();
   return { ...appt, id: event.data.id! };
 }
 
@@ -429,6 +436,7 @@ export async function cancelCalendarEvent(eventId: string): Promise<{
   const calId = calendarId();
   const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
   await calendar.events.delete({ calendarId: calId, eventId });
+  invalidateEventsRangeCache();
   const { treatment, clientName } = resolveEventClient(
     event.summary ?? "",
     event.description ?? "",
@@ -511,6 +519,7 @@ export async function updateCalendarBookingEmail(eventId: string, email: string)
       description: setDescriptionEmail(event.description ?? "", email),
     },
   });
+  invalidateEventsRangeCache();
 }
 
 /** Reschedule a calendar event to a new start/end time. Returns old and new start times. */
@@ -538,6 +547,7 @@ export async function rescheduleCalendarEvent(
       end: { dateTime: newEndTime, timeZone: TIMEZONE },
     },
   });
+  invalidateEventsRangeCache();
   const { treatment, clientName } = resolveEventClient(
     event.summary ?? "",
     event.description ?? "",

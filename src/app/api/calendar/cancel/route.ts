@@ -3,6 +3,7 @@ import { google } from "googleapis";
 import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
+import { invalidateEventsRangeCache } from "@/lib/integrations/google-calendar";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 
 function getCalendarClient() {
@@ -58,6 +59,8 @@ export async function DELETE(req: NextRequest) {
     const event = getRes.data;
 
     await calendar.events.delete({ calendarId: calId, eventId });
+
+    invalidateEventsRangeCache();
 
     (async () => {
       try {

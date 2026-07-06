@@ -1,13 +1,22 @@
 import { sendBookingConfirmationEmail } from "@/lib/booking/confirmation-email";
-import { normalizeEmail } from "@/lib/agent/booking-guards";
+import { normalizeEmail } from "@/lib/email";
+import {
+  findUpcomingEventForContact,
+  findUpcomingEventInList,
+} from "@/lib/booking/upcoming-event-match";
 import {
   getCalendarBookingDetails,
   getEventsByRange,
   updateCalendarBookingEmail,
 } from "@/lib/integrations/google-calendar";
 import { upsertClient, lookupClient } from "@/lib/integrations/airtable";
-import { extractPhoneForLookup, phonesMatchAny, phoneSearchVariants } from "@/lib/phone";
 import type { CalendarEvent } from "@/types";
+
+export {
+  findUpcomingEventByClientName,
+  findUpcomingEventForContact,
+  findUpcomingEventInList,
+} from "@/lib/booking/upcoming-event-match";
 
 const UPCOMING_LOOKAHEAD_DAYS = 120;
 
@@ -32,32 +41,12 @@ export async function loadUpcomingCalendarEvents(): Promise<CalendarEvent[]> {
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 }
 
-export function findUpcomingEventForContact(
-  events: CalendarEvent[],
-  contact: string,
-): CalendarEvent | undefined {
-  return events.find((e) => phonesMatchAny(e.clientContact, contact));
-}
-
 /** Match any phone variant against one pre-loaded event list (avoids N calendar API calls). */
 export async function findUpcomingAppointmentEventForPhones(
   ...phones: string[]
 ): Promise<CalendarEvent | null> {
   const events = await loadUpcomingCalendarEvents();
-  const variants = new Set<string>();
-  for (const phone of phones) {
-    if (!phone?.trim()) continue;
-    for (const variant of phoneSearchVariants(phone, extractPhoneForLookup(phone))) {
-      variants.add(variant);
-    }
-  }
-
-  for (const event of events) {
-    for (const variant of variants) {
-      if (phonesMatchAny(event.clientContact, variant)) return event;
-    }
-  }
-  return null;
+  return findUpcomingEventInList(events, ...phones) ?? null;
 }
 
 /** Next future calendar event for this phone/contact, if any. */

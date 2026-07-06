@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { normalizeEmail } from "@/lib/agent/booking-guards";
+import { normalizeEmail } from "@/lib/email";
 import {
   dateOfBirthNotPromoCodeError,
   looksLikeDateOfBirthInput,

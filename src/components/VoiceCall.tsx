@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { normalizeEmail } from "@/lib/email";
 import { requestVoiceMicrophoneStream } from "@/lib/voice/microphone-constraints";
+import { findVoiceConfirmedEmail } from "@/lib/voice/confirmed-email";
 import { getToolCueRecoveryInstruction } from "@/lib/voice/tool-cue-recovery";
 import { shouldRejectUserTranscript } from "@/lib/voice/transcript-filter";
 
@@ -483,6 +485,24 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                   input = JSON.parse(args);
                 } catch {
                   /* keep empty */
+                }
+
+                const emailField =
+                  toolName === "upsert_client"
+                    ? "email"
+                    : toolName === "book_appointment" ||
+                        toolName === "resend_booking_confirmation" ||
+                        toolName === "escalate_to_human"
+                      ? "client_email"
+                      : null;
+                if (emailField) {
+                  const confirmed = findVoiceConfirmedEmail(transcriptRef.current);
+                  if (confirmed) {
+                    const current = normalizeEmail(input[emailField]);
+                    if (!current || current !== confirmed) {
+                      input[emailField] = confirmed;
+                    }
+                  }
                 }
 
                 let output: unknown;
