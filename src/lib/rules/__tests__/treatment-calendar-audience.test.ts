@@ -11,7 +11,7 @@ describe("treatment-calendar-audience", () => {
     const rule = {
       trigger_type: "Treatment-based",
       trigger_config: { treatment_timing: "within_last_days", within_last_days: 7 },
-    } as Rule;
+    } as unknown as Rule;
     expect(usesTreatmentCalendarSource(rule)).toBe(true);
   });
 
@@ -19,13 +19,13 @@ describe("treatment-calendar-audience", () => {
     const rule = {
       trigger_type: "Treatment-based",
       trigger_config: { exact_calendar_day: true, days_after: 1 },
-    } as Rule;
+    } as unknown as Rule;
     expect(usesTreatmentCalendarSource(rule)).toBe(true);
     expect(
       usesTreatmentCalendarSource({
         ...rule,
         trigger_config: { days_after: 14 },
-      } as Rule),
+      } as unknown as Rule),
     ).toBe(false);
   });
 

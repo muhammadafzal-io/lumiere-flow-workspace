@@ -15,6 +15,7 @@ const sampleEvents: CalendarEvent[] = [
     clientContact: "+15551234567",
     room: "Room 1",
     practitioner: "Dr. A",
+    notes: "",
   },
 ];
 
