@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { normalizeEmail } from "@/lib/email";
 import { requestVoiceMicrophoneStream } from "@/lib/voice/microphone-constraints";
-import { findVoiceConfirmedEmail } from "@/lib/voice/confirmed-email";
+import { findVoiceConfirmedEmail, shouldPreferConfirmedEmail } from "@/lib/voice/confirmed-email";
 import { getToolCueRecoveryInstruction } from "@/lib/voice/tool-cue-recovery";
 import { shouldRejectUserTranscript } from "@/lib/voice/transcript-filter";
 
@@ -499,7 +499,12 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                   const confirmed = findVoiceConfirmedEmail(transcriptRef.current);
                   if (confirmed) {
                     const current = normalizeEmail(input[emailField]);
-                    if (!current || current !== confirmed) {
+                    if (!current) {
+                      input[emailField] = confirmed;
+                    } else if (
+                      confirmed !== current &&
+                      shouldPreferConfirmedEmail(current, confirmed)
+                    ) {
                       input[emailField] = confirmed;
                     }
                   }
