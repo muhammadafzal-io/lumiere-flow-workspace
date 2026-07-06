@@ -250,7 +250,8 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           event_id: {
             type: "string",
-            description: "Optional — from find_upcoming_appointment or book_appointment; auto-filled from phone if omitted",
+            description:
+              "Optional — from find_upcoming_appointment or book_appointment; auto-filled from phone if omitted",
           },
         },
         required: [],
@@ -289,7 +290,8 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           event_id: {
             type: "string",
-            description: "Optional — from find_upcoming_appointment; auto-filled from phone if omitted",
+            description:
+              "Optional — from find_upcoming_appointment; auto-filled from phone if omitted",
           },
         },
         required: ["new_date_time"],

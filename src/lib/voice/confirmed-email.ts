@@ -26,7 +26,10 @@ export function parseEmailFromConfirmationText(text: string): string | undefined
 }
 
 function normalizeSpokenDomain(domain: string): string {
-  return domain.replace(/\s+dot\s+/gi, ".").replace(/\s+/g, "").toLowerCase();
+  return domain
+    .replace(/\s+dot\s+/gi, ".")
+    .replace(/\s+/g, "")
+    .toLowerCase();
 }
 
 function isValidEmail(email: string): boolean {
