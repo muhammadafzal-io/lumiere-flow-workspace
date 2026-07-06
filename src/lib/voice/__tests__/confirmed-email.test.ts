@@ -37,12 +37,20 @@ describe("parseEmailFromConfirmationText", () => {
     ).toBe("techtycon72@gmail.com");
   });
 
-  it("parses spoken local part with dots before at", () => {
+  it("parses spoken digit words as numeric local segment", () => {
     expect(
       parseEmailFromConfirmationText(
-        "That's muhammad dot afzal dot 110190 at gmail dot com — is that right?",
+        "That's muhammad dot afzal dot one one zero one nine zero at gmail dot com — correct?",
       ),
     ).toBe("muhammad.afzal.110190@gmail.com");
+  });
+
+  it("does not return zero@gmail.com from spoken digit tail", () => {
+    expect(
+      parseEmailFromConfirmationText(
+        "That's muhammad dot afzal dot one one zero one nine zero at gmail dot com",
+      ),
+    ).not.toBe("zero@gmail.com");
   });
 
   it("parses spoken local part before at", () => {
@@ -59,8 +67,14 @@ describe("shouldPreferConfirmedEmail", () => {
     );
   });
 
-  it("accepts full confirmed email over shorter tool arg", () => {
-    expect(shouldPreferConfirmedEmail("110190@gmail.com", "muhammad.afzal.110190@gmail.com")).toBe(
+  it("rejects zero@gmail.com when tool has full address", () => {
+    expect(shouldPreferConfirmedEmail("muhammad.afzal.110190@gmail.com", "zero@gmail.com")).toBe(
+      false,
+    );
+  });
+
+  it("prefers full address when tool has suspicious local", () => {
+    expect(shouldPreferConfirmedEmail("zero@gmail.com", "muhammad.afzal.110190@gmail.com")).toBe(
       true,
     );
   });
@@ -79,6 +93,14 @@ describe("findVoiceConfirmedEmail", () => {
       { role: "user", text: "yes" },
     ]);
     expect(email).toBe("techtycon72@gmail.com");
+  });
+
+  it("uses user spoken email when assistant partial would be zero@gmail.com", () => {
+    const email = findVoiceConfirmedEmail([
+      { role: "user", text: "muhammad dot afzal dot one one zero one nine zero at gmail" },
+      { role: "assistant", text: "zero at gmail dot com — is that correct?" },
+    ]);
+    expect(email).toBe("muhammad.afzal.110190@gmail.com");
   });
 
   it("returns full dotted email from confirmation line", () => {
