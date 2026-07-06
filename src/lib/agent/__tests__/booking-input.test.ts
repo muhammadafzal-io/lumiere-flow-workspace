@@ -15,6 +15,10 @@ describe("normalizeEmail", () => {
   it("rejects invalid emails", () => {
     expect(normalizeEmail("not-an-email")).toBeUndefined();
   });
+
+  it("strips voice that's prefix glued to local part", () => {
+    expect(normalizeEmail("that'sriaz36872@gmail.com")).toBe("riaz36872@gmail.com");
+  });
 });
 
 describe("looksLikeDateOfBirthInput", () => {

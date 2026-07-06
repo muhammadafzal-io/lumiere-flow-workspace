@@ -53,10 +53,16 @@ describe("parseEmailFromConfirmationText", () => {
     ).not.toBe("zero@gmail.com");
   });
 
-  it("parses spoken local part before at", () => {
+  it("parses hyphenated spelling with gmail.com domain", () => {
     expect(
-      parseEmailFromConfirmationText("That's techtycon72 at gmail dot com — is that right?"),
-    ).toBe("techtycon72@gmail.com");
+      parseEmailFromConfirmationText(
+        "Got it. Let me confirm your email — that's R-I-A-Z-3-6-8-7-2 at gmail.com. Is that correct?",
+      ),
+    ).toBe("riaz36872@gmail.com");
+  });
+
+  it("sanitizes that's glued to a direct email match", () => {
+    expect(findLongestEmailInText("that'sriaz36872@gmail.com")).toBe("riaz36872@gmail.com");
   });
 });
 
@@ -73,8 +79,8 @@ describe("shouldPreferConfirmedEmail", () => {
     );
   });
 
-  it("prefers full address when tool has suspicious local", () => {
-    expect(shouldPreferConfirmedEmail("zero@gmail.com", "muhammad.afzal.110190@gmail.com")).toBe(
+  it("prefers confirmed when tool email has that's prefix", () => {
+    expect(shouldPreferConfirmedEmail("that'sriaz36872@gmail.com", "riaz36872@gmail.com")).toBe(
       true,
     );
   });
@@ -103,14 +109,14 @@ describe("findVoiceConfirmedEmail", () => {
     expect(email).toBe("muhammad.afzal.110190@gmail.com");
   });
 
-  it("returns full dotted email from confirmation line", () => {
+  it("returns riaz36872 from hyphen spell-back with gmail.com", () => {
     const email = findVoiceConfirmedEmail([
       {
         role: "assistant",
-        text: "Let me confirm — muhammad.afzal.110190@gmail.com. Is that correct?",
+        text: "Got it. Let me confirm your email — that's R-I-A-Z-3-6-8-7-2 at gmail.com. Is that correct?",
       },
       { role: "user", text: "yes" },
     ]);
-    expect(email).toBe("muhammad.afzal.110190@gmail.com");
+    expect(email).toBe("riaz36872@gmail.com");
   });
 });

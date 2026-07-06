@@ -496,7 +496,8 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                       ? "client_email"
                       : null;
                 if (emailField) {
-                  const confirmed = findVoiceConfirmedEmail(transcriptRef.current);
+                  const rawConfirmed = findVoiceConfirmedEmail(transcriptRef.current);
+                  const confirmed = rawConfirmed ? normalizeEmail(rawConfirmed) : undefined;
                   if (confirmed) {
                     const current = normalizeEmail(input[emailField]);
                     if (!current) {
