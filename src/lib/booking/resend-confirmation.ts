@@ -12,6 +12,8 @@ import {
 import { upsertClient, lookupClient } from "@/lib/integrations/airtable";
 import type { CalendarEvent } from "@/types";
 
+import { logFlowStep } from "@/lib/voice/flow-context";
+
 export {
   findUpcomingEventByClientName,
   findUpcomingEventForContact,
@@ -33,12 +35,20 @@ function upcomingRange(): { from: string; to: string } {
 
 /** Future calendar events (single API fetch, cached via getEventsByRange). */
 export async function loadUpcomingCalendarEvents(): Promise<CalendarEvent[]> {
+  logFlowStep("fetch:loadUpcomingCalendarEvents:start");
   const { from, to } = upcomingRange();
   const events = await getEventsByRange(from, to);
   const now = Date.now();
-  return events
+  const upcoming = events
     .filter((e) => new Date(e.startTime).getTime() >= now)
     .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+  logFlowStep("fetch:loadUpcomingCalendarEvents:end", {
+    from,
+    to,
+    total: events.length,
+    upcoming: upcoming.length,
+  });
+  return upcoming;
 }
 
 /** Match any phone variant against one pre-loaded event list (avoids N calendar API calls). */

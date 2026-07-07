@@ -1,6 +1,6 @@
 import { getSupabase } from "@/lib/supabase";
 import { logEvent } from "@/lib/integrations/activity-log";
-import type { EmailSendTrigger } from "@/lib/integrations/email-send-log";
+import type { EmailSendTrigger } from "@/lib/integrations/email-send-log-types";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
 import { mapCampaignRow, mapRecipientRow } from "@/lib/campaigns/db";

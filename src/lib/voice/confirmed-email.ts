@@ -1,4 +1,4 @@
-import { sanitizeEmailLocalPart } from "@/lib/email";
+import { hasSttJunkLocalPrefix, normalizeEmail, sanitizeEmailLocalPart } from "@/lib/email";
 
 const EMAIL_IN_TEXT = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
 
@@ -13,6 +13,27 @@ const SPOKEN_DIGIT_WORDS: Record<string, string> = {
   seven: "7",
   eight: "8",
   nine: "9",
+};
+
+type EmailParseSource = "hyphen" | "direct" | "word";
+type SpeakerRole = "assistant" | "user";
+
+interface EmailCandidate {
+  email: string;
+  index: number;
+  source: EmailParseSource;
+  role: SpeakerRole;
+}
+
+const SOURCE_RANK: Record<EmailParseSource, number> = {
+  hyphen: 3,
+  direct: 2,
+  word: 1,
+};
+
+const ROLE_RANK: Record<SpeakerRole, number> = {
+  assistant: 2,
+  user: 1,
 };
 
 /** Pick the longest valid @-address in text (avoids partial matches on dotted locals). */
@@ -51,14 +72,22 @@ function normalizeSpokenDomain(domain: string): string {
   return normalized;
 }
 
-/** Remove STT glue like that'sriaz… so @-patterns are not split at the apostrophe. */
+/** Remove STT glue like that'sriaz… or thank-you spell-back phrases before @-patterns. */
 function prepareTextForEmailExtraction(text: string): string {
-  return text.replace(/that'?s(?=[a-zA-Z0-9])/gi, "");
+  return text
+    .replace(/that'?s(?=[a-zA-Z0-9])/gi, "")
+    .replace(
+      /thank\s*you(?:\s+for\s+clarifying)?[.,!\s—-]*let\s*me\s+spell\s*it\s+back[.:!\s—-]*/gi,
+      "",
+    );
 }
 
 function stripSpokenEmailPrefix(local: string): string {
   return local
-    .replace(/^(?:that'?s|let me confirm(?:\s+your email)?|got it)\s*[—,-]?\s*/i, "")
+    .replace(
+      /^(?:that'?s|let me confirm(?:\s+your email)?|got it|thank you(?:\s+for\s+clarifying)?|let me spell it back)\s*[—,-]?\s*/i,
+      "",
+    )
     .trim();
 }
 
@@ -83,80 +112,113 @@ export function isSuspiciousEmailLocal(local: string): boolean {
   return false;
 }
 
-function extractBroadSpokenEmail(text: string): string | undefined {
-  const prefixed = text.match(
-    /\b(?:that'?s|let me confirm(?:\s+your email)?)\s*[—,-]?\s*(.+?)\s+at\s+([a-z0-9.]+)/i,
-  );
-  if (!prefixed) return undefined;
-  return buildSpokenEmail(stripSpokenEmailPrefix(prefixed[1]), prefixed[2]);
-}
-
-function extractLooseSpokenEmail(text: string): string | undefined {
-  if (!/\s+dot\s+/i.test(text)) return undefined;
-  const loose = text.match(/(.+?)\s+at\s+((?:[a-zA-Z0-9]+(?:\s+dot\s+[a-zA-Z0-9]+)*))/i);
-  if (!loose) return undefined;
-  return buildSpokenEmail(stripSpokenEmailPrefix(loose[1]), loose[2]);
-}
-
-function findAllWordsAtEmails(text: string): string[] {
-  const re =
-    /\b(?:that'?s\s+)?((?:[a-zA-Z0-9]+(?:\s+dot\s+[a-zA-Z0-9]+)*)|[a-zA-Z0-9._%+-]+)\s+at\s+([a-z0-9.]+)/gi;
-  const out: string[] = [];
-  for (const match of text.matchAll(re)) {
-    const email = buildSpokenEmail(match[1], match[2]);
-    if (email) out.push(email);
-  }
-  return out;
-}
-
-function pickBestEmail(candidates: Array<{ email: string; index: number }>): string | undefined {
-  const byEmail = new Map<string, number>();
-  for (const { email, index } of candidates) {
-    if (!isValidEmail(email)) continue;
-    const prev = byEmail.get(email);
-    if (prev === undefined || index > prev) byEmail.set(email, index);
-  }
-
-  const ranked = [...byEmail.entries()]
-    .map(([email, index]) => ({ email, index }))
-    .filter(({ email }) => !isSuspiciousEmailLocal(email.split("@")[0]))
-    .sort((a, b) => {
-      if (b.email.length !== a.email.length) return b.email.length - a.email.length;
-      return b.index - a.index;
-    });
-
-  return ranked[0]?.email;
-}
-
-/** Parse email the assistant spelled back during a voice confirmation (STEP 3b). */
-export function parseEmailFromConfirmationText(text: string): string | undefined {
-  const prepared = prepareTextForEmailExtraction(text);
-  const direct = findLongestEmailInText(prepared);
-  if (direct) return direct;
-
-  const hyphenAt = prepared.match(/([A-Za-z0-9](?:-[A-Za-z0-9])+)\s+at\s+([a-z0-9.]+)/i);
-  if (hyphenAt) {
-    const email = buildSpokenEmail(hyphenAt[1], hyphenAt[2]);
-    if (email) return email;
-  }
-
-  const broad = extractBroadSpokenEmail(prepared);
-  if (broad) return broad;
-
-  const hyphenLocalDots = prepared.match(
-    /\b(?:that'?s\s+)?((?:[A-Za-z0-9](?:-[A-Za-z0-9])*)(?:\s+dot\s+(?:[A-Za-z0-9](?:-[A-Za-z0-9])*))*)\s+at\s+((?:[A-Za-z0-9]+(?:\s+dot\s+[A-Za-z0-9]+)*)+)/i,
+function parseHyphenSpellBackEmail(text: string): string | undefined {
+  const hyphenLocalDots = text.match(
+    /\b(?:that'?s\s+)?((?:[A-Za-z0-9](?:-[A-Za-z0-9])*)(?:\s+dot\s+(?:[A-Za-z0-9](?:-[A-Za-z0-9])*))*)\s+at\s+((?:[a-zA-Z0-9]+(?:\s+dot\s+[a-zA-Z0-9]+)*)+)/i,
   );
   if (hyphenLocalDots) {
     const email = buildSpokenEmail(hyphenLocalDots[1], hyphenLocalDots[2]);
     if (email) return email;
   }
+  return extractSimpleHyphenAtEmail(text);
+}
 
-  const loose = extractLooseSpokenEmail(prepared);
-  if (loose) return loose;
+function extractSimpleHyphenAtEmail(text: string): string | undefined {
+  if (/(?:-[A-Za-z0-9])+\s+dot\s+/i.test(text)) return undefined;
+  const hyphenAt = text.match(/([A-Za-z0-9](?:-[A-Za-z0-9])+)\s+at\s+([a-z0-9.]+)/i);
+  if (!hyphenAt) return undefined;
+  return buildSpokenEmail(hyphenAt[1], hyphenAt[2]);
+}
 
-  return pickBestEmail(
-    findAllWordsAtEmails(prepared).map((email, index) => ({ email, index: index + 1 })),
+function parseWordSpokenEmail(text: string): string | undefined {
+  const spellBack = text.match(/\blet me spell it back\s*[—,:.\s-]*\s*(.+?)\s+at\s+([a-z0-9.]+)/i);
+  if (spellBack) {
+    const email = buildSpokenEmail(stripSpokenEmailPrefix(spellBack[1]), spellBack[2]);
+    if (email) return email;
+  }
+
+  const broad = text.match(
+    /\b(?:that'?s|let me confirm(?:\s+your email)?|let me spell it back)\s*[—,-]?\s*(.+?)\s+at\s+([a-z0-9.]+)/i,
   );
+  if (broad) {
+    const email = buildSpokenEmail(stripSpokenEmailPrefix(broad[1]), broad[2]);
+    if (email) return email;
+  }
+
+  if (/\s+dot\s+/i.test(text)) {
+    const loose = text.match(/(.+?)\s+at\s+((?:[a-zA-Z0-9]+(?:\s+dot\s+[a-zA-Z0-9]+)*))/i);
+    if (loose) {
+      const email = buildSpokenEmail(stripSpokenEmailPrefix(loose[1]), loose[2]);
+      if (email) return email;
+    }
+  }
+
+  const re =
+    /\b(?:that'?s\s+)?((?:[a-zA-Z0-9]+(?:\s+dot\s+[a-zA-Z0-9]+)*)|[a-zA-Z0-9._%+-]+)\s+at\s+([a-z0-9.]+)/gi;
+  const wordCandidates: Array<{ email: string; index: number }> = [];
+  for (const match of text.matchAll(re)) {
+    const email = buildSpokenEmail(match[1], match[2]);
+    if (email) wordCandidates.push({ email, index: wordCandidates.length + 1 });
+  }
+  return pickBestEmailByLength(wordCandidates);
+}
+
+function parseEmailCandidatesFromLine(
+  text: string,
+): Array<{ email: string; source: EmailParseSource }> {
+  const prepared = prepareTextForEmailExtraction(text);
+  const out: Array<{ email: string; source: EmailParseSource }> = [];
+
+  const hyphen = parseHyphenSpellBackEmail(prepared);
+  if (hyphen) out.push({ email: hyphen, source: "hyphen" });
+
+  const direct = findLongestEmailInText(prepared);
+  if (direct) out.push({ email: direct, source: "direct" });
+
+  const word = parseWordSpokenEmail(prepared);
+  if (word) out.push({ email: word, source: "word" });
+
+  return out;
+}
+
+/** Parse email the assistant spelled back during a voice confirmation (STEP 3b). */
+export function parseEmailFromConfirmationText(text: string): string | undefined {
+  const candidates = parseEmailCandidatesFromLine(text);
+  return pickBestEmailCandidate(
+    candidates.map((candidate, index) => ({
+      ...candidate,
+      index,
+      role: "assistant",
+    })),
+  );
+}
+
+function pickBestEmailByLength(
+  candidates: Array<{ email: string; index: number }>,
+): string | undefined {
+  const ranked = candidates
+    .filter(({ email }) => isValidEmail(email) && !isSuspiciousEmailLocal(email.split("@")[0]))
+    .sort((a, b) => {
+      if (b.email.length !== a.email.length) return b.email.length - a.email.length;
+      return b.index - a.index;
+    });
+  return ranked[0]?.email;
+}
+
+function pickBestEmailCandidate(candidates: EmailCandidate[]): string | undefined {
+  const ranked = candidates
+    .filter(({ email }) => isValidEmail(email) && !isSuspiciousEmailLocal(email.split("@")[0]))
+    .sort((a, b) => {
+      if (SOURCE_RANK[b.source] !== SOURCE_RANK[a.source]) {
+        return SOURCE_RANK[b.source] - SOURCE_RANK[a.source];
+      }
+      if (ROLE_RANK[b.role] !== ROLE_RANK[a.role]) {
+        return ROLE_RANK[b.role] - ROLE_RANK[a.role];
+      }
+      if (b.email.length !== a.email.length) return b.email.length - a.email.length;
+      return b.index - a.index;
+    });
+  return ranked[0]?.email;
 }
 
 function isValidEmail(email: string): boolean {
@@ -169,6 +231,8 @@ function isEmailConfirmationLine(text: string): boolean {
     lower.includes("confirm") ||
     lower.includes("is that correct") ||
     lower.includes("did i get that right") ||
+    lower.includes("spell it back") ||
+    lower.includes("spell back") ||
     lower.includes("@") ||
     /\s+at\s+(?:gmail|yahoo|hotmail|outlook|icloud)/i.test(text) ||
     /[A-Za-z0-9]-[A-Za-z0-9]-[A-Za-z0-9]/.test(text) ||
@@ -186,8 +250,14 @@ function isEmailRelevantLine(text: string): boolean {
   );
 }
 
-/** True when spelled-back email should replace the tool argument (never use a truncated partial). */
+/**
+ * True when transcript email should replace the tool argument.
+ * Generic rules: never swap in a shorter/partial address; prefer longer on same domain;
+ * prefer transcript when same length but STT-corrupted; reject suspicious partials.
+ */
 export function shouldPreferConfirmedEmail(current: string, confirmed: string): boolean {
+  if (current === confirmed) return false;
+
   const [localCurrent, domainCurrent] = current.split("@");
   const [localConfirmed, domainConfirmed] = confirmed.split("@");
   if (!localCurrent || !domainCurrent || !localConfirmed || !domainConfirmed) return true;
@@ -196,31 +266,83 @@ export function shouldPreferConfirmedEmail(current: string, confirmed: string): 
   const confirmedSuspicious = isSuspiciousEmailLocal(localConfirmed);
   if (confirmedSuspicious && !currentSuspicious) return false;
   if (currentSuspicious && !confirmedSuspicious) return true;
-  if (localCurrent.startsWith("that's") || localCurrent.startsWith("thats")) return true;
+  if (hasSttJunkLocalPrefix(localCurrent)) return true;
 
   if (domainCurrent !== domainConfirmed) return true;
-  if (localConfirmed.length >= localCurrent.length) return true;
+
+  if (localConfirmed.length !== localCurrent.length) {
+    return localConfirmed.length > localCurrent.length;
+  }
+
   if (localCurrent.endsWith(localConfirmed) || localCurrent.includes(`.${localConfirmed}`)) {
     return false;
   }
+
   return true;
 }
 
-/** Best email from the call transcript — user speech and assistant spell-back. */
-export function findVoiceConfirmedEmail(
+/**
+ * Most recent assistant spell-back / confirmation line (STEP 3b).
+ * Ignores suspicious partials like "zero@gmail.com".
+ */
+export function findAssistantSpellBackEmail(
   lines: Array<{ role: string; text: string }>,
 ): string | undefined {
-  const candidates: Array<{ email: string; index: number }> = [];
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]!;
+    if (line.role !== "assistant") continue;
+    if (!isEmailConfirmationLine(line.text)) continue;
+    const email = parseEmailFromConfirmationText(line.text);
+    if (!email) continue;
+    const local = email.split("@")[0] ?? "";
+    if (isSuspiciousEmailLocal(local)) continue;
+    return email;
+  }
+  return undefined;
+}
+
+/** Email to save — assistant spell-back wins over tool/STT args. */
+export function resolveVoiceBookingEmail(
+  lines: Array<{ role: string; text: string }>,
+  toolRaw: unknown,
+): string | undefined {
+  const assistant = findAssistantSpellBackEmail(lines);
+  if (assistant) {
+    const norm = normalizeEmail(assistant);
+    if (norm) return norm;
+  }
+
+  const transcript = findVoiceConfirmedEmailFromTranscript(lines);
+  if (transcript) {
+    const norm = normalizeEmail(transcript);
+    if (norm) return norm;
+  }
+
+  return normalizeEmail(toolRaw);
+}
+
+function findVoiceConfirmedEmailFromTranscript(
+  lines: Array<{ role: string; text: string }>,
+): string | undefined {
+  const candidates: EmailCandidate[] = [];
 
   lines.forEach((line, index) => {
     if (!isEmailRelevantLine(line.text) && !isEmailConfirmationLine(line.text)) return;
 
-    const direct = findLongestEmailInText(line.text);
-    if (direct) candidates.push({ email: direct, index });
-
-    const spoken = parseEmailFromConfirmationText(line.text);
-    if (spoken) candidates.push({ email: spoken, index });
+    const role: SpeakerRole = line.role === "assistant" ? "assistant" : "user";
+    for (const parsed of parseEmailCandidatesFromLine(line.text)) {
+      candidates.push({ ...parsed, index, role });
+    }
   });
 
-  return pickBestEmail(candidates);
+  return pickBestEmailCandidate(candidates);
+}
+
+/** Best email from the call transcript — assistant spell-back first, then hyphen/word fallbacks. */
+export function findVoiceConfirmedEmail(
+  lines: Array<{ role: string; text: string }>,
+): string | undefined {
+  const assistant = findAssistantSpellBackEmail(lines);
+  if (assistant) return assistant;
+  return findVoiceConfirmedEmailFromTranscript(lines);
 }

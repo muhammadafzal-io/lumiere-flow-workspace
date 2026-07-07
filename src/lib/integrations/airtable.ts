@@ -300,13 +300,13 @@ export async function createAppointmentRecord(
   const sb = getSupabase();
   try {
     const { error } = await sb.from(APPT_TABLE).insert({
-      "Client Name": appt.clientName,
-      Treatment: appt.treatment,
-      "Date & Time": appt.startTime,
-      "End Time": appt.endTime,
-      Status: "Confirmed",
-      Contact: appt.clientContact,
-      ...(appt.notes && { Notes: appt.notes }),
+      client_name: appt.clientName,
+      treatment: appt.treatment,
+      start_time: appt.startTime,
+      end_time: appt.endTime,
+      status: "Confirmed",
+      contact: appt.clientContact,
+      ...(appt.notes && { notes: appt.notes }),
       ...(clientId && { client_id: clientId }),
     });
     if (error) console.error("createAppointmentRecord:", error.message);

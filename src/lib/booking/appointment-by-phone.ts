@@ -1,3 +1,4 @@
+import { logFlowStep } from "@/lib/voice/flow-context";
 import { normalizeEmail } from "@/lib/email";
 import { lookupClientByPhone } from "@/lib/integrations/airtable";
 import { extractPhoneForLookup, phoneSearchVariants } from "@/lib/phone";
@@ -24,38 +25,61 @@ export async function findUpcomingAppointmentByPhone(
   phone: string,
 ): Promise<UpcomingAppointment | null> {
   const normalized = extractPhoneForLookup(phone);
-  if (!normalized) return null;
+  if (!normalized) {
+    logFlowStep("fetch:appointment invalid phone", { phone });
+    return null;
+  }
+
+  logFlowStep("fetch:appointment by phone", { phone: normalized });
 
   const events = await loadUpcomingCalendarEvents();
+  logFlowStep("fetch:calendar events loaded", { count: events.length });
+
   let matched = findUpcomingEventInList(events, phone, normalized);
 
   if (!matched) {
+    logFlowStep("fetch:direct phone match miss — trying CRM", { phone: normalized });
     for (const variant of phoneSearchVariants(normalized, phone)) {
       const client = await lookupClientByPhone(variant).catch(() => null);
       if (!client) continue;
+
+      logFlowStep("fetch:crm fallback client", {
+        clientId: client.id,
+        name: client.name,
+        phone: client.phone,
+      });
 
       if (client.phone) {
         matched = findUpcomingEventInList(events, client.phone, phone, normalized);
       }
       if (!matched && client.name) {
         matched = findUpcomingEventByClientName(events, client.name);
+        if (matched) {
+          logFlowStep("fetch:matched by client name", { name: client.name, eventId: matched.id });
+        }
       }
       if (matched) break;
     }
+  } else {
+    logFlowStep("fetch:direct phone match", { eventId: matched.id });
   }
 
-  if (!matched) return null;
+  if (!matched) {
+    logFlowStep("fetch:appointment not found", { phone: normalized });
+    return null;
+  }
 
   let clientEmail = normalizeEmail(matched.clientEmail);
   for (const variant of phoneSearchVariants(normalized, matched.clientContact)) {
     const client = await lookupClientByPhone(variant).catch(() => null);
     if (client?.email) {
       clientEmail = normalizeEmail(client.email) ?? clientEmail;
+      logFlowStep("fetch:email from CRM", { email: clientEmail });
       break;
     }
   }
 
-  return {
+  const appt: UpcomingAppointment = {
     eventId: matched.id,
     clientName: matched.clientName,
     treatment: matched.treatment,
@@ -66,6 +90,19 @@ export async function findUpcomingAppointmentByPhone(
     practitionerName: matched.practitioner || undefined,
     room: matched.room || undefined,
   };
+
+  logFlowStep("fetch:appointment found", {
+    event_id: appt.eventId,
+    client_name: appt.clientName,
+    treatment: appt.treatment,
+    start_time: appt.startTime,
+    end_time: appt.endTime,
+    client_email: appt.clientEmail,
+    practitioner_name: appt.practitionerName,
+    room: appt.room,
+  });
+
+  return appt;
 }
 
 /** Best email for cancel/reschedule notifications — CRM, calendar, or hint. */

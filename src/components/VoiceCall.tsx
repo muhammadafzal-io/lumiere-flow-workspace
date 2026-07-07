@@ -3,8 +3,32 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { normalizeEmail } from "@/lib/email";
 import { requestVoiceMicrophoneStream } from "@/lib/voice/microphone-constraints";
-import { findVoiceConfirmedEmail, shouldPreferConfirmedEmail } from "@/lib/voice/confirmed-email";
+import { resolveVoiceBookingEmail } from "@/lib/voice/confirmed-email";
 import { getToolCueRecoveryInstruction } from "@/lib/voice/tool-cue-recovery";
+import {
+  createVoiceFlowLogger,
+  BOOKING_FLOW_TOOLS,
+  summarizeForFlowLog,
+} from "@/lib/voice/flow-log";
+import {
+  blockRescheduleToolDuringCancel,
+  blockRescheduleToolDuringNewBooking,
+  detectVoiceBookingIntent,
+  userWantsCancelOnly,
+} from "@/lib/voice/booking-intent";
+import {
+  applyVoicePhoneToInput,
+  findVoicePhone,
+  VOICE_PHONE_TOOLS,
+} from "@/lib/voice/confirmed-phone";
+import {
+  enrichVoiceToolInput,
+  getPrematureBookBlockReason,
+  getPrematureCancelBlockReason,
+  updateVoiceBookingSession,
+  VOICE_CANCEL_RESCHEDULE_TOOLS,
+  type VoiceBookingSession,
+} from "@/lib/voice/voice-booking-session";
 import { shouldRejectUserTranscript } from "@/lib/voice/transcript-filter";
 
 type CallStatus = "idle" | "connecting" | "active" | "reconnecting" | "error";
@@ -94,6 +118,15 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
   const disconnectedGraceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // FIX #1: Use a ref (not state) to capture transcript for reconnect — always current value
   const transcriptRef = useRef<TranscriptLine[]>([]);
+  const bookingSessionRef = useRef<VoiceBookingSession>({});
+
+  const syncTranscript = useCallback((updater: (prev: TranscriptLine[]) => TranscriptLine[]) => {
+    setTranscript((prev) => {
+      const next = updater(prev);
+      transcriptRef.current = next;
+      return next;
+    });
+  }, []);
   // FIX #5: Track whether stop() was intentionally called to suppress spurious error states
   const intentionalStopRef = useRef(false);
   const responseHadToolCallRef = useRef(false);
@@ -101,6 +134,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
   const callActiveAtRef = useRef(0);
   const micUnmuteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreUserSpeechRef = useRef(false);
+  const flowLogRef = useRef(createVoiceFlowLogger(sessionId, "client"));
 
   const sendDc = useCallback((payload: Record<string, unknown>) => {
     const dc = dcRef.current;
@@ -242,7 +276,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
         pendingUserIdRef.current = null;
         setUserSpeaking(false);
         if (targetId) {
-          setTranscript((prev) =>
+          syncTranscript((prev) =>
             prev.filter((l) => (l as TranscriptLine & { _id?: string })._id !== targetId),
           );
         }
@@ -263,6 +297,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
         case "session.created": {
           setStatus("active");
           callActiveAtRef.current = Date.now();
+          flowLogRef.current.step("call active", { sessionId });
           sendDc({
             type: "session.update",
             session: {
@@ -348,7 +383,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
           // FIX #10: Use a UUID-keyed placeholder so array index never desync
           const pendingId = `user-${Date.now()}-${Math.random()}`;
           pendingUserIdRef.current = pendingId;
-          setTranscript((prev) => [
+          syncTranscript((prev) => [
             ...prev,
             { role: "user" as const, text: "", _id: pendingId } as TranscriptLine & { _id: string },
           ]);
@@ -379,7 +414,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
             break;
           }
 
-          setTranscript((prev) => {
+          syncTranscript((prev) => {
             // Find the placeholder by its stable ID
             const idx = prev.findIndex(
               (l) => (l as TranscriptLine & { _id?: string })._id === targetId && l.text === "",
@@ -418,7 +453,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
           aiDraftRef.current = "";
           setLiveText("");
           clearProcessing();
-          if (text) setTranscript((prev) => [...prev, { role: "assistant", text }]);
+          if (text) syncTranscript((prev) => [...prev, { role: "assistant", text }]);
           aiSpeakingRef.current = false;
           setAiSpeaking(false);
           ignoreUserSpeechRef.current = true;
@@ -439,10 +474,21 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
           }
           responseHadToolCallRef.current = true;
           const toolName = event.name as string;
+          const args = (event.arguments as string) ?? "{}";
+          let parsedArgs: unknown = args;
+          try {
+            parsedArgs = JSON.parse(args);
+          } catch {
+            /* keep raw string */
+          }
+          flowLogRef.current.step(`realtime:tool queued`, {
+            toolName,
+            args: summarizeForFlowLog(parsedArgs),
+          });
           pendingToolCallsRef.current.push({
             callId: event.call_id as string,
             toolName,
-            args: (event.arguments as string) ?? "{}",
+            args,
           });
           beginToolFetch(toolName);
           break;
@@ -478,6 +524,10 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
 
           const dc = dcRef.current;
           if (dc && dc.readyState === "open" && toolCalls.length > 0) {
+            flowLogRef.current.step("realtime:execute tools", {
+              count: toolCalls.length,
+              tools: toolCalls.map((c) => c.toolName),
+            });
             await Promise.all(
               toolCalls.map(async ({ callId, toolName, args }) => {
                 let input: Record<string, unknown> = {};
@@ -485,6 +535,113 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                   input = JSON.parse(args);
                 } catch {
                   /* keep empty */
+                }
+
+                flowLogRef.current.step(`tool:${toolName}:start`, {
+                  callId,
+                  input: summarizeForFlowLog(input),
+                });
+
+                const bookingIntent = detectVoiceBookingIntent(transcriptRef.current);
+                const blocked =
+                  blockRescheduleToolDuringNewBooking(toolName, bookingIntent) ||
+                  blockRescheduleToolDuringCancel(toolName, transcriptRef.current);
+                if (blocked) {
+                  flowLogRef.current.step(`tool:${toolName}:blocked`, {
+                    bookingIntent,
+                    reason: blocked,
+                  });
+                  const liveDcBlocked = dcRef.current;
+                  if (liveDcBlocked?.readyState === "open") {
+                    liveDcBlocked.send(
+                      JSON.stringify({
+                        type: "conversation.item.create",
+                        item: {
+                          type: "function_call_output",
+                          call_id: callId,
+                          output: JSON.stringify({ error: blocked }),
+                        },
+                      }),
+                    );
+                  }
+                  endToolFetch(toolName);
+                  return;
+                }
+
+                const voicePhone = findVoicePhone(transcriptRef.current);
+                if (voicePhone && VOICE_PHONE_TOOLS.has(toolName)) {
+                  applyVoicePhoneToInput(input, voicePhone, {
+                    force: VOICE_CANCEL_RESCHEDULE_TOOLS.has(toolName),
+                  });
+                  flowLogRef.current.step(`tool:${toolName}:phone`, {
+                    voicePhone,
+                  });
+                }
+
+                enrichVoiceToolInput(
+                  toolName,
+                  input,
+                  transcriptRef.current,
+                  bookingSessionRef.current,
+                );
+
+                if (toolName === "upsert_client" || BOOKING_FLOW_TOOLS.has(toolName)) {
+                  flowLogRef.current.step(`tool:${toolName}:enriched input`, {
+                    input: summarizeForFlowLog(input),
+                    session: summarizeForFlowLog(bookingSessionRef.current),
+                  });
+                }
+
+                if (toolName === "cancel_appointment") {
+                  const prematureCancel = getPrematureCancelBlockReason(
+                    input,
+                    transcriptRef.current,
+                    bookingSessionRef.current,
+                  );
+                  if (prematureCancel) {
+                    flowLogRef.current.step(`tool:${toolName}:blocked`, {
+                      reason: prematureCancel,
+                    });
+                    const liveDcCancel = dcRef.current;
+                    if (liveDcCancel?.readyState === "open") {
+                      liveDcCancel.send(
+                        JSON.stringify({
+                          type: "conversation.item.create",
+                          item: {
+                            type: "function_call_output",
+                            call_id: callId,
+                            output: JSON.stringify({ error: prematureCancel }),
+                          },
+                        }),
+                      );
+                    }
+                    endToolFetch(toolName);
+                    return;
+                  }
+                }
+
+                if (toolName === "book_appointment") {
+                  const premature = getPrematureBookBlockReason(input, transcriptRef.current);
+                  if (premature) {
+                    flowLogRef.current.step(`tool:${toolName}:blocked`, {
+                      reason: premature,
+                    });
+                    const liveDcPremature = dcRef.current;
+                    if (liveDcPremature?.readyState === "open") {
+                      liveDcPremature.send(
+                        JSON.stringify({
+                          type: "conversation.item.create",
+                          item: {
+                            type: "function_call_output",
+                            call_id: callId,
+                            output: JSON.stringify({ error: premature }),
+                          },
+                        }),
+                      );
+                    }
+                    endToolFetch(toolName);
+                    return;
+                  }
                 }
 
                 const emailField =
@@ -496,24 +653,43 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                       ? "client_email"
                       : null;
                 if (emailField) {
-                  const rawConfirmed = findVoiceConfirmedEmail(transcriptRef.current);
-                  const confirmed = rawConfirmed ? normalizeEmail(rawConfirmed) : undefined;
-                  if (confirmed) {
-                    const current = normalizeEmail(input[emailField]);
-                    if (!current) {
-                      input[emailField] = confirmed;
-                    } else if (
-                      confirmed !== current &&
-                      shouldPreferConfirmedEmail(current, confirmed)
-                    ) {
-                      input[emailField] = confirmed;
+                  const toolEmail = normalizeEmail(input[emailField]);
+                  const resolved = resolveVoiceBookingEmail(
+                    transcriptRef.current,
+                    input[emailField],
+                  );
+                  let emailAction: "unchanged" | "filled" | "overridden" | "kept-tool" =
+                    "unchanged";
+
+                  if (resolved) {
+                    if (!toolEmail) {
+                      input[emailField] = resolved;
+                      emailAction = "filled";
+                    } else if (resolved !== toolEmail) {
+                      input[emailField] = resolved;
+                      emailAction = "overridden";
                     }
+                  } else if (toolEmail) {
+                    input[emailField] = toolEmail;
                   }
+
+                  flowLogRef.current.step(`tool:${toolName}:email`, {
+                    field: emailField,
+                    toolEmail,
+                    transcriptEmail: resolved,
+                    finalEmail: normalizeEmail(input[emailField]),
+                    action: emailAction,
+                    transcriptLines: transcriptRef.current.length,
+                  });
                 }
 
                 let output: unknown;
                 try {
                   const timeoutMs = SLOW_TOOLS.has(toolName) ? VOICE_TOOL_TIMEOUT_MS : 20_000;
+                  flowLogRef.current.step(`tool:${toolName}:api request`, {
+                    endpoint: "/api/voice/tool",
+                    timeoutMs,
+                  });
                   const res = await fetchWithTimeout(
                     "/api/voice/tool",
                     {
@@ -524,6 +700,8 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                         input,
                         platform: "voice",
                         chatId: sessionId,
+                        bookingIntent: detectVoiceBookingIntent(transcriptRef.current),
+                        cancelOnly: userWantsCancelOnly(transcriptRef.current),
                       }),
                     },
                     timeoutMs,
@@ -539,14 +717,28 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                         : `Request failed (${res.status})`;
                     output = { error: err };
                   }
+                  flowLogRef.current.step(`tool:${toolName}:api response`, {
+                    ok: res.ok,
+                    status: res.status,
+                    result: summarizeForFlowLog(output),
+                  });
+                  if (res.ok) {
+                    updateVoiceBookingSession(toolName, input, output, bookingSessionRef.current);
+                  }
                 } catch (err) {
                   const msg = err instanceof Error ? err.message : String(err);
                   output = {
                     error: msg.includes("abort") ? "Request timed out — please try again" : msg,
                   };
+                  flowLogRef.current.step(`tool:${toolName}:api error`, { error: msg });
                 } finally {
                   endToolFetch(toolName);
                 }
+
+                flowLogRef.current.step(`tool:${toolName}:done`, {
+                  callId,
+                  result: summarizeForFlowLog(output),
+                });
 
                 const liveDc = dcRef.current;
                 if (liveDc && liveDc.readyState === "open") {
@@ -622,14 +814,23 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
             setError(msg);
             setStatus("error");
           } else if (!msg.includes("active response")) {
-            setTranscript((prev) => [...prev, { role: "assistant", text: `⚠️ ${msg}` }]);
+            syncTranscript((prev) => [...prev, { role: "assistant", text: `⚠️ ${msg}` }]);
           }
           break;
         }
       }
       // FIX #2: sessionId and fetchWithTimeout are the only true deps — no stale closure issues
     },
-    [sessionId, fetchWithTimeout, stop, clearProcessing, beginToolFetch, endToolFetch, sendDc],
+    [
+      sessionId,
+      fetchWithTimeout,
+      stop,
+      clearProcessing,
+      beginToolFetch,
+      endToolFetch,
+      sendDc,
+      syncTranscript,
+    ],
   );
 
   const start = useCallback(
@@ -1063,7 +1264,10 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                         style={{
                           height: "100%",
                           transformOrigin: "bottom center",
-                          animation: "audioBar 0.55s ease-in-out infinite",
+                          animationName: "audioBar",
+                          animationDuration: "0.55s",
+                          animationTimingFunction: "ease-in-out",
+                          animationIterationCount: "infinite",
                           animationDelay: `${i * 0.1}s`,
                         }}
                       />
@@ -1077,7 +1281,10 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                         className="w-1.5 h-1.5 rounded-full"
                         style={{
                           background: "rgba(196,104,122,0.85)",
-                          animation: "processingPulse 1.2s ease-in-out infinite",
+                          animationName: "processingPulse",
+                          animationDuration: "1.2s",
+                          animationTimingFunction: "ease-in-out",
+                          animationIterationCount: "infinite",
                           animationDelay: `${i * 0.2}s`,
                         }}
                       />
@@ -1118,7 +1325,10 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                         height: "100%",
                         background: "rgba(196,104,122,0.8)",
                         transformOrigin: "bottom center",
-                        animation: "audioBar 0.55s ease-in-out infinite",
+                        animationName: "audioBar",
+                        animationDuration: "0.55s",
+                        animationTimingFunction: "ease-in-out",
+                        animationIterationCount: "infinite",
                         animationDelay: `${i * 0.1}s`,
                       }}
                     />

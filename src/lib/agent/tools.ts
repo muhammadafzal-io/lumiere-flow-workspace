@@ -44,7 +44,8 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           practitioner_name: {
             type: "string",
-            description: "Alias for preferred_practitioner — name of the practitioner to check",
+            description:
+              "Active practitioner PERSON from get_practitioners (e.g. Dr. Dao) — NEVER the treatment or service name (e.g. not 'Laser Hair Removal' or 'Botox'). Omit if the client has no practitioner preference.",
           },
           preferred_room: {
             type: "string",
@@ -127,7 +128,7 @@ export const TOOLS: ChatCompletionTool[] = [
           practitioner_name: {
             type: "string",
             description:
-              "Name of the practitioner (from check_availability results). If omitted, system picks first available.",
+              "Practitioner PERSON from get_practitioners or check_availability results — NEVER the treatment name. Omit if unknown.",
           },
           room: {
             type: "string",
@@ -186,7 +187,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "find_upcoming_appointment",
       description:
-        "Look up the client's next upcoming appointment using phone ONLY. Returns name, treatment, time, duration_minutes, and event_id from the calendar/CRM. Use for cancel or reschedule — NEVER ask the client for name, email, or birthday when using this tool.",
+        "Look up an EXISTING upcoming appointment for cancel or reschedule ONLY. NEVER during a NEW booking — if the client is booking a new visit or picking a practitioner, use check_availability instead. Returns treatment, time, event_id from phone.",
       parameters: {
         type: "object",
         properties: {
@@ -209,7 +210,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "check_reschedule_availability",
       description:
-        "Check open slots when RESCHEDULING an existing appointment. ONLY phone + date required — looks up their upcoming appointment automatically (treatment, duration, practitioner). NEVER ask for name, email, or birthday. Call after find_upcoming_appointment confirms the appointment and the client gives a new date.",
+        "Check open slots when RESCHEDULING an existing appointment ONLY — NEVER for a new booking. Requires phone + new date. If the client is booking new or chose a practitioner for a new visit, use check_availability instead.",
       parameters: {
         type: "object",
         properties: {

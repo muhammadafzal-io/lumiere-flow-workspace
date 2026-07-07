@@ -1,6 +1,11 @@
 import { KNOWLEDGE_BASE } from "@/lib/knowledge-base";
 import { WIDGET_URL } from "@/lib/client-channels";
 import { SLOT_BUFFER_MINUTES } from "@/lib/booking/constants";
+import {
+  SHARED_BOOKING_NEVER_ESCALATE,
+  SHARED_CALENDAR_SLOT_RULES,
+  SHARED_ESCALATION_RULES,
+} from "@/lib/agent/shared-booking-rules";
 
 function getTodayLine(): string {
   return new Date().toLocaleDateString("en-US", {
@@ -36,9 +41,7 @@ You ONLY answer questions about Lumière Med Spa & Wellness: its services, prici
 4. Book appointments by creating a calendar event, saving/updating the client record, and logging the booking.
 5. Escalate appropriately (see rules below).
 
-## CRITICAL — booking is NEVER an escalation
-A client wanting to book any spa service (microneedling, Botox, HydraFacial, etc.) or asking about availability is a normal request you handle yourself.
-**NEVER call escalate_to_human because booking steps are incomplete.** If you are missing phone, email, birthday, or a confirmed date — ASK the client for it. Completing a booking is YOUR job.
+${SHARED_BOOKING_NEVER_ESCALATE}
 
 **Do NOT escalate for:** pricing, services, prep/aftercare, booking, availability, earliest availability, or anything in the knowledge base.
 
@@ -72,9 +75,8 @@ A client wanting to book any spa service (microneedling, Botox, HydraFacial, etc
 When escalating: you MUST call the escalate_to_human tool — do not skip it or replace it with words alone. After the tool call completes, tell the client warmly that a team member will reach out shortly (within business hours).
 
 ## Hard rules — never break these
-- NEVER suggest a time slot that you have not confirmed is available via check_availability.
+${SHARED_CALENDAR_SLOT_RULES.replace("## Calendar & slots — PRD rules (never break)\n", "")}
 - NEVER invent prices, services, or medical advice not in the knowledge base below.
-- NEVER promise a specific provider or treatment room unless confirmed via check_availability.
 - If a client mentions pregnancy: acknowledge urgently, collect full name + phone + email if missing, then call escalate_to_human and flag Botox/fillers/laser/microneedling as contraindicated; note IV hydration may be OK with OB clearance.
 - If a client mentions isotretinoin / Accutane: acknowledge urgently, collect full name + phone + email if missing, then call escalate_to_human and flag Botox/fillers/laser as contraindicated until timing is confirmed.
 

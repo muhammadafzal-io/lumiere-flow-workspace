@@ -7,6 +7,7 @@ import {
   SLOT_STEP_MS,
   intervalsConflict,
 } from "@/lib/booking/constants";
+import { flowAsync, logFlowStep } from "@/lib/voice/flow-context";
 
 const BUSINESS_START_HOUR = 9;
 const BUSINESS_END_HOUR = 19.5;
@@ -174,10 +175,17 @@ export async function getAvailableSlots(
   rooms: string[] = DEFAULT_ROOMS,
   practitionerNames: string[] = [],
 ): Promise<AvailableSlot[]> {
-  if (date < todayInChicago()) return [];
+  logFlowStep("calendar:getAvailableSlots:start", { date, durationMinutes, rooms, practitionerNames });
+  if (date < todayInChicago()) {
+    logFlowStep("calendar:getAvailableSlots:end", { count: 0, reason: "past date" });
+    return [];
+  }
 
   const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
-  if (dayOfWeek === 0) return [];
+  if (dayOfWeek === 0) {
+    logFlowStep("calendar:getAvailableSlots:end", { count: 0, reason: "sunday" });
+    return [];
+  }
 
   const calendar = getCalendarClient();
   const calId = calendarId();
@@ -262,6 +270,7 @@ export async function getAvailableSlots(
     cursor = new Date(cursor.getTime() + SLOT_STEP_MS);
   }
 
+  logFlowStep("calendar:getAvailableSlots:end", { count: slots.length, date });
   return slots;
 }
 
@@ -276,25 +285,29 @@ export async function bookAdminAppointment(booking: {
   practitionerName: string;
   notes?: string;
 }): Promise<{ id: string }> {
-  if (new Date(booking.startTime) < new Date()) {
-    throw new Error("Cannot book an appointment in the past");
-  }
+  return flowAsync("calendar:bookAdminAppointment", async () => {
+    if (new Date(booking.startTime) < new Date()) {
+      throw new Error("Cannot book an appointment in the past");
+    }
 
-  const calendar = getCalendarClient();
-  const calId = calendarId();
+    const calendar = getCalendarClient();
+    const calId = calendarId();
 
-  const bStart = new Date(booking.startTime);
-  const bEnd = new Date(booking.endTime);
+    const bStart = new Date(booking.startTime);
+    const bEnd = new Date(booking.endTime);
 
-  // Fetch events that could conflict including turnover buffer
-  const res = await calendar.events.list({
-    calendarId: calId,
-    timeMin: new Date(bStart.getTime() - SLOT_BUFFER_MS).toISOString(),
-    timeMax: new Date(bEnd.getTime() + SLOT_BUFFER_MS).toISOString(),
-    singleEvents: true,
-  });
+    const res = await calendar.events.list({
+      calendarId: calId,
+      timeMin: new Date(bStart.getTime() - SLOT_BUFFER_MS).toISOString(),
+      timeMax: new Date(bEnd.getTime() + SLOT_BUFFER_MS).toISOString(),
+      singleEvents: true,
+    });
 
-  const conflict = (res.data.items ?? []).find((e) => {
+    logFlowStep("calendar:bookAdminAppointment conflict check", {
+      overlappingEvents: (res.data.items ?? []).length,
+    });
+
+    const conflict = (res.data.items ?? []).find((e) => {
     if (!e.start?.dateTime || !e.end?.dateTime) return false;
     const eStart = new Date(e.start.dateTime);
     const eEnd = new Date(e.end.dateTime);
@@ -349,6 +362,13 @@ export async function bookAdminAppointment(booking: {
 
   invalidateEventsRangeCache();
   return { id: event.data.id! };
+  }, {
+    clientName: booking.clientName,
+    treatment: booking.treatment,
+    startTime: booking.startTime,
+    room: booking.room,
+    practitionerName: booking.practitionerName,
+  });
 }
 
 export async function createAppointment(appt: Omit<Appointment, "id">): Promise<Appointment> {
@@ -432,22 +452,28 @@ export async function cancelCalendarEvent(eventId: string): Promise<{
   clientContact: string;
   startTime: string;
 }> {
-  const calendar = getCalendarClient();
-  const calId = calendarId();
-  const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
-  await calendar.events.delete({ calendarId: calId, eventId });
-  invalidateEventsRangeCache();
-  const { treatment, clientName } = resolveEventClient(
-    event.summary ?? "",
-    event.description ?? "",
-  );
-  const { contact } = parseDesc(event.description ?? "");
-  return {
-    clientName: clientName || "Client",
-    treatment,
-    clientContact: contact,
-    startTime: event.start?.dateTime ?? "",
-  };
+  return flowAsync("calendar:cancelCalendarEvent", async () => {
+    const calendar = getCalendarClient();
+    const calId = calendarId();
+    const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+    logFlowStep("calendar:cancelCalendarEvent fetched", {
+      summary: event.summary,
+      start: event.start?.dateTime,
+    });
+    await calendar.events.delete({ calendarId: calId, eventId });
+    invalidateEventsRangeCache();
+    const { treatment, clientName } = resolveEventClient(
+      event.summary ?? "",
+      event.description ?? "",
+    );
+    const { contact } = parseDesc(event.description ?? "");
+    return {
+      clientName: clientName || "Client",
+      treatment,
+      clientContact: contact,
+      startTime: event.start?.dateTime ?? "",
+    };
+  }, { eventId });
 }
 
 export type CalendarBookingDetails = {
@@ -534,32 +560,35 @@ export async function rescheduleCalendarEvent(
   oldStartTime: string;
   newStartTime: string;
 }> {
-  const calendar = getCalendarClient();
-  const calId = calendarId();
-  const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
-  const oldStartTime = event.start?.dateTime ?? "";
-  await calendar.events.update({
-    calendarId: calId,
-    eventId,
-    requestBody: {
-      ...event,
-      start: { dateTime: newStartTime, timeZone: TIMEZONE },
-      end: { dateTime: newEndTime, timeZone: TIMEZONE },
-    },
-  });
-  invalidateEventsRangeCache();
-  const { treatment, clientName } = resolveEventClient(
-    event.summary ?? "",
-    event.description ?? "",
-  );
-  const { contact } = parseDesc(event.description ?? "");
-  return {
-    clientName: clientName || "Client",
-    treatment,
-    clientContact: contact,
-    oldStartTime,
-    newStartTime,
-  };
+  return flowAsync("calendar:rescheduleCalendarEvent", async () => {
+    const calendar = getCalendarClient();
+    const calId = calendarId();
+    const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+    const oldStartTime = event.start?.dateTime ?? "";
+    logFlowStep("calendar:rescheduleCalendarEvent fetched", { oldStartTime, newStartTime });
+    await calendar.events.update({
+      calendarId: calId,
+      eventId,
+      requestBody: {
+        ...event,
+        start: { dateTime: newStartTime, timeZone: TIMEZONE },
+        end: { dateTime: newEndTime, timeZone: TIMEZONE },
+      },
+    });
+    invalidateEventsRangeCache();
+    const { treatment, clientName } = resolveEventClient(
+      event.summary ?? "",
+      event.description ?? "",
+    );
+    const { contact } = parseDesc(event.description ?? "");
+    return {
+      clientName: clientName || "Client",
+      treatment,
+      clientContact: contact,
+      oldStartTime,
+      newStartTime,
+    };
+  }, { eventId, newStartTime, newEndTime });
 }
 
 export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointment[]> {

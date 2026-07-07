@@ -19,6 +19,20 @@ describe("normalizeEmail", () => {
   it("strips voice that's prefix glued to local part", () => {
     expect(normalizeEmail("that'sriaz36872@gmail.com")).toBe("riaz36872@gmail.com");
   });
+
+  it("strips thank-you spell-back glue from voice STT email", () => {
+    expect(
+      normalizeEmail(
+        "thankyouforclarifying.letmespellitback:musammad.afzal.11090@gmail.com",
+      ),
+    ).toBe("musammad.afzal.11090@gmail.com");
+  });
+
+  it("strips dotted thank-you spell-back glue without colon", () => {
+    expect(
+      normalizeEmail("thankyouforclarifying.letmespellitback.musammad.afzal.11090@gmail.com"),
+    ).toBe("musammad.afzal.11090@gmail.com");
+  });
 });
 
 describe("looksLikeDateOfBirthInput", () => {
