@@ -22,9 +22,7 @@ describe("normalizeEmail", () => {
 
   it("strips thank-you spell-back glue from voice STT email", () => {
     expect(
-      normalizeEmail(
-        "thankyouforclarifying.letmespellitback:musammad.afzal.11090@gmail.com",
-      ),
+      normalizeEmail("thankyouforclarifying.letmespellitback:musammad.afzal.11090@gmail.com"),
     ).toBe("musammad.afzal.11090@gmail.com");
   });
 

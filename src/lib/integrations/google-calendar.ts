@@ -175,7 +175,12 @@ export async function getAvailableSlots(
   rooms: string[] = DEFAULT_ROOMS,
   practitionerNames: string[] = [],
 ): Promise<AvailableSlot[]> {
-  logFlowStep("calendar:getAvailableSlots:start", { date, durationMinutes, rooms, practitionerNames });
+  logFlowStep("calendar:getAvailableSlots:start", {
+    date,
+    durationMinutes,
+    rooms,
+    practitionerNames,
+  });
   if (date < todayInChicago()) {
     logFlowStep("calendar:getAvailableSlots:end", { count: 0, reason: "past date" });
     return [];
@@ -285,90 +290,94 @@ export async function bookAdminAppointment(booking: {
   practitionerName: string;
   notes?: string;
 }): Promise<{ id: string }> {
-  return flowAsync("calendar:bookAdminAppointment", async () => {
-    if (new Date(booking.startTime) < new Date()) {
-      throw new Error("Cannot book an appointment in the past");
-    }
+  return flowAsync(
+    "calendar:bookAdminAppointment",
+    async () => {
+      if (new Date(booking.startTime) < new Date()) {
+        throw new Error("Cannot book an appointment in the past");
+      }
 
-    const calendar = getCalendarClient();
-    const calId = calendarId();
+      const calendar = getCalendarClient();
+      const calId = calendarId();
 
-    const bStart = new Date(booking.startTime);
-    const bEnd = new Date(booking.endTime);
+      const bStart = new Date(booking.startTime);
+      const bEnd = new Date(booking.endTime);
 
-    const res = await calendar.events.list({
-      calendarId: calId,
-      timeMin: new Date(bStart.getTime() - SLOT_BUFFER_MS).toISOString(),
-      timeMax: new Date(bEnd.getTime() + SLOT_BUFFER_MS).toISOString(),
-      singleEvents: true,
-    });
+      const res = await calendar.events.list({
+        calendarId: calId,
+        timeMin: new Date(bStart.getTime() - SLOT_BUFFER_MS).toISOString(),
+        timeMax: new Date(bEnd.getTime() + SLOT_BUFFER_MS).toISOString(),
+        singleEvents: true,
+      });
 
-    logFlowStep("calendar:bookAdminAppointment conflict check", {
-      overlappingEvents: (res.data.items ?? []).length,
-    });
+      logFlowStep("calendar:bookAdminAppointment conflict check", {
+        overlappingEvents: (res.data.items ?? []).length,
+      });
 
-    const conflict = (res.data.items ?? []).find((e) => {
-    if (!e.start?.dateTime || !e.end?.dateTime) return false;
-    const eStart = new Date(e.start.dateTime);
-    const eEnd = new Date(e.end.dateTime);
-    if (!intervalsConflict(bStart, bEnd, eStart, eEnd)) return false;
+      const conflict = (res.data.items ?? []).find((e) => {
+        if (!e.start?.dateTime || !e.end?.dateTime) return false;
+        const eStart = new Date(e.start.dateTime);
+        const eEnd = new Date(e.end.dateTime);
+        if (!intervalsConflict(bStart, bEnd, eStart, eEnd)) return false;
 
-    const { room: evRoom, practitioner: evPrac } = parseDesc(e.description ?? "");
+        const { room: evRoom, practitioner: evPrac } = parseDesc(e.description ?? "");
 
-    if (evRoom === null && evPrac === null) return true;
+        if (evRoom === null && evPrac === null) return true;
 
-    const roomConflict = evRoom === null || evRoom === booking.room;
-    const pracConflict = evPrac === null || evPrac === booking.practitionerName;
-    return roomConflict && pracConflict;
-  });
+        const roomConflict = evRoom === null || evRoom === booking.room;
+        const pracConflict = evPrac === null || evPrac === booking.practitionerName;
+        return roomConflict && pracConflict;
+      });
 
-  if (conflict) {
-    const { room: evRoom, practitioner: evPrac } = parseDesc(conflict.description ?? "");
-    if (evRoom === booking.room && evPrac === booking.practitionerName) {
-      throw new Error(
-        `${booking.room} with ${booking.practitionerName} is already booked at this time`,
-      );
-    } else if (evRoom === booking.room) {
-      throw new Error(`${booking.room} is already booked — try a different room`);
-    } else if (evPrac === booking.practitionerName) {
-      throw new Error(
-        `${booking.practitionerName} is already booked — try a different practitioner`,
-      );
-    } else {
-      throw new Error("This time slot is unavailable — try a different room or practitioner");
-    }
-  }
+      if (conflict) {
+        const { room: evRoom, practitioner: evPrac } = parseDesc(conflict.description ?? "");
+        if (evRoom === booking.room && evPrac === booking.practitionerName) {
+          throw new Error(
+            `${booking.room} with ${booking.practitionerName} is already booked at this time`,
+          );
+        } else if (evRoom === booking.room) {
+          throw new Error(`${booking.room} is already booked — try a different room`);
+        } else if (evPrac === booking.practitionerName) {
+          throw new Error(
+            `${booking.practitionerName} is already booked — try a different practitioner`,
+          );
+        } else {
+          throw new Error("This time slot is unavailable — try a different room or practitioner");
+        }
+      }
 
-  const event = await calendar.events.insert({
-    calendarId: calId,
-    requestBody: {
-      summary: `${booking.treatment} — ${booking.clientName}`,
-      description: [
-        `Treatment: ${booking.treatment}`,
-        `Client: ${booking.clientName}`,
-        `Contact: ${booking.clientContact ?? ""}`,
-        booking.clientEmail ? `Email: ${booking.clientEmail}` : "",
-        `Room: ${booking.room}`,
-        `Practitioner: ${booking.practitionerName}`,
-        booking.notes ? `Notes: ${booking.notes}` : "",
-      ]
-        .filter(Boolean)
-        .join("\n"),
-      start: { dateTime: booking.startTime, timeZone: TIMEZONE },
-      end: { dateTime: booking.endTime, timeZone: TIMEZONE },
-      colorId: "11",
+      const event = await calendar.events.insert({
+        calendarId: calId,
+        requestBody: {
+          summary: `${booking.treatment} — ${booking.clientName}`,
+          description: [
+            `Treatment: ${booking.treatment}`,
+            `Client: ${booking.clientName}`,
+            `Contact: ${booking.clientContact ?? ""}`,
+            booking.clientEmail ? `Email: ${booking.clientEmail}` : "",
+            `Room: ${booking.room}`,
+            `Practitioner: ${booking.practitionerName}`,
+            booking.notes ? `Notes: ${booking.notes}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          start: { dateTime: booking.startTime, timeZone: TIMEZONE },
+          end: { dateTime: booking.endTime, timeZone: TIMEZONE },
+          colorId: "11",
+        },
+      });
+
+      invalidateEventsRangeCache();
+      return { id: event.data.id! };
     },
-  });
-
-  invalidateEventsRangeCache();
-  return { id: event.data.id! };
-  }, {
-    clientName: booking.clientName,
-    treatment: booking.treatment,
-    startTime: booking.startTime,
-    room: booking.room,
-    practitionerName: booking.practitionerName,
-  });
+    {
+      clientName: booking.clientName,
+      treatment: booking.treatment,
+      startTime: booking.startTime,
+      room: booking.room,
+      practitionerName: booking.practitionerName,
+    },
+  );
 }
 
 export async function createAppointment(appt: Omit<Appointment, "id">): Promise<Appointment> {
@@ -452,28 +461,32 @@ export async function cancelCalendarEvent(eventId: string): Promise<{
   clientContact: string;
   startTime: string;
 }> {
-  return flowAsync("calendar:cancelCalendarEvent", async () => {
-    const calendar = getCalendarClient();
-    const calId = calendarId();
-    const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
-    logFlowStep("calendar:cancelCalendarEvent fetched", {
-      summary: event.summary,
-      start: event.start?.dateTime,
-    });
-    await calendar.events.delete({ calendarId: calId, eventId });
-    invalidateEventsRangeCache();
-    const { treatment, clientName } = resolveEventClient(
-      event.summary ?? "",
-      event.description ?? "",
-    );
-    const { contact } = parseDesc(event.description ?? "");
-    return {
-      clientName: clientName || "Client",
-      treatment,
-      clientContact: contact,
-      startTime: event.start?.dateTime ?? "",
-    };
-  }, { eventId });
+  return flowAsync(
+    "calendar:cancelCalendarEvent",
+    async () => {
+      const calendar = getCalendarClient();
+      const calId = calendarId();
+      const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+      logFlowStep("calendar:cancelCalendarEvent fetched", {
+        summary: event.summary,
+        start: event.start?.dateTime,
+      });
+      await calendar.events.delete({ calendarId: calId, eventId });
+      invalidateEventsRangeCache();
+      const { treatment, clientName } = resolveEventClient(
+        event.summary ?? "",
+        event.description ?? "",
+      );
+      const { contact } = parseDesc(event.description ?? "");
+      return {
+        clientName: clientName || "Client",
+        treatment,
+        clientContact: contact,
+        startTime: event.start?.dateTime ?? "",
+      };
+    },
+    { eventId },
+  );
 }
 
 export type CalendarBookingDetails = {
@@ -560,35 +573,39 @@ export async function rescheduleCalendarEvent(
   oldStartTime: string;
   newStartTime: string;
 }> {
-  return flowAsync("calendar:rescheduleCalendarEvent", async () => {
-    const calendar = getCalendarClient();
-    const calId = calendarId();
-    const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
-    const oldStartTime = event.start?.dateTime ?? "";
-    logFlowStep("calendar:rescheduleCalendarEvent fetched", { oldStartTime, newStartTime });
-    await calendar.events.update({
-      calendarId: calId,
-      eventId,
-      requestBody: {
-        ...event,
-        start: { dateTime: newStartTime, timeZone: TIMEZONE },
-        end: { dateTime: newEndTime, timeZone: TIMEZONE },
-      },
-    });
-    invalidateEventsRangeCache();
-    const { treatment, clientName } = resolveEventClient(
-      event.summary ?? "",
-      event.description ?? "",
-    );
-    const { contact } = parseDesc(event.description ?? "");
-    return {
-      clientName: clientName || "Client",
-      treatment,
-      clientContact: contact,
-      oldStartTime,
-      newStartTime,
-    };
-  }, { eventId, newStartTime, newEndTime });
+  return flowAsync(
+    "calendar:rescheduleCalendarEvent",
+    async () => {
+      const calendar = getCalendarClient();
+      const calId = calendarId();
+      const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+      const oldStartTime = event.start?.dateTime ?? "";
+      logFlowStep("calendar:rescheduleCalendarEvent fetched", { oldStartTime, newStartTime });
+      await calendar.events.update({
+        calendarId: calId,
+        eventId,
+        requestBody: {
+          ...event,
+          start: { dateTime: newStartTime, timeZone: TIMEZONE },
+          end: { dateTime: newEndTime, timeZone: TIMEZONE },
+        },
+      });
+      invalidateEventsRangeCache();
+      const { treatment, clientName } = resolveEventClient(
+        event.summary ?? "",
+        event.description ?? "",
+      );
+      const { contact } = parseDesc(event.description ?? "");
+      return {
+        clientName: clientName || "Client",
+        treatment,
+        clientContact: contact,
+        oldStartTime,
+        newStartTime,
+      };
+    },
+    { eventId, newStartTime, newEndTime },
+  );
 }
 
 export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointment[]> {

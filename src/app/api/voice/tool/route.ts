@@ -5,7 +5,11 @@ import {
   validateUpsertClientName,
   validateEscalation,
 } from "@/lib/agent/booking-guards";
-import { createVoiceFlowLogger, BOOKING_FLOW_TOOLS, summarizeForFlowLog } from "@/lib/voice/flow-log";
+import {
+  createVoiceFlowLogger,
+  BOOKING_FLOW_TOOLS,
+  summarizeForFlowLog,
+} from "@/lib/voice/flow-log";
 import {
   blockRescheduleToolDuringNewBooking,
   detectVoiceBookingIntent,
@@ -14,14 +18,14 @@ import {
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-    const { toolName, input, platform, chatId, bookingIntent, cancelOnly } = (await req.json()) as {
-      toolName: string;
-      input: Record<string, unknown>;
-      platform?: string;
-      chatId?: string;
-      bookingIntent?: "new" | "cancel_reschedule" | "unknown";
-      cancelOnly?: boolean;
-    };
+  const { toolName, input, platform, chatId, bookingIntent, cancelOnly } = (await req.json()) as {
+    toolName: string;
+    input: Record<string, unknown>;
+    platform?: string;
+    chatId?: string;
+    bookingIntent?: "new" | "cancel_reschedule" | "unknown";
+    cancelOnly?: boolean;
+  };
 
   const sessionId = chatId ?? "voice-session";
   const flow = createVoiceFlowLogger(sessionId, "server");
@@ -42,7 +46,10 @@ export async function POST(req: NextRequest) {
       bookingIntent ?? (platform === "voice" ? detectVoiceBookingIntent([]) : "unknown");
     const blocked = blockRescheduleToolDuringNewBooking(toolName, intent);
     if (blocked) {
-      flow.step("api:blocked reschedule tool during new booking", { toolName, bookingIntent: intent });
+      flow.step("api:blocked reschedule tool during new booking", {
+        toolName,
+        bookingIntent: intent,
+      });
       return NextResponse.json({ error: blocked }, { status: 400 });
     }
 

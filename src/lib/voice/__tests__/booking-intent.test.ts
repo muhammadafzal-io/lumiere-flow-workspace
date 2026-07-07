@@ -25,9 +25,9 @@ describe("detectVoiceBookingIntent", () => {
   });
 
   it("blocks find_upcoming during new booking", () => {
-    expect(
-      blockRescheduleToolDuringNewBooking("find_upcoming_appointment", "new"),
-    ).toContain("check_availability");
+    expect(blockRescheduleToolDuringNewBooking("find_upcoming_appointment", "new")).toContain(
+      "check_availability",
+    );
   });
 
   it("does not block check_availability during new booking", () => {

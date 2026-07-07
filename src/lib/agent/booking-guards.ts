@@ -125,12 +125,11 @@ export async function validateBookAppointment(
     logFlowStep("book:validateBookAppointment:passed");
     return null;
   }
-  const error =
-    !clientName
-      ? `Cannot book: missing required fields: ${missing.join(", ")}. Collect full name, phone, email, and birthday BEFORE saying "Locking in your appointment now!"`
-      : !isFullName(clientName)
-        ? `${fullNameValidationError("client_name")} ${missing.length > 1 ? `Also missing: ${missing.filter((m) => !m.startsWith("client_name")).join(", ")}.` : ""}`
-        : `Cannot book: missing required fields: ${missing.join(", ")}. Collect full name, phone, email, and birthday BEFORE saying "Locking in your appointment now!"`;
+  const error = !clientName
+    ? `Cannot book: missing required fields: ${missing.join(", ")}. Collect full name, phone, email, and birthday BEFORE saying "Locking in your appointment now!"`
+    : !isFullName(clientName)
+      ? `${fullNameValidationError("client_name")} ${missing.length > 1 ? `Also missing: ${missing.filter((m) => !m.startsWith("client_name")).join(", ")}.` : ""}`
+      : `Cannot book: missing required fields: ${missing.join(", ")}. Collect full name, phone, email, and birthday BEFORE saying "Locking in your appointment now!"`;
   logFlowStep("book:validateBookAppointment:failed", { error, missing });
   return error;
 }
@@ -166,9 +165,7 @@ export function validatePortalBooking(input: {
 }
 
 /** Fill client_name / client_email from CRM using phone (cancel, reschedule, find). */
-export async function enrichClientFromPhone(
-  input: Record<string, unknown>,
-): Promise<void> {
+export async function enrichClientFromPhone(input: Record<string, unknown>): Promise<void> {
   const rawPhone = extractPhoneForLookup(String(input.phone ?? input.client_contact ?? ""));
   if (!rawPhone) return;
   if (!input.phone) input.phone = rawPhone;
@@ -210,9 +207,7 @@ export function validateUpsertClientName(name: unknown): string | null {
   return null;
 }
 
-export async function enrichCancelRescheduleInput(
-  input: Record<string, unknown>,
-): Promise<void> {
+export async function enrichCancelRescheduleInput(input: Record<string, unknown>): Promise<void> {
   await enrichClientFromPhone(input);
 }
 

@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {

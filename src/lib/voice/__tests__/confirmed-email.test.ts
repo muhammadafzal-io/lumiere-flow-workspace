@@ -105,10 +105,7 @@ describe("shouldPreferConfirmedEmail", () => {
 
   it("does not replace longer tool email with shorter STT-truncated transcript", () => {
     expect(
-      shouldPreferConfirmedEmail(
-        "muhammad.afzal.110190@gmail.com",
-        "muhad.afzal.110190@gmail.com",
-      ),
+      shouldPreferConfirmedEmail("muhammad.afzal.110190@gmail.com", "muhad.afzal.110190@gmail.com"),
     ).toBe(false);
   });
 
@@ -132,7 +129,9 @@ describe("shouldPreferConfirmedEmail", () => {
   });
 
   it("does not prefer when addresses are identical", () => {
-    expect(shouldPreferConfirmedEmail("techtycon72@gmail.com", "techtycon72@gmail.com")).toBe(false);
+    expect(shouldPreferConfirmedEmail("techtycon72@gmail.com", "techtycon72@gmail.com")).toBe(
+      false,
+    );
   });
 });
 
