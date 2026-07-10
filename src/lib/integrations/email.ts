@@ -6,6 +6,7 @@ import {
   type EmailSendCategory,
   type EmailSendTrigger,
 } from "@/lib/integrations/email-send-log";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 export type EmailFlowType =
   | "reminder"
@@ -130,7 +131,8 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function buildEmailHtml(opts: SendEmailOptions): string {
+async function buildEmailHtml(opts: SendEmailOptions): Promise<string> {
+  const clinic = await getClinicConfig();
   const flowType = opts.flowType ?? "general";
   const accent = FLOW_ACCENT[flowType];
   const icon = FLOW_ICON[flowType];
@@ -179,7 +181,7 @@ function buildEmailHtml(opts: SendEmailOptions): string {
                 Lumière Med Spa &amp; Wellness
               </p>
               <p style="margin:6px 0 0 0;font-size:22px;color:${BRAND.white};font-weight:300;letter-spacing:1px;">
-                ${icon}&nbsp;&nbsp;Austin, Texas
+                ${icon}&nbsp;&nbsp;${escapeHtml(clinic.location)}
               </p>
             </td>
           </tr>
@@ -204,8 +206,8 @@ function buildEmailHtml(opts: SendEmailOptions): string {
                 Lumière Med Spa &amp; Wellness
               </p>
               <p style="margin:8px 0 0 0;font-size:12px;color:#8a8aaa;line-height:1.6;">
-                2847 S Lamar Blvd, Suite 120, Austin TX 78704<br/>
-                Mon–Sat · 9 AM–7 PM CT
+                ${escapeHtml(clinic.address)}<br/>
+                ${escapeHtml(clinic.businessHours)}
               </p>
               <p style="margin:12px 0 0 0;font-size:11px;color:#5a5a7a;">
                 You're receiving this because you're a valued Lumière client.
@@ -253,7 +255,7 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
     });
   }
 
-  const html = buildEmailHtml({ ...opts, subject });
+  const html = await buildEmailHtml({ ...opts, subject });
 
   const sgKey = process.env.SENDGRID_API_KEY;
   const sgFrom = process.env.SENDGRID_FROM_EMAIL;

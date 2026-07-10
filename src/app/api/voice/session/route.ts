@@ -42,7 +42,7 @@ export async function POST() {
         session: {
           type: "realtime",
           model: "gpt-realtime-mini",
-          instructions: getVoiceSystemPrompt(),
+          instructions: await getVoiceSystemPrompt(),
           output_modalities: ["audio"],
           tools: REALTIME_TOOLS,
           tool_choice: "auto",

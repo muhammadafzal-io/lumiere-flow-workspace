@@ -3,34 +3,38 @@ import { getSupabase } from "@/lib/supabase";
 import { readActivityLog } from "@/lib/integrations/activity-log";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import type { OpsLogEntry } from "@/types";
+import { getClinicTimezone } from "@/lib/clinic-config";
 
 export const dynamic = "force-dynamic";
 
 type LogRow = OpsLogEntry & { id: string };
 
-function dateStr(offsetDays: number) {
+function dateStr(offsetDays: number, tz: string) {
   const d = new Date();
   d.setDate(d.getDate() + offsetDays);
-  return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  return d.toLocaleDateString("en-CA", { timeZone: tz });
 }
 
-function calEventToLogRow(e: {
-  id: string;
-  treatment: string;
-  clientName: string;
-  clientContact: string;
-  startTime: string;
-  endTime: string;
-  notes: string;
-  room: string;
-  practitioner: string;
-}): LogRow {
+function calEventToLogRow(
+  e: {
+    id: string;
+    treatment: string;
+    clientName: string;
+    clientContact: string;
+    startTime: string;
+    endTime: string;
+    notes: string;
+    room: string;
+    practitioner: string;
+  },
+  tz: string,
+): LogRow {
   const parts: string[] = [];
   if (e.treatment) parts.push(e.treatment);
   if (e.practitioner) parts.push(`with ${e.practitioner}`);
   if (e.room) parts.push(`in ${e.room}`);
   const apptTime = new Date(e.startTime).toLocaleString("en-US", {
-    timeZone: "America/Chicago",
+    timeZone: tz,
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -94,11 +98,14 @@ async function fetchRules() {
 
 export async function GET() {
   try {
+    const tz = await getClinicTimezone();
+    const rangeFrom = dateStr(-60, tz);
+    const rangeTo = dateStr(7, tz);
     const [clients, rules, recentActivity, calendarEvents] = await Promise.allSettled([
       fetchClients(),
       fetchRules(),
       readActivityLog(50),
-      getEventsByRange(dateStr(-60), dateStr(7)),
+      getEventsByRange(rangeFrom, rangeTo),
     ]);
 
     const clientList = clients.status === "fulfilled" ? clients.value : [];
@@ -107,18 +114,18 @@ export async function GET() {
     const events = calendarEvents.status === "fulfilled" ? calendarEvents.value : [];
 
     // Convert past+upcoming calendar events to log rows and merge
-    const calEntries: LogRow[] = events.map(calEventToLogRow);
+    const calEntries: LogRow[] = events.map((e) => calEventToLogRow(e, tz));
     const logSet = new Set(
       logEntries
         .filter((e) => e.eventType === "booking")
         .map((e) => {
-          const t = new Date(e.timestamp).getTime();
-          return `${e.clientName.toLowerCase()}_${Math.round(t / 300000)}`;
+          const t = new Date(e.timestamp ?? 0).getTime();
+          return `${(e.clientName ?? "").toLowerCase()}_${Math.round(t / 300000)}`;
         }),
     );
     const uniqueCalEntries = calEntries.filter((e) => {
-      const t = new Date(e.timestamp).getTime();
-      return !logSet.has(`${e.clientName.toLowerCase()}_${Math.round(t / 300000)}`);
+      const t = new Date(e.timestamp ?? 0).getTime();
+      return !logSet.has(`${(e.clientName ?? "").toLowerCase()}_${Math.round(t / 300000)}`);
     });
     let activity = [...logEntries, ...uniqueCalEntries]
       .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -253,7 +260,7 @@ export async function GET() {
       calendarEvents: calendarEvents7,
     });
   } catch (error) {
-    console.error("Dashboard API Error:", error);
+    console.error("Dashboard API Error:", error instanceof Error ? error.message : error);
     return NextResponse.json({ error: "Failed to fetch dashboard data" }, { status: 500 });
   }
 }

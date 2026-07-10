@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources";
-import { SYSTEM_PROMPT } from "./system-prompt";
+import { getSystemPrompt } from "./system-prompt";
 import { TOOLS } from "./tools";
 import {
   checkAvailability,
@@ -8,6 +8,8 @@ import {
   findEarliestAvailability,
   resolveRequestedSlot,
   sanitizePractitionerFilter,
+  selectPresentableSlots,
+  parsePreferredTimeKey,
 } from "@/lib/services/booking-service";
 import { cancelCalendarEvent, rescheduleCalendarEvent } from "@/lib/integrations/google-calendar";
 import {
@@ -51,7 +53,8 @@ import {
 } from "@/lib/voice/flow-log";
 import { runWithFlowLogger } from "@/lib/voice/flow-context";
 import { slotPresentLimit } from "@/lib/agent/shared-booking-rules";
-import { chicagoDateFromIso } from "@/lib/booking/dates";
+import { dateFromIsoInTz, timeKeyInTz } from "@/lib/booking/dates";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 function getOpenAI() {
   const apiKey = getOpenAIApiKey();
@@ -75,6 +78,7 @@ export async function executeTool(
 
   return runWithFlowLogger(flow, async () => {
     flow?.step(`agent:${toolName}:start`, { input: summarizeForFlowLog(input) });
+    const { timezone: tz } = await getClinicConfig();
 
     switch (toolName) {
       case "get_practitioners": {
@@ -102,10 +106,17 @@ export async function executeTool(
 
       case "check_availability": {
         try {
+          const preferredTimeRaw =
+            (input.preferred_time as string | undefined) ||
+            (input.time as string | undefined) ||
+            undefined;
+          const preferredTimeKey = parsePreferredTimeKey(preferredTimeRaw);
           flow?.step("availability:start", {
             date: input.date,
             duration_minutes: input.duration_minutes,
             practitioner_name: input.practitioner_name ?? input.preferred_practitioner,
+            preferred_time: preferredTimeRaw,
+            preferred_time_key: preferredTimeKey,
           });
           const practitionerName = await sanitizePractitionerFilter(
             (input.preferred_practitioner as string | undefined) ||
@@ -120,21 +131,38 @@ export async function executeTool(
           });
 
           const slotLimit = slotPresentLimit(context.platform);
-          const slots = availability.slots.slice(0, slotLimit);
+          const slots = selectPresentableSlots(availability.slots, slotLimit, preferredTimeKey);
+
+          const requestedMatch = preferredTimeKey
+            ? availability.slots.find((s) => timeKeyInTz(s.startTime, tz) === preferredTimeKey)
+            : undefined;
+
+          let summary: string;
+          if (availability.slots.length === 0) {
+            summary = `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`;
+          } else if (preferredTimeKey && requestedMatch) {
+            summary = `${preferredTimeRaw} IS available on ${availability.date} — book it with startTime ${requestedMatch.startTime} (pass date ${availability.date}). Other nearby options are included. Practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Rooms: ${availability.availableRooms.join(", ") || "any"}.`;
+          } else if (preferredTimeKey && !requestedMatch) {
+            summary = `${preferredTimeRaw} is NOT open on ${availability.date}. The slots listed are the closest available times — offer these instead. Each includes startTime for book_appointment. Practitioners: ${availability.availablePractitioners.join(", ") || "any"}.`;
+          } else {
+            summary = `Found ${availability.slots.length} available slots on ${availability.date} spanning 9:00 AM–7:00 PM. The slots listed are spread across the day — present up to ${slotLimit}, and if the client wants a specific time, call check_availability again with preferred_time. Each slot includes startTime — pass that EXACT startTime as date_time in book_appointment (also pass date ${availability.date}). Practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Rooms: ${availability.availableRooms.join(", ") || "any"}.`;
+          }
 
           const availabilityResult = {
             date: availability.date,
             durationMinutes: availability.durationMinutes,
             slots,
+            requestedTime: preferredTimeRaw,
+            requestedTimeAvailable: preferredTimeKey ? Boolean(requestedMatch) : undefined,
+            totalOpenSlots: availability.slots.length,
             availablePractitioners: availability.availablePractitioners,
             availableRooms: availability.availableRooms,
-            summary:
-              availability.slots.length > 0
-                ? `Found ${availability.slots.length} available slots on ${availability.date}. Present up to ${slotLimit} to the client. Each slot includes startTime — when the client picks a time, pass that EXACT startTime as date_time in book_appointment (also pass date as YYYY-MM-DD). Practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Rooms: ${availability.availableRooms.join(", ") || "any"}.`
-                : `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`,
+            summary,
           };
           flow?.step("availability:complete", {
             slotCount: availability.slots.length,
+            requestedTime: preferredTimeRaw,
+            requestedTimeAvailable: preferredTimeKey ? Boolean(requestedMatch) : undefined,
             result: summarizeForFlowLog(availabilityResult),
           });
           return { result: availabilityResult };
@@ -168,7 +196,7 @@ export async function executeTool(
           const earliestResult = {
             earliestDate: result.earliestDate,
             datesChecked: result.datesChecked,
-            slots: result.slots.slice(0, slotLimit),
+            slots: selectPresentableSlots(result.slots, slotLimit),
             summary: `${result.summary} Present up to ${slotLimit} slots. Pass the EXACT startTime of the chosen slot as date_time in book_appointment.`,
           };
           flow?.step("earliest:complete", { result: summarizeForFlowLog(earliestResult) });
@@ -263,7 +291,7 @@ export async function executeTool(
           flow?.step("book:calendar created", { eventId: appt.id });
 
           const storedBirthday = normalizeBirthdayForStorage(String(input.birthday ?? ""));
-          const visitDate = chicagoDateFromIso(apptData.startTime);
+          const visitDate = dateFromIsoInTz(apptData.startTime, tz);
           flow?.step("book:upsert client", {
             email: normalizeEmail(input.client_email),
             phone: apptData.clientContact,
@@ -468,7 +496,7 @@ export async function executeTool(
           flow?.step("cancel:send email", { to: cancelEmail });
           const displayTime = cancelled.startTime
             ? new Date(cancelled.startTime).toLocaleString("en-US", {
-                timeZone: "America/Chicago",
+                timeZone: tz,
                 weekday: "long",
                 month: "long",
                 day: "numeric",
@@ -606,7 +634,7 @@ export async function executeTool(
           flow?.step("reschedule:send email", { to: rescheduleEmail });
           const fmtTime = (iso: string) =>
             new Date(iso).toLocaleString("en-US", {
-              timeZone: "America/Chicago",
+              timeZone: tz,
               weekday: "long",
               month: "long",
               day: "numeric",
@@ -630,9 +658,9 @@ export async function executeTool(
                 `Hi ${rescheduled.clientName}, your Lumière appointment has been rescheduled.`,
                 ``,
                 `Treatment: ${rescheduled.treatment}`,
-                rescheduled.oldStartTime ? `Old Date: ${fmtTime(rescheduled.oldStartTime)} CT` : "",
-                `New Date: ${fmtTime(rescheduled.newStartTime)} CT`,
-                `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
+                rescheduled.oldStartTime ? `Old Date: ${fmtTime(rescheduled.oldStartTime)}` : "",
+                `New Date: ${fmtTime(rescheduled.newStartTime)}`,
+                `Location: ${(await getClinicConfig()).address}`,
                 ``,
                 `Need further changes? Reply here or contact us Monday–Saturday, 9 AM–7 PM.`,
                 widgetLinkLine(),
@@ -707,7 +735,7 @@ export async function executeTool(
           };
         }
         const displayTime = new Date(appt.startTime).toLocaleString("en-US", {
-          timeZone: "America/Chicago",
+          timeZone: tz,
           weekday: "long",
           month: "long",
           day: "numeric",
@@ -777,20 +805,32 @@ export async function executeTool(
         });
 
         try {
+          const preferredTimeRaw = (input.preferred_time as string | undefined) || undefined;
+          const preferredTimeKey = parsePreferredTimeKey(preferredTimeRaw);
+
+          // Caller may request a different practitioner; fall back to original.
+          const preferredPrac =
+            (input.preferred_practitioner as string | undefined) ||
+            (input.practitioner_name as string | undefined) ||
+            undefined;
+          const practitionerName = await sanitizePractitionerFilter(
+            preferredPrac ?? appt.practitionerName,
+            appt.treatment,
+          );
+
           flow?.step("reschedule-check:check availability", {
             date,
-            practitioner: appt.practitionerName,
-            room: appt.room,
+            practitioner: practitionerName,
+            preferred_time: preferredTimeRaw,
           });
           const availability = await checkAvailability({
             date,
             durationMinutes,
-            practitionerName: appt.practitionerName,
-            room: appt.room,
+            practitionerName,
           });
 
           const currentDisplay = new Date(appt.startTime).toLocaleString("en-US", {
-            timeZone: "America/Chicago",
+            timeZone: tz,
             weekday: "long",
             month: "long",
             day: "numeric",
@@ -799,19 +839,34 @@ export async function executeTool(
             hour12: true,
           });
 
+          const slotLimit = slotPresentLimit(context.platform);
+          const slots = selectPresentableSlots(availability.slots, slotLimit, preferredTimeKey);
+
+          const requestedMatch = preferredTimeKey
+            ? availability.slots.find((s) => timeKeyInTz(s.startTime, tz) === preferredTimeKey)
+            : undefined;
+
+          let summary: string;
+          if (availability.slots.length === 0) {
+            summary = `No open slots on ${availability.date} for ${appt.treatment}. Try the next business day with check_reschedule_availability — do NOT ask for contact info.`;
+          } else if (preferredTimeKey && requestedMatch) {
+            summary = `${preferredTimeRaw} IS available on ${availability.date} for rescheduling — use startTime ${requestedMatch.startTime}. Pass phone + that exact startTime as new_date_time to reschedule_appointment. Do NOT ask for name, email, or birthday.`;
+          } else if (preferredTimeKey && !requestedMatch) {
+            summary = `${preferredTimeRaw} is NOT open on ${availability.date}. The slots listed are the closest available times — offer these instead. Pass phone + the EXACT startTime of the chosen slot as new_date_time to reschedule_appointment. Do NOT ask for name, email, or birthday.`;
+          } else {
+            summary = `Reschedule slots for ${appt.clientName}'s ${appt.treatment} on ${availability.date}. Pass phone + the EXACT startTime of the chosen slot as new_date_time to reschedule_appointment. Do NOT ask for name, email, or birthday.`;
+          }
+
           const rescheduleCheckResult = {
             client_name: appt.clientName,
             treatment: appt.treatment,
             current_appointment: currentDisplay,
             duration_minutes: durationMinutes,
             date: availability.date,
-            slots: availability.slots.slice(0, 6),
+            slots,
             availablePractitioners: availability.availablePractitioners,
             availableRooms: availability.availableRooms,
-            summary:
-              availability.slots.length > 0
-                ? `Reschedule slots for ${appt.clientName}'s ${appt.treatment} on ${availability.date}. Pass phone + the EXACT startTime of the chosen slot as new_date_time to reschedule_appointment. Do NOT ask for name, email, or birthday.`
-                : `No open slots on ${availability.date} for ${appt.treatment}. Try the next business day with check_reschedule_availability — do NOT ask for contact info.`,
+            summary,
           };
           flow?.step("reschedule-check:complete", {
             slotCount: availability.slots.length,
@@ -962,7 +1017,7 @@ export async function runAgent(opts: {
   const { userMessage, history, platform, chatId } = opts;
 
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: await getSystemPrompt() },
     ...history,
     { role: "user", content: userMessage },
   ];

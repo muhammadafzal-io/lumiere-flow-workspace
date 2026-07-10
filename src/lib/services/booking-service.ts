@@ -11,15 +11,16 @@ import {
 import { getPractitioners } from "@/lib/integrations/airtable";
 import type { AvailableSlot } from "@/types";
 import {
-  addChicagoDays,
-  chicagoDateFromIso,
-  chicagoHour,
-  chicagoTimeKey,
-  isSundayChicago,
-  isSundayChicagoFromIso,
-  nextOpenChicagoDay,
-  todayInChicago,
+  todayInTz,
+  dateFromIsoInTz,
+  timeKeyInTz,
+  hourInTz,
+  isSundayFromIsoInTz,
+  addDays,
+  isSunday,
+  nextOpenDay,
 } from "@/lib/booking/dates";
+import { getClinicTimezone } from "@/lib/clinic-config";
 import { flowAsync, logFlowStep } from "@/lib/voice/flow-context";
 
 export interface BookingRequest {
@@ -137,30 +138,104 @@ export function findMatchingSlot(
   slots: AvailableSlot[],
   requestedStartTime: string,
   dateHint?: string,
+  tz = "America/Chicago",
 ): AvailableSlot | undefined {
   const exact = slots.find((slot) => sameInstant(slot.startTime, requestedStartTime));
   if (exact) return exact;
 
-  const targetDate = dateHint ?? chicagoDateFromIso(requestedStartTime);
-  const chicagoTarget = chicagoTimeKey(requestedStartTime);
+  const targetDate = dateHint ?? dateFromIsoInTz(requestedStartTime, tz);
+  const localTarget = timeKeyInTz(requestedStartTime, tz);
   const wallClock = naiveWallClockFromIso(requestedStartTime);
 
-  const byChicagoTime = slots.find(
+  const byLocalTime = slots.find(
     (slot) =>
-      chicagoDateFromIso(slot.startTime) === targetDate &&
-      chicagoTimeKey(slot.startTime) === chicagoTarget,
+      dateFromIsoInTz(slot.startTime, tz) === targetDate &&
+      timeKeyInTz(slot.startTime, tz) === localTarget,
   );
-  if (byChicagoTime) return byChicagoTime;
+  if (byLocalTime) return byLocalTime;
 
-  if (wallClock && wallClock !== chicagoTarget) {
+  if (wallClock && wallClock !== localTarget) {
     return slots.find(
       (slot) =>
-        chicagoDateFromIso(slot.startTime) === targetDate &&
-        chicagoTimeKey(slot.startTime) === wallClock,
+        dateFromIsoInTz(slot.startTime, tz) === targetDate &&
+        timeKeyInTz(slot.startTime, tz) === wallClock,
     );
   }
 
   return undefined;
+}
+
+function timeKeyToMinutes(key: string): number {
+  const [h, m] = key.split(":").map(Number);
+  return (h ?? 0) * 60 + (m ?? 0);
+}
+
+/** Parse a spoken/typed time ("11", "11 am", "11:00", "2:30 pm", or an ISO) to HH:mm (24h). */
+export function parsePreferredTimeKey(input?: string, tz = "America/Chicago"): string | undefined {
+  if (!input?.trim()) return undefined;
+  const raw = input.trim().toLowerCase();
+
+  if (/\d{4}-\d{2}-\d{2}t/i.test(raw)) {
+    try {
+      return timeKeyInTz(input, tz);
+    } catch {
+      return undefined;
+    }
+  }
+
+  const m = raw.match(/(\d{1,2})(?::(\d{2}))?\s*(a\.?m\.?|p\.?m\.?)?/);
+  if (!m) return undefined;
+
+  let hour = Number(m[1]);
+  const minute = Number(m[2] ?? "0");
+  const meridiem = m[3]?.replace(/\./g, "");
+  if (meridiem === "pm" && hour < 12) hour += 12;
+  if (meridiem === "am" && hour === 12) hour = 0;
+  if (hour > 23 || minute > 59) return undefined;
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+/**
+ * Pick up to `limit` slots to present. When a time is requested, return the slots
+ * nearest that time (chronological). Otherwise spread selections across the whole
+ * day so callers see morning/afternoon/evening options — not just the first
+ * consecutive 5-minute openings at 9:00 AM.
+ */
+export function selectPresentableSlots(
+  slots: AvailableSlot[],
+  limit: number,
+  preferredTimeKey?: string,
+  tz = "America/Chicago",
+): AvailableSlot[] {
+  if (limit <= 0) return [];
+  if (slots.length <= limit) return slots;
+
+  if (preferredTimeKey) {
+    const target = timeKeyToMinutes(preferredTimeKey);
+    const nearest = [...slots]
+      .sort((a, b) => {
+        const da = Math.abs(timeKeyToMinutes(timeKeyInTz(a.startTime, tz)) - target);
+        const db = Math.abs(timeKeyToMinutes(timeKeyInTz(b.startTime, tz)) - target);
+        return da - db;
+      })
+      .slice(0, limit);
+    return nearest.sort(
+      (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+    );
+  }
+
+  const step = (slots.length - 1) / (limit - 1);
+  const picked: AvailableSlot[] = [];
+  const seen = new Set<number>();
+  for (let i = 0; i < limit; i++) {
+    const idx = Math.round(i * step);
+    if (!seen.has(idx)) {
+      seen.add(idx);
+      picked.push(slots[idx]!);
+    }
+  }
+  return picked;
 }
 
 export async function resolveRequestedSlot(request: {
@@ -177,7 +252,8 @@ export async function resolveRequestedSlot(request: {
   return flowAsync(
     "booking:resolveRequestedSlot",
     async () => {
-      const date = request.date ?? chicagoDateFromIso(request.startTime);
+      const tz = await getClinicTimezone();
+      const date = request.date ?? dateFromIsoInTz(request.startTime, tz);
 
       const availability = await checkAvailability({
         date,
@@ -186,7 +262,7 @@ export async function resolveRequestedSlot(request: {
         room: request.preferredRoom,
       });
 
-      const requestedSlot = findMatchingSlot(availability.slots, request.startTime, date);
+      const requestedSlot = findMatchingSlot(availability.slots, request.startTime, date, tz);
       if (!requestedSlot) {
         const alternatives = availability.slots
           .slice(0, 3)
@@ -285,13 +361,15 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
         throw new Error("Missing required booking fields");
       }
 
-      if (isSundayChicagoFromIso(request.startTime)) {
+      const tz = await getClinicTimezone();
+
+      if (isSundayFromIsoInTz(request.startTime, tz)) {
         throw new Error("Appointments cannot be booked on Sundays — clinic is closed");
       }
 
-      const hour = chicagoHour(request.startTime);
+      const hour = hourInTz(request.startTime, tz);
       if (hour < 9 || hour >= 19) {
-        throw new Error("Appointments can only be booked between 9:00 AM and 7:00 PM Austin time");
+        throw new Error("Appointments can only be booked between 9:00 AM and 7:00 PM");
       }
 
       const duration = request.endTime
@@ -410,16 +488,17 @@ export async function findEarliestAvailability(request: {
   return flowAsync(
     "booking:findEarliestAvailability",
     async () => {
+      const tz = await getClinicTimezone();
       const durationMinutes = request.durationMinutes ?? 60;
       const maxDays = request.maxDaysAhead ?? 14;
-      let date = nextOpenChicagoDay(todayInChicago());
+      let date = nextOpenDay(todayInTz(tz));
       const datesChecked: string[] = [];
       const collected: AvailableSlot[] = [];
       let earliestDate: string | null = null;
 
       for (let i = 0; i < maxDays; i++) {
-        if (isSundayChicago(date)) {
-          date = addChicagoDays(date, 1);
+        if (isSunday(date)) {
+          date = addDays(date, 1);
           continue;
         }
 
@@ -440,7 +519,7 @@ export async function findEarliestAvailability(request: {
           if (collected.length >= 3) break;
         }
 
-        date = addChicagoDays(date, 1);
+        date = addDays(date, 1);
       }
 
       const summary =

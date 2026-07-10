@@ -4,6 +4,7 @@ import { lookupClient } from "@/lib/integrations/airtable";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import type { AudienceFilters } from "@/lib/retention/audience-config";
 import { fetchSentFollowupAppointmentIds } from "@/lib/retention/followup-sends";
+import { getClinicTimezone } from "@/lib/clinic-config";
 
 export interface FollowupCandidate {
   appointmentId: string;
@@ -17,8 +18,8 @@ export interface FollowupCandidate {
   daysSinceEnd: number;
 }
 
-function chicagoDateString(date: Date): string {
-  return date.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+function localDateString(date: Date, tz: string): string {
+  return date.toLocaleDateString("en-CA", { timeZone: tz });
 }
 
 function daysSinceEnd(endTime: string, now = Date.now()): number {
@@ -29,13 +30,14 @@ export async function listFollowupCandidates(
   filters: AudienceFilters,
   opts?: { skipSentCheck?: boolean },
 ): Promise<FollowupCandidate[]> {
+  const tz = await getClinicTimezone();
   const minDays = Math.max(0, filters.followup_min_days ?? 1);
   const maxDays = Math.max(minDays, filters.followup_max_days ?? 14);
   const now = Date.now();
 
   const from = new Date(now - maxDays * 86400000);
   const to = new Date(now);
-  const events = await getEventsByRange(chicagoDateString(from), chicagoDateString(to));
+  const events = await getEventsByRange(localDateString(from, tz), localDateString(to, tz));
 
   const sentIds = opts?.skipSentCheck ? new Set<string>() : await fetchSentFollowupAppointmentIds();
   const candidates: FollowupCandidate[] = [];

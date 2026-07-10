@@ -4,19 +4,21 @@ import type { RuleAudienceFilters } from "@/lib/rules/audience-config";
 export const LAST_VISIT_BUCKETS = ["0", "1", "7", "30", "30-90", "90", "any"] as const;
 export type LastVisitBucket = (typeof LAST_VISIT_BUCKETS)[number];
 
-/** Chicago calendar date (YYYY-MM-DD) parsed from a last-visit value. */
-export function lastVisitChicagoDate(lastVisit: string): string | null {
+const FALLBACK_TZ = "America/Chicago";
+
+/** Calendar date (YYYY-MM-DD) parsed from a last-visit value in the given timezone. */
+export function lastVisitChicagoDate(lastVisit: string, tz = FALLBACK_TZ): string | null {
   if (!lastVisit?.trim()) return null;
   const trimmed = lastVisit.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed.slice(0, 10);
   const d = new Date(trimmed);
   if (isNaN(d.getTime())) return null;
-  return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  return d.toLocaleDateString("en-CA", { timeZone: tz });
 }
 
-/** Chicago calendar date N days before today (0 = today, 1 = yesterday). */
-export function chicagoDateDaysAgo(daysAgo: number, now = new Date()): string {
-  const today = chicagoDateString(now);
+/** Calendar date N days before today in the given timezone (0 = today, 1 = yesterday). */
+export function chicagoDateDaysAgo(daysAgo: number, now = new Date(), tz = FALLBACK_TZ): string {
+  const today = chicagoDateString(now, tz);
   const [y, m, d] = today.split("-").map(Number);
   const date = new Date(Date.UTC(y, m - 1, d - daysAgo));
   const yy = date.getUTCFullYear();
@@ -29,10 +31,11 @@ export function lastVisitOnCalendarDaysAgo(
   lastVisit: string,
   daysAgo: number,
   now = new Date(),
+  tz = FALLBACK_TZ,
 ): boolean {
-  const visitDate = lastVisitChicagoDate(lastVisit);
+  const visitDate = lastVisitChicagoDate(lastVisit, tz);
   if (!visitDate) return false;
-  return visitDate === chicagoDateDaysAgo(daysAgo, now);
+  return visitDate === chicagoDateDaysAgo(daysAgo, now, tz);
 }
 
 export function normalizeTreatmentRuleConfig(
@@ -141,8 +144,8 @@ export function daysSince(iso: string): number {
   return (Date.now() - new Date(iso).getTime()) / 86400000;
 }
 
-export function chicagoDateString(now = new Date()): string {
-  return now.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+export function chicagoDateString(now = new Date(), tz = FALLBACK_TZ): string {
+  return now.toLocaleDateString("en-CA", { timeZone: tz });
 }
 
 export function isCampaignDateReached(dateStr: string | undefined, now = new Date()): boolean {

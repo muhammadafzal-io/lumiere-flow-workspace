@@ -39,6 +39,7 @@ import { mapTeamToPractitioners } from "@/lib/practitioners";
 import type { Appointment, Practitioner, Customer, Treatment } from "@/lib/types";
 import {
   BUSSINESS_TZ,
+  setClinicTimezone,
   HOUR_START,
   HOUR_END,
   SLOT_MIN,
@@ -158,6 +159,9 @@ export default function CalendarPage() {
       if (settingsRes.ok) {
         const settingsJson = await settingsRes.json();
         setPractitioners(mapTeamToPractitioners(settingsJson.team ?? []));
+        if (settingsJson.clinic?.timezone) {
+          setClinicTimezone(settingsJson.clinic.timezone);
+        }
       }
     } catch (err) {
       console.error("[calendar] meta load failed:", err);

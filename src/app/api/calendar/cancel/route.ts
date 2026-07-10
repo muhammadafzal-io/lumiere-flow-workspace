@@ -5,6 +5,7 @@ import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { invalidateEventsRangeCache } from "@/lib/integrations/google-calendar";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -64,6 +65,7 @@ export async function DELETE(req: NextRequest) {
 
     (async () => {
       try {
+        const { timezone, address } = await getClinicConfig();
         const description = event.description ?? "";
         const contact = parseField(description, "Contact");
         const clientName =
@@ -84,7 +86,7 @@ export async function DELETE(req: NextRequest) {
 
         const displayTime = startTime
           ? new Date(startTime).toLocaleString("en-US", {
-              timeZone: "America/Chicago",
+              timeZone: timezone,
               weekday: "long",
               month: "long",
               day: "numeric",
@@ -108,7 +110,7 @@ export async function DELETE(req: NextRequest) {
             `Hi ${clientName}, your appointment at Lumière has been cancelled.`,
             ``,
             `Treatment: ${treatment}`,
-            `Original Date: ${displayTime} CT`,
+            `Original Date: ${displayTime}`,
             ``,
             `We'd love to rebook you at a time that works better. Reply to this email or visit us Monday–Saturday, 9 AM–7 PM.`,
             widgetLinkLine(),

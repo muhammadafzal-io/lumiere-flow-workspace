@@ -4,6 +4,7 @@ import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { widgetLinkLine } from "@/lib/client-channels";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -90,7 +91,7 @@ export async function PATCH(req: NextRequest) {
     const event = getRes.data;
     const oldStartTime = event.start?.dateTime;
 
-    const timezone = "America/Chicago";
+    const { timezone, address } = await getClinicConfig();
     const updatedEvent = await calendar.events.update({
       calendarId: calId,
       eventId,
@@ -122,7 +123,7 @@ export async function PATCH(req: NextRequest) {
 
         const fmtTime = (iso: string) =>
           new Date(iso).toLocaleString("en-US", {
-            timeZone: "America/Chicago",
+            timeZone: timezone,
             weekday: "long",
             month: "long",
             day: "numeric",
@@ -145,9 +146,9 @@ export async function PATCH(req: NextRequest) {
             `Hi ${clientName}, your Lumière appointment has been rescheduled.`,
             ``,
             `Treatment: ${treatment}`,
-            oldStartTime ? `Old Date: ${fmtTime(oldStartTime)} CT` : "",
-            `New Date: ${fmtTime(newStartTime)} CT`,
-            `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
+            oldStartTime ? `Old Date: ${fmtTime(oldStartTime)}` : "",
+            `New Date: ${fmtTime(newStartTime)}`,
+            `Location: ${address}`,
             ``,
             `Need to make further changes? Reply to this email or contact us Monday–Saturday, 9 AM–7 PM.`,
             widgetLinkLine(),
@@ -159,7 +160,7 @@ export async function PATCH(req: NextRequest) {
             .join("\n"),
           cta: {
             label: "View Location",
-            url: "https://maps.google.com/?q=2847+S+Lamar+Blvd+Suite+120+Austin+TX",
+            url: `https://maps.google.com/?q=${encodeURIComponent(address)}`,
           },
         });
 

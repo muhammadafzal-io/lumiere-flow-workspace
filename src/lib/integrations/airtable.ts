@@ -1,12 +1,14 @@
 import { getSupabase } from "@/lib/supabase";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import type { Client, Appointment } from "@/types";
+import { getClinicTimezone } from "@/lib/clinic-config";
 
-function normalizeToDate(raw: string | undefined): string | undefined {
+async function normalizeToDate(raw: string | undefined): Promise<string | undefined> {
   if (!raw?.trim()) return undefined;
   const d = new Date(raw);
   if (isNaN(d.getTime())) return undefined;
-  return d.toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const tz = await getClinicTimezone();
+  return d.toLocaleDateString("en-CA", { timeZone: tz });
 }
 
 function isValidEmail(email: string): boolean {
@@ -66,10 +68,11 @@ export async function lookupClient(opts: {
 }
 
 export async function getDormantClients(daysThreshold = 90): Promise<Client[]> {
+  const tz = await getClinicTimezone();
   const sb = getSupabase();
   const cutoff = new Date(Date.now() - daysThreshold * 24 * 60 * 60_000).toLocaleDateString(
     "en-CA",
-    { timeZone: "America/Chicago" },
+    { timeZone: tz },
   );
 
   const { data, error } = await sb
@@ -92,7 +95,8 @@ export async function getUpcomingBirthdays(daysAhead = 7): Promise<Client[]> {
 
   if (error) throw new Error(error.message);
 
-  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const tz = await getClinicTimezone();
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: tz });
   const [todayYear, todayMonth, todayDay] = todayStr.split("-").map(Number);
   const todayDate = new Date(todayYear, todayMonth - 1, todayDay);
 
@@ -148,7 +152,7 @@ export async function upsertClient(data: Partial<Client> & { name: string }): Pr
   const sb = getSupabase();
   const existing = await lookupClient({ telegramId: data.telegramId, phone: data.phone });
 
-  const lastVisit = normalizeToDate(data.lastVisit);
+  const lastVisit = await normalizeToDate(data.lastVisit);
   const birthday = normalizeBirthdayForStorage(data.birthday);
   const email = data.email && isValidEmail(data.email) ? data.email : undefined;
 

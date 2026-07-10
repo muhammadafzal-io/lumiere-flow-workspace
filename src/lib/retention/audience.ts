@@ -7,6 +7,7 @@ import {
 } from "@/lib/integrations/airtable";
 import { getUpcomingAppointments } from "@/lib/integrations/google-calendar";
 import type { Client } from "@/types";
+import { getClinicTimezone } from "@/lib/clinic-config";
 import {
   countActiveFilters,
   type AudienceFilters,
@@ -154,6 +155,7 @@ async function buildBirthdayAudience(filters: AudienceFilters): Promise<Audience
 }
 
 async function buildReminderAudience(filters: AudienceFilters): Promise<AudienceResult> {
+  const tz = await getClinicTimezone();
   const appointments = await getUpcomingAppointments(4);
   const total = appointments.length;
   const rows: AudienceRow[] = [];
@@ -179,7 +181,7 @@ async function buildReminderAudience(filters: AudienceFilters): Promise<Audience
     }
 
     const displayTime = new Date(appt.startTime).toLocaleString("en-US", {
-      timeZone: "America/Chicago",
+      timeZone: tz,
       weekday: "short",
       month: "short",
       day: "numeric",
@@ -207,16 +209,14 @@ async function buildReminderAudience(filters: AudienceFilters): Promise<Audience
 }
 
 async function buildNoshowAudience(filters: AudienceFilters): Promise<AudienceResult> {
-  const today =
-    filters.noshow_date ?? new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const tz = await getClinicTimezone();
+  const today = filters.noshow_date ?? new Date().toLocaleDateString("en-CA", { timeZone: tz });
   const clients = await getAllClients();
   const noshows = clients.filter((c) => {
     if (c.status?.toLowerCase() !== "no-show") return false;
     if (!c.lastVisit) return false;
     if (/^\d{4}-\d{2}-\d{2}$/.test(c.lastVisit)) return c.lastVisit === today;
-    const visitDate = new Date(c.lastVisit).toLocaleDateString("en-CA", {
-      timeZone: "America/Chicago",
-    });
+    const visitDate = new Date(c.lastVisit).toLocaleDateString("en-CA", { timeZone: tz });
     return visitDate === today;
   });
 
@@ -263,12 +263,13 @@ async function buildReactivationAudience(filters: AudienceFilters): Promise<Audi
 }
 
 async function buildFollowupAudience(filters: AudienceFilters): Promise<AudienceResult> {
+  const tz = await getClinicTimezone();
   const candidates = await listFollowupCandidates(filters);
   const total = candidates.length;
 
   const rows: AudienceRow[] = candidates.map((c) => {
     const displayDate = new Date(c.endTime).toLocaleString("en-US", {
-      timeZone: "America/Chicago",
+      timeZone: tz,
       weekday: "short",
       month: "short",
       day: "numeric",

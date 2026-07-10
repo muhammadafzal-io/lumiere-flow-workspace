@@ -13,6 +13,7 @@ import { upsertClient, lookupClient } from "@/lib/integrations/airtable";
 import type { CalendarEvent } from "@/types";
 
 import { logFlowStep } from "@/lib/voice/flow-context";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 export {
   findUpcomingEventByClientName,
@@ -22,12 +23,13 @@ export {
 
 const UPCOMING_LOOKAHEAD_DAYS = 120;
 
-function todayChicago(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+async function todayLocal(): Promise<string> {
+  const { timezone } = await getClinicConfig();
+  return new Date().toLocaleDateString("en-CA", { timeZone: timezone });
 }
 
-function upcomingRange(): { from: string; to: string } {
-  const from = todayChicago();
+async function upcomingRange(): Promise<{ from: string; to: string }> {
+  const from = await todayLocal();
   const toDate = new Date();
   toDate.setDate(toDate.getDate() + UPCOMING_LOOKAHEAD_DAYS);
   return { from, to: toDate.toISOString().slice(0, 10) };
@@ -36,7 +38,7 @@ function upcomingRange(): { from: string; to: string } {
 /** Future calendar events (single API fetch, cached via getEventsByRange). */
 export async function loadUpcomingCalendarEvents(): Promise<CalendarEvent[]> {
   logFlowStep("fetch:loadUpcomingCalendarEvents:start");
-  const { from, to } = upcomingRange();
+  const { from, to } = await upcomingRange();
   const events = await getEventsByRange(from, to);
   const now = Date.now();
   const upcoming = events

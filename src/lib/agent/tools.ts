@@ -37,6 +37,11 @@ export const TOOLS: ChatCompletionTool[] = [
             type: "number",
             description: "Duration of the treatment in minutes. Defaults to 60 if unknown.",
           },
+          preferred_time: {
+            type: "string",
+            description:
+              "If the client asks for a specific time (e.g. '11 AM', '2:30 PM', '15:00'), pass it here. The tool returns whether that exact time is open plus the closest alternatives. ALWAYS pass this when the client mentions a time.",
+          },
           preferred_practitioner: {
             type: "string",
             description:
@@ -210,7 +215,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "check_reschedule_availability",
       description:
-        "Check open slots when RESCHEDULING an existing appointment ONLY — NEVER for a new booking. Requires phone + new date. If the client is booking new or chose a practitioner for a new visit, use check_availability instead.",
+        "STRICT PREREQUISITE: The caller must have explicitly said 'reschedule', 'change my appointment', 'move my booking', or equivalent — this tool is FORBIDDEN during any new booking flow. NEVER call this because the caller changed their preferred time or practitioner while selecting from new booking slots — that is still a new booking; use check_availability with preferred_time instead. Only call this tool when the caller is modifying an appointment that already exists in the calendar.",
       parameters: {
         type: "object",
         properties: {
@@ -225,6 +230,16 @@ export const TOOLS: ChatCompletionTool[] = [
           date: {
             type: "string",
             description: "New date to check in YYYY-MM-DD (Austin)",
+          },
+          preferred_time: {
+            type: "string",
+            description:
+              "If the caller asked for a specific time (e.g. '11 AM', '2:30 PM'), pass it here. The tool returns whether that exact time is open plus the closest alternatives.",
+          },
+          preferred_practitioner: {
+            type: "string",
+            description:
+              "If the caller wants a different practitioner than their original, pass their name here. Omit to keep the same practitioner.",
           },
         },
         required: ["date"],

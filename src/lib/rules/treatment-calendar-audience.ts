@@ -17,6 +17,7 @@ import {
   treatmentTimingMode,
   treatmentTriggerLabel,
 } from "@/lib/rules/audience-match";
+import { getClinicTimezone } from "@/lib/clinic-config";
 
 function phoneKey(phone: string): string {
   return phone.replace(/\D/g, "");
@@ -122,6 +123,7 @@ export async function buildTreatmentCalendarRuleAudience(
   customers: Customer[],
   now = new Date(),
 ): Promise<RuleAudienceRow[]> {
+  const tz = await getClinicTimezone();
   const cfg = normalizeTreatmentRuleConfig(rule.trigger_config ?? {}, rule.name);
   const mode = treatmentTimingMode(cfg);
   const ruleTreatment = String(cfg.treatment ?? "Any");
@@ -141,11 +143,11 @@ export async function buildTreatmentCalendarRuleAudience(
   let toDate: string;
   if (mode === "within_last_days") {
     const window = Math.max(1, Number(cfg.within_last_days ?? cfg.days_after ?? 7));
-    fromDate = chicagoDateDaysAgo(window, now);
-    toDate = chicagoDateString(now);
+    fromDate = chicagoDateDaysAgo(window, now, tz);
+    toDate = chicagoDateString(now, tz);
   } else {
     const daysAfter = Math.max(0, Number(cfg.days_after ?? 1));
-    fromDate = chicagoDateDaysAgo(daysAfter, now);
+    fromDate = chicagoDateDaysAgo(daysAfter, now, tz);
     toDate = fromDate;
   }
 
@@ -173,9 +175,7 @@ export async function buildTreatmentCalendarRuleAudience(
       (client?.id ? byId.get(client.id) : undefined) ??
       (phone ? byPhone.get(phoneKey(phone)) : undefined);
 
-    const visitDate = new Date(event.endTime).toLocaleDateString("en-CA", {
-      timeZone: "America/Chicago",
-    });
+    const visitDate = new Date(event.endTime).toLocaleDateString("en-CA", { timeZone: tz });
     const customer = customerFromEvent(event, client, existing, visitDate);
     const email = customer.email || client?.email;
 
@@ -184,7 +184,7 @@ export async function buildTreatmentCalendarRuleAudience(
     }
 
     const displayDate = new Date(event.endTime).toLocaleString("en-US", {
-      timeZone: "America/Chicago",
+      timeZone: tz,
       weekday: "short",
       month: "short",
       day: "numeric",

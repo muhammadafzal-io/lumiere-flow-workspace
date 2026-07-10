@@ -5,6 +5,7 @@ import { postEscalation } from "@/lib/integrations/slack";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
 import type { RetentionResult, RunFlowOptions } from "@/types";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 function hoursUntil(isoTime: string): number {
   return (new Date(isoTime).getTime() - Date.now()) / (1000 * 60 * 60);
@@ -22,9 +23,11 @@ function buildReminderText(
   treatment: string,
   startTime: string,
   window: string,
+  tz: string,
+  address: string,
 ): string {
   const displayTime = new Date(startTime).toLocaleString("en-US", {
-    timeZone: "America/Chicago",
+    timeZone: tz,
     weekday: "long",
     month: "short",
     day: "numeric",
@@ -39,12 +42,17 @@ function buildReminderText(
     "T-2h": `Hi ${clientName}, your appointment at Lumière is in about 2 hours.`,
   }[window];
 
-  return `${intro}\n\nTreatment: ${treatment}\nTime: ${displayTime}\nLocation: 2847 S Lamar Blvd, Suite 120, Austin TX\n\nPlease confirm your attendance:`;
+  return `${intro}\n\nTreatment: ${treatment}\nTime: ${displayTime}\nLocation: ${address}\n\nPlease confirm your attendance:`;
 }
 
-function buildReminderSubject(treatment: string, startTime: string, window: string): string {
+function buildReminderSubject(
+  treatment: string,
+  startTime: string,
+  window: string,
+  tz: string,
+): string {
   const displayDate = new Date(startTime).toLocaleString("en-US", {
-    timeZone: "America/Chicago",
+    timeZone: tz,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -57,6 +65,7 @@ function buildReminderSubject(treatment: string, startTime: string, window: stri
 }
 
 export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionResult> {
+  const { timezone: tz, address } = await getClinicConfig();
   const messaging = getMessagingProvider();
   let appointments = await getUpcomingAppointments(4);
   if (opts?.appointmentIds?.length) {
@@ -82,7 +91,7 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
 
     if (!window) {
       const displayTime = new Date(appt.startTime).toLocaleString("en-US", {
-        timeZone: "America/Chicago",
+        timeZone: tz,
         weekday: "short",
         month: "short",
         day: "numeric",
@@ -120,7 +129,14 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
     const deliverTo = client?.telegramId ?? appt.clientContact;
 
     try {
-      const text = buildReminderText(displayName, appt.treatment, appt.startTime, window);
+      const text = buildReminderText(
+        displayName,
+        appt.treatment,
+        appt.startTime,
+        window,
+        tz,
+        address,
+      );
 
       const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
         messaging,
@@ -133,7 +149,7 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
             { text: "Cancel", callbackData: `cancel:${appt.id}` },
           ],
           email: client?.email,
-          subject: buildReminderSubject(appt.treatment, appt.startTime, window),
+          subject: buildReminderSubject(appt.treatment, appt.startTime, window, tz),
           flowType: "reminder",
           emailLog: {
             category: "reminder",
@@ -162,7 +178,7 @@ export async function runReminderFlow(opts?: RunFlowOptions): Promise<RetentionR
         status: "sent",
         contact: deliverTo,
         platform,
-        messagePreview: `${window} reminder for ${appt.treatment} on ${new Date(appt.startTime).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}${simulated ? " (simulated)" : ""}`,
+        messagePreview: `${window} reminder for ${appt.treatment} on ${new Date(appt.startTime).toLocaleString("en-US", { timeZone: tz, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", hour12: true })}${simulated ? " (simulated)" : ""}`,
         emailAddress: client?.email ?? null,
         emailSent,
         discordMirrored,

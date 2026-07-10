@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { WIDGET_URL } from "@/lib/client-channels";
+import { invalidateClinicConfigCache } from "@/lib/clinic-config";
 
 export const dynamic = "force-dynamic";
 
@@ -125,10 +126,12 @@ export async function PATCH(req: Request) {
         .select()
         .single();
       if (error) throw new Error(error.message);
+      invalidateClinicConfigCache();
       return NextResponse.json({ success: true, recordId: data.id });
     } else {
       const { data, error } = await sb.from("Settings").insert(fields).select().single();
       if (error) throw new Error(error.message);
+      invalidateClinicConfigCache();
       return NextResponse.json({ success: true, recordId: data.id });
     }
   } catch (error) {

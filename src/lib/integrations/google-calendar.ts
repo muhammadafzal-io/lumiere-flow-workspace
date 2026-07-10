@@ -1,17 +1,12 @@
 import { google } from "googleapis";
 import type { AvailableSlot, CalendarEvent, Appointment } from "@/types";
-import {
-  SLOT_BUFFER_MINUTES,
-  SLOT_STEP_MINUTES,
-  SLOT_BUFFER_MS,
-  SLOT_STEP_MS,
-  intervalsConflict,
-} from "@/lib/booking/constants";
+import { SLOT_BUFFER_MS, intervalsConflict } from "@/lib/booking/constants";
 import { flowAsync, logFlowStep } from "@/lib/voice/flow-context";
+import { getClinicTimezone } from "@/lib/clinic-config";
+import { todayInTz } from "@/lib/booking/dates";
 
 const BUSINESS_START_HOUR = 9;
-const BUSINESS_END_HOUR = 19.5;
-const TIMEZONE = "America/Chicago";
+const BUSINESS_END_HOUR = 19; // last slot must END at 7:00 PM
 
 function getDefaultRooms(): string[] {
   const roomsEnv = process.env.CLINIC_ROOMS;
@@ -34,14 +29,9 @@ export function invalidateEventsRangeCache(): void {
   eventsRangeCache.clear();
 }
 
-// Returns today's date string (YYYY-MM-DD) in Chicago CT
-function todayInChicago(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: TIMEZONE });
-}
-
-// Converts a Chicago local time on a given date to a UTC Date.
+// Converts a local time on a given date to a UTC Date for any IANA timezone.
 // Supports fractional hours (e.g. 19.5 = 7:30 PM).
-function chicagoHourToUtc(dateStr: string, hour: number): Date {
+function localHourToUtc(dateStr: string, hour: number, tz: string): Date {
   let wholeHour = Math.floor(hour);
   let minutes = Math.round((hour - wholeHour) * 60);
   let datePart = dateStr;
@@ -61,13 +51,13 @@ function chicagoHourToUtc(dateStr: string, hour: number): Date {
     `${datePart}T${String(wholeHour).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00Z`,
   );
   if (isNaN(probe.getTime())) {
-    throw new Error(`Invalid Chicago time for ${dateStr} at hour ${hour}`);
+    throw new Error(`Invalid local time for ${dateStr} at hour ${hour}`);
   }
 
   const localHour =
     parseInt(
       new Intl.DateTimeFormat("en-US", {
-        timeZone: TIMEZONE,
+        timeZone: tz,
         hour: "2-digit",
         hour12: false,
       }).format(probe),
@@ -75,7 +65,7 @@ function chicagoHourToUtc(dateStr: string, hour: number): Date {
     ) % 24;
   const localMinute = parseInt(
     new Intl.DateTimeFormat("en-US", {
-      timeZone: TIMEZONE,
+      timeZone: tz,
       minute: "2-digit",
     }).format(probe),
     10,
@@ -175,13 +165,15 @@ export async function getAvailableSlots(
   rooms: string[] = DEFAULT_ROOMS,
   practitionerNames: string[] = [],
 ): Promise<AvailableSlot[]> {
+  const tz = await getClinicTimezone();
+
   logFlowStep("calendar:getAvailableSlots:start", {
     date,
     durationMinutes,
     rooms,
     practitionerNames,
   });
-  if (date < todayInChicago()) {
+  if (date < todayInTz(tz)) {
     logFlowStep("calendar:getAvailableSlots:end", { count: 0, reason: "past date" });
     return [];
   }
@@ -195,8 +187,8 @@ export async function getAvailableSlots(
   const calendar = getCalendarClient();
   const calId = calendarId();
 
-  const dayStart = chicagoHourToUtc(date, BUSINESS_START_HOUR);
-  const dayEnd = chicagoHourToUtc(date, BUSINESS_END_HOUR);
+  const dayStart = localHourToUtc(date, BUSINESS_START_HOUR, tz);
+  const dayEnd = localHourToUtc(date, BUSINESS_END_HOUR, tz);
 
   const res = await calendar.events.list({
     calendarId: calId,
@@ -222,16 +214,17 @@ export async function getAvailableSlots(
 
   const now = new Date();
   const slots: AvailableSlot[] = [];
+  const slotMs = durationMinutes * 60_000;
 
   let cursor = new Date(dayStart);
-  if (date === todayInChicago() && now > cursor) {
+  if (date === todayInTz(tz) && now > cursor) {
     const elapsed = now.getTime() - dayStart.getTime();
-    const blocks = Math.ceil(elapsed / SLOT_STEP_MS);
-    cursor = new Date(dayStart.getTime() + blocks * SLOT_STEP_MS);
+    const blocks = Math.ceil(elapsed / slotMs);
+    cursor = new Date(dayStart.getTime() + blocks * slotMs);
   }
 
-  while (cursor.getTime() + durationMinutes * 60_000 <= dayEnd.getTime()) {
-    const slotEnd = new Date(cursor.getTime() + durationMinutes * 60_000);
+  while (cursor.getTime() + slotMs <= dayEnd.getTime()) {
+    const slotEnd = new Date(cursor.getTime() + slotMs);
 
     // Events that conflict with this slot (including ${SLOT_BUFFER_MINUTES}-min turnover buffer)
     const conflicting = busyEvents.filter((b) =>
@@ -258,7 +251,7 @@ export async function getAvailableSlots(
         startTime: cursor.toISOString(),
         endTime: slotEnd.toISOString(),
         displayTime: cursor.toLocaleString("en-US", {
-          timeZone: TIMEZONE,
+          timeZone: tz,
           weekday: "long",
           month: "short",
           day: "numeric",
@@ -272,7 +265,7 @@ export async function getAvailableSlots(
       });
     }
 
-    cursor = new Date(cursor.getTime() + SLOT_STEP_MS);
+    cursor = new Date(cursor.getTime() + slotMs);
   }
 
   logFlowStep("calendar:getAvailableSlots:end", { count: slots.length, date });
@@ -293,6 +286,8 @@ export async function bookAdminAppointment(booking: {
   return flowAsync(
     "calendar:bookAdminAppointment",
     async () => {
+      const tz = await getClinicTimezone();
+
       if (new Date(booking.startTime) < new Date()) {
         throw new Error("Cannot book an appointment in the past");
       }
@@ -361,8 +356,8 @@ export async function bookAdminAppointment(booking: {
           ]
             .filter(Boolean)
             .join("\n"),
-          start: { dateTime: booking.startTime, timeZone: TIMEZONE },
-          end: { dateTime: booking.endTime, timeZone: TIMEZONE },
+          start: { dateTime: booking.startTime, timeZone: tz },
+          end: { dateTime: booking.endTime, timeZone: tz },
           colorId: "11",
         },
       });
@@ -381,6 +376,8 @@ export async function bookAdminAppointment(booking: {
 }
 
 export async function createAppointment(appt: Omit<Appointment, "id">): Promise<Appointment> {
+  const tz = await getClinicTimezone();
+
   if (new Date(appt.startTime) < new Date()) {
     throw new Error("Cannot book an appointment in the past");
   }
@@ -401,8 +398,8 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
       ]
         .filter(Boolean)
         .join("\n"),
-      start: { dateTime: appt.startTime, timeZone: TIMEZONE },
-      end: { dateTime: appt.endTime, timeZone: TIMEZONE },
+      start: { dateTime: appt.startTime, timeZone: tz },
+      end: { dateTime: appt.endTime, timeZone: tz },
       colorId: "11",
     },
   });
@@ -412,6 +409,7 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
 }
 
 export async function getEventsByRange(from: string, to: string): Promise<CalendarEvent[]> {
+  const tz = await getClinicTimezone();
   const cacheKey = `${from}|${to}`;
   const cached = eventsRangeCache.get(cacheKey);
   if (cached && Date.now() - cached.at < EVENTS_RANGE_CACHE_MS) {
@@ -420,8 +418,8 @@ export async function getEventsByRange(from: string, to: string): Promise<Calend
 
   const calendar = getCalendarClient();
   const calId = calendarId();
-  const timeMin = chicagoHourToUtc(from, 0).toISOString();
-  const timeMax = chicagoHourToUtc(to, 24).toISOString();
+  const timeMin = localHourToUtc(from, 0, tz).toISOString();
+  const timeMax = localHourToUtc(to, 24, tz).toISOString();
 
   const res = await calendar.events.list({
     calendarId: calId,
@@ -576,18 +574,68 @@ export async function rescheduleCalendarEvent(
   return flowAsync(
     "calendar:rescheduleCalendarEvent",
     async () => {
+      const tz = await getClinicTimezone();
       const calendar = getCalendarClient();
       const calId = calendarId();
       const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
       const oldStartTime = event.start?.dateTime ?? "";
       logFlowStep("calendar:rescheduleCalendarEvent fetched", { oldStartTime, newStartTime });
+
+      // Conflict check — same as bookAdminAppointment but excludes this event by ID.
+      const nStart = new Date(newStartTime);
+      const nEnd = new Date(newEndTime);
+      const { room: evtRoom, practitioner: evtPrac } = parseDesc(event.description ?? "");
+
+      const conflictRes = await calendar.events.list({
+        calendarId: calId,
+        timeMin: new Date(nStart.getTime() - SLOT_BUFFER_MS).toISOString(),
+        timeMax: new Date(nEnd.getTime() + SLOT_BUFFER_MS).toISOString(),
+        singleEvents: true,
+      });
+
+      logFlowStep("calendar:rescheduleCalendarEvent conflict check", {
+        overlappingEvents: (conflictRes.data.items ?? []).length,
+      });
+
+      const conflict = (conflictRes.data.items ?? []).find((e) => {
+        if (e.id === eventId) return false; // exclude the event being moved
+        if (!e.start?.dateTime || !e.end?.dateTime) return false;
+        const eStart = new Date(e.start.dateTime);
+        const eEnd = new Date(e.end.dateTime);
+        if (!intervalsConflict(nStart, nEnd, eStart, eEnd)) return false;
+
+        const { room: otherRoom, practitioner: otherPrac } = parseDesc(e.description ?? "");
+        if (otherRoom === null && otherPrac === null) return true;
+
+        const roomConflict = evtRoom === null || otherRoom === null || otherRoom === evtRoom;
+        const pracConflict = evtPrac === null || otherPrac === null || otherPrac === evtPrac;
+        return roomConflict && pracConflict;
+      });
+
+      if (conflict) {
+        const { room: cRoom, practitioner: cPrac } = parseDesc(conflict.description ?? "");
+        if (cRoom === evtRoom && cPrac === evtPrac) {
+          throw new Error(
+            `${evtRoom ?? "That room"} with ${evtPrac ?? "that practitioner"} is already booked at this time`,
+          );
+        } else if (cRoom === evtRoom) {
+          throw new Error(`${evtRoom ?? "That room"} is already booked — try a different time`);
+        } else if (cPrac === evtPrac) {
+          throw new Error(
+            `${evtPrac ?? "That practitioner"} is already booked — try a different time`,
+          );
+        } else {
+          throw new Error("That time slot is unavailable — try a different time");
+        }
+      }
+
       await calendar.events.update({
         calendarId: calId,
         eventId,
         requestBody: {
           ...event,
-          start: { dateTime: newStartTime, timeZone: TIMEZONE },
-          end: { dateTime: newEndTime, timeZone: TIMEZONE },
+          start: { dateTime: newStartTime, timeZone: tz },
+          end: { dateTime: newEndTime, timeZone: tz },
         },
       });
       invalidateEventsRangeCache();

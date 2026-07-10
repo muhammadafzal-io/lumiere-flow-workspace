@@ -1,18 +1,23 @@
-const TIMEZONE = "America/Chicago";
+const FALLBACK_TZ = "America/Chicago";
 
-export function todayInChicago(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: TIMEZONE });
+// ---------------------------------------------------------------------------
+// Parameterized API — pass the clinic timezone explicitly.
+// ---------------------------------------------------------------------------
+
+/** Current date as YYYY-MM-DD in the given timezone. */
+export function todayInTz(tz: string): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: tz });
 }
 
-/** YYYY-MM-DD for an instant in Austin clinic time. */
-export function chicagoDateFromIso(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: TIMEZONE });
+/** ISO timestamp → YYYY-MM-DD in the given timezone. */
+export function dateFromIsoInTz(iso: string, tz: string): string {
+  return new Date(iso).toLocaleDateString("en-CA", { timeZone: tz });
 }
 
-/** HH:mm (24h) in Austin clinic time — used to match spoken times to calendar slots. */
-export function chicagoTimeKey(iso: string): string {
+/** ISO timestamp → "HH:mm" (24 h) wall-clock in the given timezone. */
+export function timeKeyInTz(iso: string, tz: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: TIMEZONE,
+    timeZone: tz,
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
@@ -22,36 +27,72 @@ export function chicagoTimeKey(iso: string): string {
   return `${hour}:${minute}`;
 }
 
-export function chicagoHour(iso: string): number {
-  return Number(chicagoTimeKey(iso).split(":")[0] ?? 0);
+/** ISO timestamp → hour (0–23) in the given timezone. */
+export function hourInTz(iso: string, tz: string): number {
+  return Number(timeKeyInTz(iso, tz).split(":")[0] ?? 0);
 }
 
-export function isSundayChicagoFromIso(iso: string): boolean {
-  return (
-    new Date(iso).toLocaleDateString("en-US", { timeZone: TIMEZONE, weekday: "short" }) === "Sun"
-  );
+/** True when the ISO timestamp falls on a Sunday in the given timezone. */
+export function isSundayFromIsoInTz(iso: string, tz: string): boolean {
+  return new Date(iso).toLocaleDateString("en-US", { timeZone: tz, weekday: "short" }) === "Sun";
 }
 
-export function addChicagoDays(dateStr: string, days: number): string {
+/** Add N calendar days to a YYYY-MM-DD date string (timezone-neutral UTC math). */
+export function addDays(dateStr: string, days: number): string {
   const d = new Date(`${dateStr}T12:00:00Z`);
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
 
-export function isSundayChicago(dateStr: string): boolean {
+/** True when a YYYY-MM-DD date string is a Sunday (UTC noon proxy — works for UTC-12..+11). */
+export function isSunday(dateStr: string): boolean {
   return new Date(`${dateStr}T12:00:00Z`).getUTCDay() === 0;
 }
 
-/** Next calendar day that is not Sunday (starts from dateStr). */
-export function nextOpenChicagoDay(dateStr: string): string {
+/** Next non-Sunday date from dateStr (inclusive of dateStr itself). */
+export function nextOpenDay(dateStr: string): string {
   let d = dateStr;
   for (let i = 0; i < 8; i++) {
-    if (!isSundayChicago(d)) return d;
-    d = addChicagoDays(d, 1);
+    if (!isSunday(d)) return d;
+    d = addDays(d, 1);
   }
   return d;
 }
 
-export function tomorrowInChicago(): string {
-  return addChicagoDays(todayInChicago(), 1);
+/** Tomorrow's date as YYYY-MM-DD in the given timezone. */
+export function tomorrowInTz(tz: string): string {
+  return addDays(todayInTz(tz), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Backward-compat aliases — kept so existing callers compile without changes.
+// New code should use the tz-parameterized functions above.
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use todayInTz(tz) */
+export const todayInChicago = (): string => todayInTz(FALLBACK_TZ);
+
+/** @deprecated Use dateFromIsoInTz(iso, tz) */
+export const chicagoDateFromIso = (iso: string): string => dateFromIsoInTz(iso, FALLBACK_TZ);
+
+/** @deprecated Use timeKeyInTz(iso, tz) */
+export const chicagoTimeKey = (iso: string): string => timeKeyInTz(iso, FALLBACK_TZ);
+
+/** @deprecated Use hourInTz(iso, tz) */
+export const chicagoHour = (iso: string): number => hourInTz(iso, FALLBACK_TZ);
+
+/** @deprecated Use isSundayFromIsoInTz(iso, tz) */
+export const isSundayChicagoFromIso = (iso: string): boolean =>
+  isSundayFromIsoInTz(iso, FALLBACK_TZ);
+
+/** @deprecated Use addDays(dateStr, days) */
+export const addChicagoDays = (dateStr: string, days: number): string => addDays(dateStr, days);
+
+/** @deprecated Use isSunday(dateStr) */
+export const isSundayChicago = (dateStr: string): boolean => isSunday(dateStr);
+
+/** @deprecated Use nextOpenDay(dateStr) */
+export const nextOpenChicagoDay = (dateStr: string): string => nextOpenDay(dateStr);
+
+/** @deprecated Use tomorrowInTz(tz) */
+export const tomorrowInChicago = (): string => tomorrowInTz(FALLBACK_TZ);

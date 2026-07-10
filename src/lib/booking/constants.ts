@@ -1,11 +1,11 @@
-/** Gap between consecutive appointments (turnover / prep time). */
-export const SLOT_BUFFER_MINUTES = 5;
+/** No buffer between appointments — slots are strictly back-to-back. */
+export const SLOT_BUFFER_MINUTES = 0;
 
-/** Granularity when scanning the calendar for open slots. */
-export const SLOT_STEP_MINUTES = 5;
+/** Kept for compatibility; slot step is now dynamic (= appointment duration). */
+export const SLOT_STEP_MINUTES = 0;
 
-export const SLOT_BUFFER_MS = SLOT_BUFFER_MINUTES * 60_000;
-export const SLOT_STEP_MS = SLOT_STEP_MINUTES * 60_000;
+export const SLOT_BUFFER_MS = 0;
+export const SLOT_STEP_MS = 0;
 
 /** True when two intervals need at least SLOT_BUFFER_MINUTES between them. */
 export function intervalsConflict(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {

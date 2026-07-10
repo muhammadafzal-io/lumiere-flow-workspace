@@ -54,6 +54,69 @@ interface SettingsData {
   rooms?: string[];
 }
 
+const TIMEZONES = [
+  // United States
+  { value: "America/New_York", label: "Eastern Time (ET) — New York" },
+  { value: "America/Chicago", label: "Central Time (CT) — Chicago" },
+  { value: "America/Denver", label: "Mountain Time (MT) — Denver" },
+  { value: "America/Phoenix", label: "Mountain Time, no DST — Phoenix" },
+  { value: "America/Los_Angeles", label: "Pacific Time (PT) — Los Angeles" },
+  { value: "America/Anchorage", label: "Alaska Time — Anchorage" },
+  { value: "Pacific/Honolulu", label: "Hawaii Time — Honolulu" },
+  // Canada
+  { value: "America/Toronto", label: "Eastern Time — Toronto" },
+  { value: "America/Winnipeg", label: "Central Time — Winnipeg" },
+  { value: "America/Edmonton", label: "Mountain Time — Edmonton" },
+  { value: "America/Vancouver", label: "Pacific Time — Vancouver" },
+  { value: "America/Halifax", label: "Atlantic Time — Halifax" },
+  { value: "America/St_Johns", label: "Newfoundland Time — St. John's" },
+  // Latin America
+  { value: "America/Mexico_City", label: "Central Time — Mexico City" },
+  { value: "America/Bogota", label: "COT — Bogotá" },
+  { value: "America/Lima", label: "PET — Lima" },
+  { value: "America/Sao_Paulo", label: "BRT — São Paulo" },
+  { value: "America/Argentina/Buenos_Aires", label: "ART — Buenos Aires" },
+  { value: "America/Santiago", label: "CLT — Santiago" },
+  // Europe
+  { value: "Europe/London", label: "GMT/BST — London" },
+  { value: "Europe/Lisbon", label: "WET — Lisbon" },
+  { value: "Europe/Paris", label: "CET — Paris" },
+  { value: "Europe/Berlin", label: "CET — Berlin" },
+  { value: "Europe/Rome", label: "CET — Rome" },
+  { value: "Europe/Madrid", label: "CET — Madrid" },
+  { value: "Europe/Amsterdam", label: "CET — Amsterdam" },
+  { value: "Europe/Stockholm", label: "CET — Stockholm" },
+  { value: "Europe/Warsaw", label: "CET — Warsaw" },
+  { value: "Europe/Athens", label: "EET — Athens" },
+  { value: "Europe/Helsinki", label: "EET — Helsinki" },
+  { value: "Europe/Istanbul", label: "TRT — Istanbul" },
+  { value: "Europe/Moscow", label: "MSK — Moscow" },
+  // Africa & Middle East
+  { value: "Africa/Cairo", label: "EET — Cairo" },
+  { value: "Africa/Lagos", label: "WAT — Lagos" },
+  { value: "Africa/Nairobi", label: "EAT — Nairobi" },
+  { value: "Africa/Johannesburg", label: "SAST — Johannesburg" },
+  { value: "Asia/Riyadh", label: "AST — Riyadh" },
+  { value: "Asia/Dubai", label: "GST — Dubai" },
+  // Asia
+  { value: "Asia/Karachi", label: "PKT — Karachi" },
+  { value: "Asia/Kolkata", label: "IST — Mumbai / Kolkata" },
+  { value: "Asia/Dhaka", label: "BST — Dhaka" },
+  { value: "Asia/Bangkok", label: "ICT — Bangkok" },
+  { value: "Asia/Singapore", label: "SGT — Singapore" },
+  { value: "Asia/Shanghai", label: "CST — Beijing / Shanghai" },
+  { value: "Asia/Tokyo", label: "JST — Tokyo" },
+  { value: "Asia/Seoul", label: "KST — Seoul" },
+  // Australia & Pacific
+  { value: "Australia/Perth", label: "AWST — Perth" },
+  { value: "Australia/Adelaide", label: "ACST — Adelaide" },
+  { value: "Australia/Brisbane", label: "AEST, no DST — Brisbane" },
+  { value: "Australia/Sydney", label: "AEST — Sydney" },
+  { value: "Pacific/Auckland", label: "NZST — Auckland" },
+  // UTC
+  { value: "UTC", label: "UTC" },
+];
+
 const DEFAULT_CLINIC: ClinicSettings = {
   recordId: null,
   clinicName: "",
@@ -152,7 +215,21 @@ function ClinicTab({
         </div>
         <div>
           <Label>Timezone</Label>
-          <Input value={form.timezone} onChange={field("timezone")} className="mt-1.5" />
+          <Select
+            value={form.timezone}
+            onValueChange={(v) => setForm((f) => ({ ...f, timezone: v }))}
+          >
+            <SelectTrigger className="mt-1.5">
+              <SelectValue placeholder="Select timezone" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              {TIMEZONES.map((tz) => (
+                <SelectItem key={tz.value} value={tz.value}>
+                  {tz.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="col-span-2">
           <Label>Address</Label>

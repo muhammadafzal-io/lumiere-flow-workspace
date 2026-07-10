@@ -5,6 +5,7 @@ import { getMessagingProvider } from "@/lib/messaging";
 import { widgetLinkLine } from "@/lib/client-channels";
 import { trySend } from "@/lib/retention/utils";
 import type { RetentionResult, RunFlowOptions } from "@/types";
+import { getClinicTimezone } from "@/lib/clinic-config";
 
 function buildNoshowText(clientName: string, treatment: string): string {
   return [
@@ -20,21 +21,17 @@ function buildNoshowText(clientName: string, treatment: string): string {
 }
 
 export async function runNoshowFlow(opts?: RunFlowOptions): Promise<RetentionResult> {
+  const tz = await getClinicTimezone();
   const messaging = getMessagingProvider();
-  // Use Austin CT date so late-night runs don't shift to the next UTC day
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: tz });
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
 
   const clients = await getAllClients();
   let noshows = clients.filter((c) => {
     if (c.status?.toLowerCase() !== "no-show") return false;
     if (!c.lastVisit) return false;
-    // Plain YYYY-MM-DD date — compare directly (no timezone conversion needed)
     if (/^\d{4}-\d{2}-\d{2}$/.test(c.lastVisit)) return c.lastVisit === today;
-    // Full ISO datetime — convert to Austin CT date
-    const visitDate = new Date(c.lastVisit).toLocaleDateString("en-CA", {
-      timeZone: "America/Chicago",
-    });
+    const visitDate = new Date(c.lastVisit).toLocaleDateString("en-CA", { timeZone: tz });
     return visitDate === today;
   });
 

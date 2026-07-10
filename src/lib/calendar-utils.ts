@@ -1,6 +1,22 @@
 import type { Appointment, Practitioner } from "./types";
 
-export const BUSSINESS_TZ = "America/Chicago";
+/** Clinic timezone — set once from settings via setClinicTimezone(). */
+export let BUSSINESS_TZ = "America/Chicago";
+
+/** Call after fetching clinic settings so all calendar helpers use the correct timezone. */
+export function setClinicTimezone(tz: string): void {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    BUSSINESS_TZ = tz;
+  } catch {
+    // Invalid IANA timezone — keep existing value
+  }
+}
+
+/** Returns the currently active clinic timezone. */
+export function getActiveTimezone(): string {
+  return BUSSINESS_TZ;
+}
 export const DAY_MS = 86400000;
 export const HOUR_START = 9;
 export const HOUR_END = 20;

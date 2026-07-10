@@ -11,13 +11,14 @@
 
 import { WIDGET_URL } from "@/lib/client-channels";
 
-export const KNOWLEDGE_BASE = `
+export function buildKnowledgeBase(address: string, businessHours: string): string {
+  return `
 ## About Lumière Med Spa & Wellness
 Lumière is a boutique aesthetic clinic in Austin, Texas, founded in 2021 by Dr. Sofia Marchetti.
-Address: 2847 South Lamar Blvd, Suite 120, Austin, TX 78704
+Address: ${address}
 Phone: (512) 555-0192  |  Email: hello@lumierespa.com
 Online chat & booking: ${WIDGET_URL}
-Hours: Monday–Saturday 9:00 AM – 7:00 PM  |  Closed Sunday
+Hours: ${businessHours}  |  Closed Sunday
 Parking: Free surface lot directly behind the building (enter from Lamar Blvd).
 
 ---
@@ -110,3 +111,10 @@ Parking: Free surface lot directly behind the building (enter from Lamar Blvd).
 **How long do results last?** Botox 3–4 months; fillers 9–18 months; laser hair removal is permanent reduction after full course; microneedling results visible at 4–6 weeks and improve over 3–6 months.
 **Do you do lip filler?** Yes — lip filler starts at $650 per syringe. Most clients need 0.5–1 syringe for natural enhancement.
 `;
+}
+
+/** @deprecated Use buildKnowledgeBase(address, businessHours) */
+export const KNOWLEDGE_BASE = buildKnowledgeBase(
+  "2847 South Lamar Blvd, Suite 120, Austin, TX 78704",
+  "Mon–Sat 9:00 AM – 7:00 PM",
+);
