@@ -272,7 +272,9 @@ export async function executeTool(
             summary:
               availability.slots.length > 0
                 ? `Found ${availability.slots.length} available slots on ${availability.date}${preferredTime ? ` — showing the closest to ${preferredTime}` : ""}. Available practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Available rooms: ${availability.availableRooms.join(", ") || "any"}.`
-                : `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`,
+                : availability.bookingWindowNote
+                  ? `${availability.bookingWindowNote} — this is a booking-policy limit for this treatment, not a full calendar. Tell the client this specific reason rather than saying it's fully booked; offer a date within the allowed window instead.`
+                  : `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`,
           },
         };
       } catch (err) {

@@ -97,6 +97,10 @@ export interface AvailabilityResult {
   slots: AvailableSlot[];
   availablePractitioners: string[];
   availableRooms: string[];
+  /** Set when this Service's own minNoticeHours/maxAdvanceDays rules out every slot on this
+   * date — distinct from a genuinely full calendar, so callers can explain the real reason
+   * ("only bookable up to N days ahead") instead of a misleading "fully booked". */
+  bookingWindowNote?: string;
 }
 
 /**
@@ -117,6 +121,7 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
   const effectiveDuration = recipe ? recipe.service.durationMinutes : durationMinutes;
 
   let slots: AvailableSlot[];
+  let bookingWindowNote: string | undefined;
 
   if (recipe) {
     // Recipe-aware path (PRD §2/§6): candidates, cleanup buffers, qualifications, working
@@ -141,7 +146,15 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
     );
 
     // Enforce this Service's minimum notice / maximum advance window (PRD §6).
+    const preWindowSlots = slots;
     slots = slots.filter((s) => !checkServiceBookingWindow(recipe.service, s.startTime, timezone));
+    if (preWindowSlots.length > 0 && slots.length === 0) {
+      // Every slot that would otherwise be free got removed by the booking-window rule, not a
+      // real conflict — surface the specific reason instead of a misleading "no availability".
+      bookingWindowNote =
+        checkServiceBookingWindow(recipe.service, preWindowSlots[0].startTime, timezone) ??
+        undefined;
+    }
   } else {
     // Legacy freeform path — for treatments not yet configured as a Service. When the client
     // has no practitioner preference, consider every active practitioner as a candidate
@@ -178,6 +191,7 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
     date,
     durationMinutes: effectiveDuration,
     slots,
+    bookingWindowNote,
     availablePractitioners: Array.from(allPractitioners).sort(),
     availableRooms: Array.from(allRooms).sort(),
   };
@@ -473,6 +487,7 @@ export async function findEarliestAvailability(request: {
   const datesChecked: string[] = [];
   const collected: AvailableSlot[] = [];
   let earliestDate: string | null = null;
+  let lastBookingWindowNote: string | undefined;
 
   for (let i = 0; i < maxDays; i++) {
     if (!isDateOpen(date, schedule)) {
@@ -489,6 +504,7 @@ export async function findEarliestAvailability(request: {
       treatment: request.treatment,
       timezone,
     });
+    if (day.bookingWindowNote) lastBookingWindowNote = day.bookingWindowNote;
 
     if (day.slots.length > 0) {
       if (!earliestDate) earliestDate = date;
@@ -502,10 +518,15 @@ export async function findEarliestAvailability(request: {
     date = addCalendarDays(date, 1);
   }
 
+  // If every single day checked was blocked by the same booking-window rule (not real
+  // conflicts), that's the actual reason nothing was found — surface it distinctly instead of
+  // a misleading "no open slots", which reads as a full calendar rather than a policy limit.
   const summary =
     collected.length > 0
       ? `Earliest availability starts ${earliestDate}. Found ${collected.length} slot(s) across ${datesChecked.length} day(s) checked (from today forward). Present these times to the client — do not skip to later dates if earlier slots exist.`
-      : `No open slots in the next ${datesChecked.length} business day(s) checked (from today). Try a different treatment duration or practitioner.`;
+      : lastBookingWindowNote
+        ? `${lastBookingWindowNote} — this is a booking-policy limit for this treatment, not a full calendar. Tell the client this specific reason rather than saying it's fully booked; offer a date within the allowed window instead.`
+        : `No open slots in the next ${datesChecked.length} business day(s) checked (from today). Try a different treatment duration or practitioner.`;
 
   return { slots: collected, earliestDate, datesChecked, summary };
 }
