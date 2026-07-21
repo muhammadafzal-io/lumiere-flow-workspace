@@ -1575,11 +1575,16 @@ function ServicesTab({
       return;
     }
 
-    const requirements = [
-      ...(roomRequirement ? [{ kind: "room", rule: roomRequirement }] : []),
+    // POST/PATCH don't return the newly (re)written requirement rows' real ids, so this local
+    // copy — used only to optimistically update the list without a refetch — gets a client-side
+    // placeholder id. It's replaced by the real id the next time this list is fetched from GET.
+    const requirements: ServiceRequirement[] = [
+      ...(roomRequirement
+        ? [{ id: crypto.randomUUID(), kind: "room", rule: roomRequirement }]
+        : []),
       ...equipmentRequirements
         .filter((r) => r.equipmentIds.length > 0)
-        .map((rule) => ({ kind: "equipment", rule })),
+        .map((rule) => ({ id: crypto.randomUUID(), kind: "equipment", rule })),
     ];
 
     setSaving(true);
