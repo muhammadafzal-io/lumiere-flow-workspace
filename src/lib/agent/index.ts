@@ -274,7 +274,7 @@ export async function executeTool(
                 ? `Found ${availability.slots.length} available slots on ${availability.date}${preferredTime ? ` — showing the closest to ${preferredTime}` : ""}. Available practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Available rooms: ${availability.availableRooms.join(", ") || "any"}.`
                 : availability.bookingWindowNote
                   ? `${availability.bookingWindowNote} — this is a booking-policy limit for this treatment, not a full calendar. Tell the client this specific reason rather than saying it's fully booked; offer a date within the allowed window instead.`
-                  : `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`,
+                  : `No open slots on ${availability.date}. If the client asked for this SPECIFIC date, call check_availability again for the day before and/or after it (or the same weekday the following week) — do NOT call find_earliest_availability here, since that searches from TODAY forward and can surface a date completely unrelated to what they asked for, which reads as inconsistent ("unavailable" then suddenly available elsewhere). Only use find_earliest_availability if the client explicitly wants the soonest/ASAP opening regardless of date. Do NOT escalate.`,
           },
         };
       } catch (err) {
