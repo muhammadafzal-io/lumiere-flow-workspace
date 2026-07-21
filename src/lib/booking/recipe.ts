@@ -4,7 +4,10 @@
  * that the booking engine (google-calendar.ts) can check against.
  */
 import { getSupabase } from "@/lib/supabase";
-import { zonedHourToUtc, type ResourceAvailabilityContext } from "@/lib/integrations/google-calendar";
+import {
+  zonedHourToUtc,
+  type ResourceAvailabilityContext,
+} from "@/lib/integrations/google-calendar";
 import { dateInZone, daysBetweenDates } from "@/lib/booking/dates";
 import {
   getClinicBusinessHours,
@@ -337,7 +340,12 @@ export async function buildAvailabilityInputs(
 
   const practitionerExtraBusy: Record<string, { start: Date; end: Date }[]> = {};
   for (const p of recipe.qualifiedPractitioners) {
-    practitionerExtraBusy[p.name] = practitionerBusyRangesForDate(p, date, timezone, clinicSchedule);
+    practitionerExtraBusy[p.name] = practitionerBusyRangesForDate(
+      p,
+      date,
+      timezone,
+      clinicSchedule,
+    );
   }
 
   return {

@@ -80,7 +80,9 @@ export function fractionalHourToClock(hour: number): string {
   const m = Math.round((hour - h) * 60);
   const period = h >= 12 ? "PM" : "AM";
   const displayHour = h % 12 === 0 ? 12 : h % 12;
-  return m === 0 ? `${displayHour}:00 ${period}` : `${displayHour}:${String(m).padStart(2, "0")} ${period}`;
+  return m === 0
+    ? `${displayHour}:00 ${period}`
+    : `${displayHour}:${String(m).padStart(2, "0")} ${period}`;
 }
 
 /** The clinic's open/close fractional hours for a given weekday, or null if closed that day. */

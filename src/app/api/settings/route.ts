@@ -129,7 +129,8 @@ export async function PATCH(req: Request) {
     if (timezone !== undefined) fields["Timezone"] = timezone;
     if (address !== undefined) fields["Address"] = address;
     if (businessHours !== undefined) fields["Business Hours"] = businessHours;
-    if (businessHoursSchedule !== undefined) fields["BusinessHoursSchedule"] = businessHoursSchedule;
+    if (businessHoursSchedule !== undefined)
+      fields["BusinessHoursSchedule"] = businessHoursSchedule;
 
     if (recordId) {
       const { data, error } = await sb

@@ -284,8 +284,8 @@ function ClinicTab({
         <div className="col-span-2">
           <Label>Business hours</Label>
           <p className="text-xs text-muted-foreground mt-1 mb-2">
-            The clinic's own open days/hours — the booking engine and AI both check this directly;
-            a day left off is closed. A practitioner without their own working hours set for a day
+            The clinic's own open days/hours — the booking engine and AI both check this directly; a
+            day left off is closed. A practitioner without their own working hours set for a day
             defaults to being busy the clinic's full hours that day.
           </p>
           <WeeklyHoursEditor

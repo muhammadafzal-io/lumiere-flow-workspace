@@ -122,11 +122,8 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
     // Recipe-aware path (PRD §2/§6): candidates, cleanup buffers, qualifications, working
     // hours/breaks/time-off, and installed-equipment-binds-its-room all come from the
     // Service's resolved recipe instead of the caller-supplied free-text lists.
-    const { roomNames, practitionerNames, equipmentGroups, context } = await buildAvailabilityInputs(
-      recipe,
-      date,
-      timezone,
-    );
+    const { roomNames, practitionerNames, equipmentGroups, context } =
+      await buildAvailabilityInputs(recipe, date, timezone);
     const rooms = room ? roomNames.filter((r) => r === room) : roomNames;
     const practitioners = practitionerName
       ? practitionerNames.filter((p) => p === practitionerName)

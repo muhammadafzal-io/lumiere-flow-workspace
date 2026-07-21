@@ -90,14 +90,19 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
-  const hourPart = parseInt(
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hour12: false }).format(
+  const hourPart =
+    parseInt(
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        hour: "2-digit",
+        hour12: false,
+      }).format(newStartDate),
+      10,
+    ) % 24;
+  const minutePart = parseInt(
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone, minute: "2-digit" }).format(
       newStartDate,
     ),
-    10,
-  ) % 24;
-  const minutePart = parseInt(
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone, minute: "2-digit" }).format(newStartDate),
     10,
   );
   const fractionalHour = hourPart + minutePart / 60;

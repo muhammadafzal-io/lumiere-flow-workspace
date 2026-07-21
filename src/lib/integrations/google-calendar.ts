@@ -113,7 +113,7 @@ export function zonedHourToUtc(dateStr: string, hour: number, timezone: string):
   // for BUSINESS_END_HOUR=19.5 there, since 19:30 UTC reads as 00:30 the next day locally — picks the
   // +23h20m raw difference instead of the equivalent -5h, silently shifting the result a full day later.
   let diff = targetMinutes - localMinutes;
-  diff = (((diff + 720) % 1440) + 1440) % 1440 - 720;
+  diff = ((((diff + 720) % 1440) + 1440) % 1440) - 720;
   return new Date(probe.getTime() + diff * 60_000);
 }
 

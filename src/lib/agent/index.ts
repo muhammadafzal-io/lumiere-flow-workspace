@@ -251,9 +251,7 @@ export async function executeTool(
                   10,
                 ) % 24;
               const minute = parseInt(
-                new Intl.DateTimeFormat("en-US", { timeZone: tz, minute: "2-digit" }).format(
-                  start,
-                ),
+                new Intl.DateTimeFormat("en-US", { timeZone: tz, minute: "2-digit" }).format(start),
                 10,
               );
               return { slot: s, distance: Math.abs(hour * 60 + minute - preferredMinutes) };
@@ -377,7 +375,8 @@ export async function executeTool(
       // Voice no longer collects a name during the call — book with whatever the caller
       // volunteered, or a placeholder that gets overwritten once the completion form is submitted.
       const rawClientName = String(input.client_name ?? "").trim();
-      const resolvedClientName = rawClientName || (isVoice ? PENDING_NAME_PLACEHOLDER : rawClientName);
+      const resolvedClientName =
+        rawClientName || (isVoice ? PENDING_NAME_PLACEHOLDER : rawClientName);
 
       const apptData = {
         clientName: resolvedClientName,
