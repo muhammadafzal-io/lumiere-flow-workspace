@@ -9,6 +9,7 @@ export async function GET(req: NextRequest) {
   // Optional comma-separated lists: ?rooms=Room+1,Room+2&practitioners=Dr.+Sofia,Maya+Patel
   const roomsParam = searchParams.get("rooms");
   const practitionersParam = searchParams.get("practitioners");
+  const equipmentsParam = searchParams.get("equipments");
 
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return NextResponse.json(
@@ -36,9 +37,15 @@ export async function GET(req: NextRequest) {
         .map((p) => p.trim())
         .filter(Boolean)
     : undefined;
+  const equipments = equipmentsParam
+    ? equipmentsParam
+        .split(",")
+        .map((e) => e.trim())
+        .filter(Boolean)
+    : undefined;
 
   try {
-    const slots = await getAvailableSlots(date, duration, rooms, practitioners);
+    const slots = await getAvailableSlots(date, duration, rooms, practitioners, equipments);
     return NextResponse.json({ slots, bufferMinutes: SLOT_BUFFER_MINUTES });
   } catch (err) {
     console.error("[/api/calendar/slots]", err);

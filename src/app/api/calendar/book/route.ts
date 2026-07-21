@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { bookAppointment } from "@/lib/services/booking-service";
+import { bookAppointment, BookingWarningsError } from "@/lib/services/booking-service";
 import { lookupClient, upsertClient } from "@/lib/integrations/airtable";
 import { sendBookingConfirmationEmail } from "@/lib/booking/confirmation-email";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
@@ -22,10 +22,12 @@ export async function POST(req: NextRequest) {
     treatment,
     room,
     practitionerName,
+    equipment,
     notes,
     sendConfirmation,
     birthday,
-  } = body as Record<string, string | boolean>;
+    force,
+  } = body as Record<string, string | string[] | boolean>;
 
   const portalError = validatePortalBooking({
     clientName: typeof clientName === "string" ? clientName : undefined,
@@ -84,7 +86,13 @@ export async function POST(req: NextRequest) {
       treatment: String(treatment),
       room: String(room),
       practitionerName: String(practitionerName),
+      equipment: Array.isArray(equipment)
+        ? equipment.map((item) => String(item))
+        : equipment
+          ? [String(equipment)]
+          : undefined,
       notes: typeof notes === "string" ? notes : undefined,
+      force: force === true,
     });
 
     let emailSent = false;
@@ -115,6 +123,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ ...result, emailSent, emailSkippedReason });
   } catch (err) {
+    if (err instanceof BookingWarningsError) {
+      // PRD §9: never silently block or silently allow — surface the reasons and let the
+      // caller resubmit with `force: true` if a person decides to book anyway.
+      return NextResponse.json(
+        { error: err.message, warnings: err.warnings, code: "WARNINGS" },
+        { status: 409 },
+      );
+    }
     const message = err instanceof Error ? err.message : "Booking failed";
     const isConflict =
       message.toLowerCase().includes("already booked") ||

@@ -5,6 +5,7 @@ export const ROLE_PAGES: Record<UserRole, string[]> = {
     "/",
     "/rules",
     "/calendar",
+    "/pending-bookings",
     "/customers",
     "/activity",
     "/email-logs",
@@ -12,7 +13,7 @@ export const ROLE_PAGES: Record<UserRole, string[]> = {
     "/checkout",
     "/settings",
   ],
-  receptionist: ["/", "/calendar", "/customers", "/checkout"],
+  receptionist: ["/", "/calendar", "/pending-bookings", "/customers", "/checkout"],
   practitioner: ["/", "/calendar"],
 };
 

@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { WIDGET_URL } from "@/lib/client-channels";
+import { invalidateClinicTimezoneCache } from "@/lib/clinic-timezone";
+import {
+  DEFAULT_CLINIC_HOURS,
+  invalidateClinicBusinessHoursCache,
+  type ClinicHoursSchedule,
+} from "@/lib/booking/clinic-hours";
 
 export const dynamic = "force-dynamic";
 
@@ -73,6 +79,9 @@ export async function GET() {
           timezone: settingsRow["Timezone"] || "America/Chicago",
           address: settingsRow["Address"] || "Austin, TX",
           businessHours: settingsRow["Business Hours"] || "Mon–Sat 9:00 AM – 7:00 PM",
+          businessHoursSchedule:
+            (settingsRow["BusinessHoursSchedule"] as ClinicHoursSchedule | null) ||
+            DEFAULT_CLINIC_HOURS,
         }
       : null;
 
@@ -85,6 +94,10 @@ export async function GET() {
       specialty: r["Specialty"] ?? "",
       bio: r["Bio"] ?? "",
       status: r["Status"] ?? "Active",
+      qualifications: r["Qualifications"] ?? [],
+      workingHours: r["WorkingHours"] ?? null,
+      breaks: r["Breaks"] ?? null,
+      timeOff: r["TimeOff"] ?? null,
     }));
 
     const rooms = roomRows.length > 0 ? roomRows.map((r: any) => r.Name) : ["Room 1", "Room 2"];
@@ -109,13 +122,14 @@ export async function PATCH(req: Request) {
   try {
     const sb = getSupabase();
     const body = await req.json();
-    const { recordId, clinicName, timezone, address, businessHours } = body;
+    const { recordId, clinicName, timezone, address, businessHours, businessHoursSchedule } = body;
 
-    const fields: Record<string, string> = {};
+    const fields: Record<string, unknown> = {};
     if (clinicName !== undefined) fields["Clinic Name"] = clinicName;
     if (timezone !== undefined) fields["Timezone"] = timezone;
     if (address !== undefined) fields["Address"] = address;
     if (businessHours !== undefined) fields["Business Hours"] = businessHours;
+    if (businessHoursSchedule !== undefined) fields["BusinessHoursSchedule"] = businessHoursSchedule;
 
     if (recordId) {
       const { data, error } = await sb
@@ -125,10 +139,14 @@ export async function PATCH(req: Request) {
         .select()
         .single();
       if (error) throw new Error(error.message);
+      if (timezone !== undefined) invalidateClinicTimezoneCache();
+      if (businessHoursSchedule !== undefined) invalidateClinicBusinessHoursCache();
       return NextResponse.json({ success: true, recordId: data.id });
     } else {
       const { data, error } = await sb.from("Settings").insert(fields).select().single();
       if (error) throw new Error(error.message);
+      if (timezone !== undefined) invalidateClinicTimezoneCache();
+      if (businessHoursSchedule !== undefined) invalidateClinicBusinessHoursCache();
       return NextResponse.json({ success: true, recordId: data.id });
     }
   } catch (error) {

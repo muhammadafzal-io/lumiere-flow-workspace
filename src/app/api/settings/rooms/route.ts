@@ -1,130 +1,95 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getSupabase as getSupabaseClient } from "@/lib/supabase";
+import { NextResponse } from "next/server";
+import { getSupabase } from "@/lib/supabase";
 
-export async function GET(req: NextRequest) {
+export const dynamic = "force-dynamic";
+
+const TABLE = "Rooms";
+
+function mapRow(r: any) {
+  return {
+    id: r.id,
+    name: r["Name"] ?? "",
+    type: r["Type"] ?? "Treatment",
+    cleanupMinutes: r["CleanupMinutes"] ?? 0,
+    status: r["Status"] ?? "Active",
+    closedTimes: r["ClosedTimes"] ?? null,
+    created_at: r.created_at,
+  };
+}
+
+export async function GET() {
   try {
-    const supabase = getSupabaseClient();
-
-    // Fetch all rooms from the Rooms table
-    const { data, error } = await supabase.from("Rooms").select("Name").order("Name");
-
-    if (error) {
-      console.error("[/api/settings/rooms] GET error:", error);
-      return NextResponse.json(
-        { error: "Failed to fetch rooms", code: "FETCH_ERROR" },
-        { status: 500 },
-      );
-    }
-
-    // Extract room names from data
-    const rooms = data?.map((r: any) => r.Name) || ["Room 1", "Room 2"];
-    return NextResponse.json({ rooms });
+    const sb = getSupabase();
+    const { data, error } = await sb.from(TABLE).select("*").order("Name");
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ rooms: (data ?? []).map(mapRow) });
   } catch (err) {
-    console.error("[/api/settings/rooms] GET exception:", err);
-    return NextResponse.json(
-      { error: "Failed to fetch rooms", code: "FETCH_ERROR" },
-      { status: 500 },
-    );
+    console.error("GET /api/settings/rooms error:", err);
+    return NextResponse.json({ error: "Failed to load rooms" }, { status: 500 });
   }
 }
 
-export async function PATCH(req: NextRequest) {
+export async function POST(req: Request) {
   try {
+    const sb = getSupabase();
     const body = await req.json();
-    const { rooms } = body;
-
-    if (!Array.isArray(rooms) || rooms.length === 0) {
-      return NextResponse.json(
-        { error: "rooms must be a non-empty array", code: "INVALID_ROOMS" },
-        { status: 400 },
-      );
+    const { Name, Type, CleanupMinutes, Status, ClosedTimes } = body;
+    if (!Name || typeof Name !== "string") {
+      return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
-
-    // Validate each room is a non-empty string
-    if (!rooms.every((r) => typeof r === "string" && r.trim().length > 0)) {
-      return NextResponse.json(
-        { error: "each room must be a non-empty string", code: "INVALID_ROOM_NAME" },
-        { status: 400 },
-      );
-    }
-
-    // Remove duplicates and sort
-    const uniqueRooms = Array.from(new Set(rooms.map((r) => r.trim()))).sort();
-
-    const supabase = getSupabaseClient();
-
-    // Get existing rooms
-    const { data: existingRooms, error: fetchError } = await supabase
-      .from("Rooms")
-      .select("id, Name");
-
-    if (fetchError) {
-      console.error("[/api/settings/rooms] PATCH fetch error:", fetchError);
-      return NextResponse.json(
-        {
-          error: "Failed to fetch existing rooms",
-          code: "FETCH_ERROR",
-          details: process.env.NODE_ENV === "development" ? fetchError.message : undefined,
-        },
-        { status: 500 },
-      );
-    }
-
-    // Find rooms to delete (in DB but not in new list)
-    const roomsToDelete = existingRooms?.filter((r: any) => !uniqueRooms.includes(r.Name)) || [];
-
-    // Find rooms to add (in new list but not in DB)
-    const roomsToAdd =
-      uniqueRooms.filter((name) => !existingRooms?.some((r: any) => r.Name === name)) || [];
-
-    // Delete removed rooms
-    if (roomsToDelete.length > 0) {
-      const { error: deleteError } = await supabase
-        .from("Rooms")
-        .delete()
-        .in(
-          "id",
-          roomsToDelete.map((r: any) => r.id),
-        );
-
-      if (deleteError) {
-        console.error("[/api/settings/rooms] Delete error:", deleteError);
-        return NextResponse.json(
-          {
-            error: "Failed to delete rooms",
-            code: "DELETE_ERROR",
-            details: process.env.NODE_ENV === "development" ? deleteError.message : undefined,
-          },
-          { status: 500 },
-        );
-      }
-    }
-
-    // Add new rooms
-    if (roomsToAdd.length > 0) {
-      const { error: insertError } = await supabase
-        .from("Rooms")
-        .insert(roomsToAdd.map((name) => ({ Name: name })));
-
-      if (insertError) {
-        console.error("[/api/settings/rooms] Insert error:", insertError);
-        return NextResponse.json(
-          {
-            error: "Failed to add rooms",
-            code: "INSERT_ERROR",
-            details: process.env.NODE_ENV === "development" ? insertError.message : undefined,
-          },
-          { status: 500 },
-        );
-      }
-    }
-
-    return NextResponse.json({ rooms: uniqueRooms, ok: true });
+    const { data, error } = await sb
+      .from(TABLE)
+      .insert({
+        Name,
+        Type: Type ?? "Treatment",
+        CleanupMinutes: CleanupMinutes ?? 0,
+        Status: Status ?? "Active",
+        ClosedTimes: ClosedTimes ?? null,
+      })
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ room: mapRow(data) });
   } catch (err) {
-    console.error("[/api/settings/rooms] PATCH exception:", err);
-    return NextResponse.json(
-      { error: "Failed to update rooms", code: "ROOMS_ERROR" },
-      { status: 500 },
-    );
+    console.error("POST /api/settings/rooms error:", err);
+    return NextResponse.json({ error: "Failed to create room" }, { status: 500 });
+  }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const sb = getSupabase();
+    const body = await req.json();
+    const { id } = body;
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+    const fields: Record<string, any> = {};
+    if (body.Name !== undefined) fields["Name"] = body.Name;
+    if (body.Type !== undefined) fields["Type"] = body.Type;
+    if (body.CleanupMinutes !== undefined) fields["CleanupMinutes"] = body.CleanupMinutes;
+    if (body.Status !== undefined) fields["Status"] = body.Status;
+    if (body.ClosedTimes !== undefined) fields["ClosedTimes"] = body.ClosedTimes;
+
+    const { data, error } = await sb.from(TABLE).update(fields).eq("id", id).select().single();
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ room: mapRow(data) });
+  } catch (err) {
+    console.error("PATCH /api/settings/rooms error:", err);
+    return NextResponse.json({ error: "Failed to update room" }, { status: 500 });
+  }
+}
+
+export async function DELETE(req: Request) {
+  try {
+    const sb = getSupabase();
+    const { searchParams } = new URL(req.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+    const { error } = await sb.from(TABLE).delete().eq("id", id);
+    if (error) throw new Error(error.message);
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/settings/rooms error:", err);
+    return NextResponse.json({ error: "Failed to delete room" }, { status: 500 });
   }
 }

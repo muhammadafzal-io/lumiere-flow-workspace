@@ -23,6 +23,25 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "get_services",
+      description:
+        "Look up the clinic's configured services with their exact duration, whether they're online-bookable, and whether they require a prior consultation. Call this as soon as the client names a treatment — BEFORE check_availability or book_appointment — so you use the correct duration_minutes instead of guessing. Omit query to list every active service (e.g. if the client asks what's offered).",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              'Optional keyword to filter by service name (e.g. "botox", "laser"). Omit to get the full active service list.',
+          },
+        },
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
       name: "check_availability",
       description:
         "Check available appointment slots in the Lumière Google Calendar for a given date, considering both room and practitioner availability. Returns available time slots and which rooms/practitioners are free. ALWAYS call this before suggesting any time to a client.",
@@ -33,9 +52,15 @@ export const TOOLS: ChatCompletionTool[] = [
             type: "string",
             description: "Date to check in YYYY-MM-DD format (Austin, TX local date)",
           },
+          treatment: {
+            type: "string",
+            description:
+              "Name of the treatment, if known (from get_services). Enables room/equipment/practitioner-qualification-aware availability for configured services.",
+          },
           duration_minutes: {
             type: "number",
-            description: "Duration of the treatment in minutes. Defaults to 60 if unknown.",
+            description:
+              "Duration of the treatment in minutes (from get_services). Defaults to 60 if unknown.",
           },
           preferred_practitioner: {
             type: "string",
@@ -50,6 +75,11 @@ export const TOOLS: ChatCompletionTool[] = [
             type: "string",
             description:
               "If the client prefers a specific room, pass it here (e.g. 'Room 1', 'VIP Suite')",
+          },
+          preferred_time: {
+            type: "string",
+            description:
+              "If the client stated a specific preferred time (e.g. '2 PM', 'around 3:30'), pass it here in 24-hour HH:MM format (e.g. '14:00'). Returned slots are prioritized by closeness to this time instead of always being the earliest of the day; if nothing is close, the nearest available times are still returned.",
           },
         },
         required: ["date"],
@@ -66,9 +96,15 @@ export const TOOLS: ChatCompletionTool[] = [
       parameters: {
         type: "object",
         properties: {
+          treatment: {
+            type: "string",
+            description:
+              "Name of the treatment, if known (from get_services). Enables room/equipment/practitioner-qualification-aware availability for configured services.",
+          },
           duration_minutes: {
             type: "number",
-            description: "Duration of the treatment in minutes. Defaults to 60 if unknown.",
+            description:
+              "Duration of the treatment in minutes (from get_services). Defaults to 60 if unknown.",
           },
           preferred_practitioner: {
             type: "string",
@@ -92,14 +128,14 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "book_appointment",
       description:
-        "Create a confirmed appointment in the Lumière Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Requires full name (first and last), phone, email, and birthday (YYYY-MM-DD).",
+        "Create a confirmed appointment in the Lumière Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Requires phone and treatment always — whether full name, email, and birthday must also be collected before calling this depends on the channel: follow the system prompt's booking-flow instructions for the exact requirement.",
       parameters: {
         type: "object",
         properties: {
           client_name: {
             type: "string",
             description:
-              "Client's full legal name — first and last (e.g. Sarah Johnson). Single first names are rejected.",
+              "Client's full legal name — first and last (e.g. Sarah Johnson). Required for chat/Telegram/Discord bookings (single first names rejected). Optional for voice calls — omit it unless the caller volunteers it; it's collected afterward via the completion link along with email and birthday.",
           },
           treatment: { type: "string", description: "Name of the treatment being booked" },
           date_time: { type: "string", description: "Appointment start time in ISO 8601 format" },
@@ -108,12 +144,12 @@ export const TOOLS: ChatCompletionTool[] = [
           client_email: {
             type: "string",
             description:
-              "REQUIRED — confirmed email for booking confirmation. Remove ALL spaces (e.g. talhaazeem@gmail.com, never talha azeem@gmail.com).",
+              "Required for chat/Telegram/Discord bookings; collected afterward via a completion link for voice calls (don't ask for it there). Remove ALL spaces (e.g. talhaazeem@gmail.com, never talha azeem@gmail.com).",
           },
           birthday: {
             type: "string",
             description:
-              "REQUIRED — client's date of birth in YYYY-MM-DD format (also save via upsert_client before booking)",
+              "Required for chat/Telegram/Discord bookings (YYYY-MM-DD); collected afterward via a completion link for voice calls (don't ask for it there).",
           },
           practitioner_name: {
             type: "string",
@@ -129,16 +165,35 @@ export const TOOLS: ChatCompletionTool[] = [
             type: "string",
             description: "Optional notes (new client, contraindication mentions, preferences)",
           },
+          confirm_new_booking: {
+            type: "boolean",
+            description:
+              "Only pass true if this phone number already had an appointment still waiting on a completion link AND you've confirmed with the caller this is a genuinely separate, new visit. Omit on a normal first attempt — if there's an existing pending booking, the tool will return a warning instead of booking so you can check with the caller first.",
+          },
         },
-        required: [
-          "client_name",
-          "treatment",
-          "date_time",
-          "duration_minutes",
-          "client_contact",
-          "client_email",
-          "birthday",
-        ],
+        required: ["treatment", "date_time", "duration_minutes", "client_contact"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "send_booking_completion_link",
+      description:
+        "Resend the secure link to finish a booking profile (email, date of birth). This is sent AUTOMATICALLY right after every successful book_appointment — you do NOT need to call this yourself in the normal flow. Only call it if the client says they didn't receive the link or explicitly asks for it again.",
+      parameters: {
+        type: "object",
+        properties: {
+          event_id: {
+            type: "string",
+            description: "The event_id returned by book_appointment.",
+          },
+          client_contact: { type: "string", description: "Client phone number" },
+          client_name: { type: "string", description: "Client full name" },
+          treatment: { type: "string", description: "Name of the treatment booked" },
+        },
+        required: ["event_id", "client_contact", "treatment"],
       },
     },
   },

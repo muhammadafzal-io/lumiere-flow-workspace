@@ -1,16 +1,39 @@
-import { google } from "googleapis";
+import { google, type calendar_v3 } from "googleapis";
 import type { AvailableSlot, CalendarEvent, Appointment } from "@/types";
 import {
   SLOT_BUFFER_MINUTES,
-  SLOT_STEP_MINUTES,
-  SLOT_BUFFER_MS,
   SLOT_STEP_MS,
   intervalsConflict,
+  intervalsOverlap,
 } from "@/lib/booking/constants";
+import { getClinicTimezone } from "@/lib/clinic-timezone";
+import {
+  getClinicBusinessHours,
+  hoursForWeekday,
+  WEEKDAY_BY_UTC_DAY,
+} from "@/lib/booking/clinic-hours";
 
-const BUSINESS_START_HOUR = 9;
-const BUSINESS_END_HOUR = 19.5;
-const TIMEZONE = "America/Chicago";
+/**
+ * Resource-specific scheduling data resolved from a Service's recipe (Rooms/Equipment/
+ * Practitioners tables) for one calendar date. When provided, `getAvailableSlots` and
+ * `bookAdminAppointment` use these per-resource cleanup buffers and hard exclusions
+ * (closed times, time off, outside working hours) instead of the flat legacy defaults.
+ */
+export interface ResourceAvailabilityContext {
+  roomCleanupMinutes?: Record<string, number>;
+  roomExtraBusy?: Record<string, { start: Date; end: Date }[]>;
+  equipmentCleanupMinutes?: Record<string, number>;
+  equipmentExtraBusy?: Record<string, { start: Date; end: Date }[]>;
+  practitionerExtraBusy?: Record<string, { start: Date; end: Date }[]>;
+}
+
+function resourceExtraBusyConflict(
+  extraBusy: { start: Date; end: Date }[] | undefined,
+  start: Date,
+  end: Date,
+): boolean {
+  return !!extraBusy?.some((b) => intervalsOverlap(start, end, b.start, b.end));
+}
 
 function getDefaultRooms(): string[] {
   const roomsEnv = process.env.CLINIC_ROOMS;
@@ -25,14 +48,26 @@ function getDefaultRooms(): string[] {
 
 const DEFAULT_ROOMS = getDefaultRooms();
 
-// Returns today's date string (YYYY-MM-DD) in Chicago CT
-function todayInChicago(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: TIMEZONE });
+function isCalendarEventWithDateTimes(
+  e: calendar_v3.Schema$Event | null | undefined,
+): e is calendar_v3.Schema$Event {
+  return !!e?.start?.dateTime && !!e.end?.dateTime;
 }
 
-// Converts a Chicago local time on a given date to a UTC Date.
+function isCalendarEventWithStartTime(
+  e: calendar_v3.Schema$Event | null | undefined,
+): e is calendar_v3.Schema$Event {
+  return !!e?.start?.dateTime;
+}
+
+// Returns today's date string (YYYY-MM-DD) in the given timezone
+function todayInZone(timezone: string): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: timezone });
+}
+
+// Converts a local time (in the given IANA timezone) on a given date to a UTC Date.
 // Supports fractional hours (e.g. 19.5 = 7:30 PM).
-function chicagoHourToUtc(dateStr: string, hour: number): Date {
+export function zonedHourToUtc(dateStr: string, hour: number, timezone: string): Date {
   let wholeHour = Math.floor(hour);
   let minutes = Math.round((hour - wholeHour) * 60);
   let datePart = dateStr;
@@ -52,13 +87,13 @@ function chicagoHourToUtc(dateStr: string, hour: number): Date {
     `${datePart}T${String(wholeHour).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00Z`,
   );
   if (isNaN(probe.getTime())) {
-    throw new Error(`Invalid Chicago time for ${dateStr} at hour ${hour}`);
+    throw new Error(`Invalid ${timezone} time for ${dateStr} at hour ${hour}`);
   }
 
   const localHour =
     parseInt(
       new Intl.DateTimeFormat("en-US", {
-        timeZone: TIMEZONE,
+        timeZone: timezone,
         hour: "2-digit",
         hour12: false,
       }).format(probe),
@@ -66,14 +101,26 @@ function chicagoHourToUtc(dateStr: string, hour: number): Date {
     ) % 24;
   const localMinute = parseInt(
     new Intl.DateTimeFormat("en-US", {
-      timeZone: TIMEZONE,
+      timeZone: timezone,
       minute: "2-digit",
     }).format(probe),
     10,
   );
   const targetMinutes = wholeHour * 60 + minutes;
   const localMinutes = localHour * 60 + localMinute;
-  return new Date(probe.getTime() + (targetMinutes - localMinutes) * 60_000);
+  // Fold into the smallest-magnitude correction (-720, 720] minutes. Without this, a positive-offset
+  // timezone (e.g. UTC+5) whose local reading of `probe` has already rolled past midnight — as happens
+  // for BUSINESS_END_HOUR=19.5 there, since 19:30 UTC reads as 00:30 the next day locally — picks the
+  // +23h20m raw difference instead of the equivalent -5h, silently shifting the result a full day later.
+  let diff = targetMinutes - localMinutes;
+  diff = (((diff + 720) % 1440) + 1440) % 1440 - 720;
+  return new Date(probe.getTime() + diff * 60_000);
+}
+
+/** Convenience wrapper for an "HH:MM" wall-clock string instead of a fractional hour. */
+export function zonedDateTimeToUtc(dateStr: string, timeStr: string, timezone: string): Date {
+  const [h, m] = timeStr.split(":").map(Number);
+  return zonedHourToUtc(dateStr, h + (m || 0) / 60, timezone);
 }
 
 function getCalendarClient() {
@@ -137,6 +184,7 @@ function resolveEventClient(
 function parseDesc(description: string): {
   room: string | null;
   practitioner: string | null;
+  equipment: string[];
   client: string | null;
   contact: string;
   email: string;
@@ -148,11 +196,17 @@ function parseDesc(description: string): {
       .find((l) => l.startsWith(prefix))
       ?.slice(prefix.length)
       .trim() ?? "";
+  const findAll = (prefix: string) =>
+    lines
+      .filter((l) => l.startsWith(prefix))
+      .map((l) => l.slice(prefix.length).trim())
+      .filter(Boolean);
   const rawNotes = find("Notes:");
   const emailInNotes = rawNotes.match(/Email:\s*([^\s]+@[^\s]+)/i)?.[1] ?? "";
   return {
     room: find("Room:") || null,
     practitioner: find("Practitioner:") || null,
+    equipment: findAll("Equipment:"),
     client: find("Client:") || null,
     contact: find("Contact:"),
     email: find("Email:") || emailInNotes,
@@ -165,17 +219,27 @@ export async function getAvailableSlots(
   durationMinutes = 60,
   rooms: string[] = DEFAULT_ROOMS,
   practitionerNames: string[] = [],
+  equipmentNames: string[] = [],
+  context?: ResourceAvailabilityContext,
+  /** When set, each group means "need one free item from this group" (OR within a group, AND across groups) — used for a service's equipment requirement rows instead of the legacy flat AND-all-of `equipmentNames` semantics. */
+  equipmentRequirementGroups?: string[][],
+  /** Clinic's configured IANA timezone (Settings > Clinic info). Fetched automatically when omitted. */
+  timezone?: string,
 ): Promise<AvailableSlot[]> {
-  if (date < todayInChicago()) return [];
+  const tz = timezone ?? (await getClinicTimezone());
+
+  if (date < todayInZone(tz)) return [];
 
   const dayOfWeek = new Date(`${date}T12:00:00Z`).getUTCDay();
-  if (dayOfWeek === 0) return [];
+  const schedule = await getClinicBusinessHours();
+  const todayHours = hoursForWeekday(schedule, WEEKDAY_BY_UTC_DAY[dayOfWeek]);
+  if (!todayHours) return []; // clinic is closed this weekday, per the configured schedule
 
   const calendar = getCalendarClient();
   const calId = calendarId();
 
-  const dayStart = chicagoHourToUtc(date, BUSINESS_START_HOUR);
-  const dayEnd = chicagoHourToUtc(date, BUSINESS_END_HOUR);
+  const dayStart = zonedHourToUtc(date, todayHours.startHour, tz);
+  const dayEnd = zonedHourToUtc(date, todayHours.endHour, tz);
 
   const res = await calendar.events.list({
     calendarId: calId,
@@ -185,17 +249,24 @@ export async function getAvailableSlots(
     orderBy: "startTime",
   });
 
-  type BusyEvent = { start: Date; end: Date; room: string | null; practitioner: string | null };
+  type BusyEvent = {
+    start: Date;
+    end: Date;
+    room: string | null;
+    practitioner: string | null;
+    equipment: string | null;
+  };
 
   const busyEvents: BusyEvent[] = (res.data.items ?? [])
-    .filter((e) => e.start?.dateTime && e.end?.dateTime)
-    .map((e) => {
-      const { room, practitioner } = parseDesc(e.description ?? "");
+    .filter(isCalendarEventWithDateTimes)
+    .map((e: calendar_v3.Schema$Event) => {
+      const { room, practitioner, equipment } = parseDesc(e.description ?? "");
       return {
-        start: new Date(e.start!.dateTime!),
-        end: new Date(e.end!.dateTime!),
+        start: new Date(e.start.dateTime),
+        end: new Date(e.end.dateTime),
         room,
         practitioner,
+        equipment,
       };
     });
 
@@ -203,41 +274,94 @@ export async function getAvailableSlots(
   const slots: AvailableSlot[] = [];
 
   let cursor = new Date(dayStart);
-  if (date === todayInChicago() && now > cursor) {
-    const elapsed = now.getTime() - dayStart.getTime();
+  if (date === todayInZone(tz) && now > cursor) {
+    // Add a few minutes of lead time so the very first offered slot doesn't go stale by the
+    // time a conversation (chat/voice round-trips) actually reaches booking confirmation.
+    const MIN_LEAD_MS = 3 * 60_000;
+    const elapsed = now.getTime() - dayStart.getTime() + MIN_LEAD_MS;
     const blocks = Math.ceil(elapsed / SLOT_STEP_MS);
     cursor = new Date(dayStart.getTime() + blocks * SLOT_STEP_MS);
   }
 
+  const roomBuffer = (name: string) => context?.roomCleanupMinutes?.[name] ?? SLOT_BUFFER_MINUTES;
+  const equipmentBuffer = (name: string) =>
+    context?.equipmentCleanupMinutes?.[name] ?? SLOT_BUFFER_MINUTES;
+  // Practitioners are always free the moment an appointment ends (PRD §5/§7) once we're in
+  // recipe-aware mode; legacy (no-context) callers keep the old flat turnover buffer.
+  const practitionerBuffer = context ? 0 : SLOT_BUFFER_MINUTES;
+
+  const isEquipmentFree = (eq: string, start: Date, end: Date) => {
+    const calendarBusy = busyEvents.some(
+      (e) =>
+        e.equipment === eq && intervalsConflict(start, end, e.start, e.end, equipmentBuffer(eq)),
+    );
+    if (calendarBusy) return false;
+    return !resourceExtraBusyConflict(context?.equipmentExtraBusy?.[eq], start, end);
+  };
+
   while (cursor.getTime() + durationMinutes * 60_000 <= dayEnd.getTime()) {
     const slotEnd = new Date(cursor.getTime() + durationMinutes * 60_000);
 
-    // Events that conflict with this slot (including ${SLOT_BUFFER_MINUTES}-min turnover buffer)
-    const conflicting = busyEvents.filter((b) =>
-      intervalsConflict(cursor, slotEnd, b.start, b.end),
+    const hasGlobalEvent = busyEvents.some(
+      (e) =>
+        e.room === null &&
+        e.practitioner === null &&
+        e.equipment === null &&
+        intervalsConflict(cursor, slotEnd, e.start, e.end, SLOT_BUFFER_MINUTES),
     );
 
-    const hasGlobalEvent = conflicting.some((e) => e.room === null && e.practitioner === null);
+    const freeRooms = hasGlobalEvent
+      ? []
+      : rooms.filter((r) => {
+          const calendarBusy = busyEvents.some(
+            (e) =>
+              e.room === r && intervalsConflict(cursor, slotEnd, e.start, e.end, roomBuffer(r)),
+          );
+          if (calendarBusy) return false;
+          return !resourceExtraBusyConflict(context?.roomExtraBusy?.[r], cursor, slotEnd);
+        });
 
-    const busyRoomSet = new Set(conflicting.filter((e) => e.room !== null).map((e) => e.room!));
-    const freeRooms = hasGlobalEvent ? [] : rooms.filter((r) => !busyRoomSet.has(r));
-
-    const busyPracSet = new Set(
-      conflicting.filter((e) => e.practitioner !== null).map((e) => e.practitioner!),
-    );
     const freePractitioners = hasGlobalEvent
       ? []
-      : practitionerNames.filter((p) => !busyPracSet.has(p));
+      : practitionerNames.filter((p) => {
+          const calendarBusy = busyEvents.some(
+            (e) =>
+              e.practitioner === p &&
+              intervalsConflict(cursor, slotEnd, e.start, e.end, practitionerBuffer),
+          );
+          if (calendarBusy) return false;
+          return !resourceExtraBusyConflict(context?.practitionerExtraBusy?.[p], cursor, slotEnd);
+        });
+
+    let freeEquipment: string[];
+    let equipmentAvailable: boolean;
+    if (equipmentRequirementGroups && equipmentRequirementGroups.length > 0) {
+      const chosen: string[] = [];
+      equipmentAvailable =
+        !hasGlobalEvent &&
+        equipmentRequirementGroups.every((group) => {
+          const free = group.find((eq) => isEquipmentFree(eq, cursor, slotEnd));
+          if (free) chosen.push(free);
+          return !!free;
+        });
+      freeEquipment = chosen;
+    } else {
+      freeEquipment = hasGlobalEvent
+        ? []
+        : equipmentNames.filter((eq) => isEquipmentFree(eq, cursor, slotEnd));
+      equipmentAvailable =
+        equipmentNames.length === 0 || freeEquipment.length === equipmentNames.length;
+    }
 
     const roomAvailable = freeRooms.length > 0;
     const pracAvailable = practitionerNames.length === 0 || freePractitioners.length > 0;
 
-    if (roomAvailable && pracAvailable) {
+    if (roomAvailable && pracAvailable && equipmentAvailable) {
       slots.push({
         startTime: cursor.toISOString(),
         endTime: slotEnd.toISOString(),
         displayTime: cursor.toLocaleString("en-US", {
-          timeZone: TIMEZONE,
+          timeZone: tz,
           weekday: "long",
           month: "short",
           day: "numeric",
@@ -247,12 +371,11 @@ export async function getAvailableSlots(
           timeZoneName: "short",
         }),
         availableRooms: freeRooms,
-        availablePractitioners:
-          practitionerNames.length > 0
-            ? freePractitioners
-            : freePractitioners.length > 0
-              ? freePractitioners
-              : [],
+        availablePractitioners: freePractitioners,
+        availableEquipment:
+          equipmentNames.length > 0 || (equipmentRequirementGroups?.length ?? 0) > 0
+            ? freeEquipment
+            : undefined,
       });
     }
 
@@ -271,46 +394,92 @@ export async function bookAdminAppointment(booking: {
   treatment: string;
   room: string;
   practitionerName: string;
+  equipment?: string[];
   notes?: string;
+  /** Per-resource cleanup minutes resolved from the service's recipe; defaults to the flat SLOT_BUFFER_MINUTES when omitted (legacy behavior). */
+  roomCleanupMinutes?: number;
+  equipmentCleanupMinutes?: number;
+  /** Manual override (PRD §9) — when true, skip the conflict throw below and book anyway. */
+  force?: boolean;
+  /** Clinic's configured IANA timezone (Settings > Clinic info). Fetched automatically when omitted. */
+  timezone?: string;
 }): Promise<{ id: string }> {
   if (new Date(booking.startTime) < new Date()) {
     throw new Error("Cannot book an appointment in the past");
   }
 
+  const tz = booking.timezone ?? (await getClinicTimezone());
   const calendar = getCalendarClient();
   const calId = calendarId();
 
   const bStart = new Date(booking.startTime);
   const bEnd = new Date(booking.endTime);
 
+  const isRecipeAware =
+    booking.roomCleanupMinutes !== undefined || booking.equipmentCleanupMinutes !== undefined;
+  const roomBufferMin = booking.roomCleanupMinutes ?? SLOT_BUFFER_MINUTES;
+  const equipmentBufferMin = booking.equipmentCleanupMinutes ?? SLOT_BUFFER_MINUTES;
+  // Practitioners are always free the moment an appointment ends (PRD §5/§7) once we're in
+  // recipe-aware mode; legacy callers keep the old flat turnover buffer.
+  const practitionerBufferMin = isRecipeAware ? 0 : SLOT_BUFFER_MINUTES;
+  const maxBufferMs = Math.max(roomBufferMin, equipmentBufferMin, practitionerBufferMin) * 60_000;
+
   // Fetch events that could conflict including turnover buffer
   const res = await calendar.events.list({
     calendarId: calId,
-    timeMin: new Date(bStart.getTime() - SLOT_BUFFER_MS).toISOString(),
-    timeMax: new Date(bEnd.getTime() + SLOT_BUFFER_MS).toISOString(),
+    timeMin: new Date(bStart.getTime() - maxBufferMs).toISOString(),
+    timeMax: new Date(bEnd.getTime() + maxBufferMs).toISOString(),
     singleEvents: true,
   });
 
-  const conflict = (res.data.items ?? []).find((e) => {
+  const conflict = (res.data.items ?? []).find((e: calendar_v3.Schema$Event | null | undefined) => {
     if (!e.start?.dateTime || !e.end?.dateTime) return false;
     const eStart = new Date(e.start.dateTime);
     const eEnd = new Date(e.end.dateTime);
-    if (!intervalsConflict(bStart, bEnd, eStart, eEnd)) return false;
 
-    const { room: evRoom, practitioner: evPrac } = parseDesc(e.description ?? "");
+    const {
+      room: evRoom,
+      practitioner: evPrac,
+      equipment: evEquip,
+    } = parseDesc(e.description ?? "");
 
-    if (evRoom === null && evPrac === null) return true;
+    if (evRoom === null && evPrac === null && evEquip.length === 0) {
+      return intervalsConflict(bStart, bEnd, eStart, eEnd, SLOT_BUFFER_MINUTES);
+    }
 
-    const roomConflict = evRoom === null || evRoom === booking.room;
-    const pracConflict = evPrac === null || evPrac === booking.practitionerName;
-    return roomConflict && pracConflict;
+    const roomConflict =
+      evRoom !== null &&
+      evRoom === booking.room &&
+      intervalsConflict(bStart, bEnd, eStart, eEnd, roomBufferMin);
+    const pracConflict =
+      evPrac !== null &&
+      evPrac === booking.practitionerName &&
+      intervalsConflict(bStart, bEnd, eStart, eEnd, practitionerBufferMin);
+    const equipmentConflict =
+      Array.isArray(booking.equipment) &&
+      evEquip.some((eq) => booking.equipment?.includes(eq)) &&
+      intervalsConflict(bStart, bEnd, eStart, eEnd, equipmentBufferMin);
+
+    return roomConflict || pracConflict || equipmentConflict;
   });
 
-  if (conflict) {
-    const { room: evRoom, practitioner: evPrac } = parseDesc(conflict.description ?? "");
+  if (conflict && !booking.force) {
+    const {
+      room: evRoom,
+      practitioner: evPrac,
+      equipment: evEquip,
+    } = parseDesc(conflict.description ?? "");
+    const equipmentCollision = Array.isArray(booking.equipment)
+      ? booking.equipment.filter((eq) => evEquip.includes(eq))
+      : [];
+
     if (evRoom === booking.room && evPrac === booking.practitionerName) {
       throw new Error(
         `${booking.room} with ${booking.practitionerName} is already booked at this time`,
+      );
+    } else if (equipmentCollision.length > 0) {
+      throw new Error(
+        `Equipment ${equipmentCollision.join(", ")} is already allocated at this time`,
       );
     } else if (evRoom === booking.room) {
       throw new Error(`${booking.room} is already booked — try a different room`);
@@ -334,12 +503,13 @@ export async function bookAdminAppointment(booking: {
         booking.clientEmail ? `Email: ${booking.clientEmail}` : "",
         `Room: ${booking.room}`,
         `Practitioner: ${booking.practitionerName}`,
+        ...(booking.equipment ?? []).map((eq) => `Equipment: ${eq}`),
         booking.notes ? `Notes: ${booking.notes}` : "",
       ]
         .filter(Boolean)
         .join("\n"),
-      start: { dateTime: booking.startTime, timeZone: TIMEZONE },
-      end: { dateTime: booking.endTime, timeZone: TIMEZONE },
+      start: { dateTime: booking.startTime, timeZone: tz },
+      end: { dateTime: booking.endTime, timeZone: tz },
       colorId: "11",
     },
   });
@@ -352,6 +522,7 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
     throw new Error("Cannot book an appointment in the past");
   }
 
+  const tz = await getClinicTimezone();
   const calendar = getCalendarClient();
   const calId = calendarId();
 
@@ -368,8 +539,8 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
       ]
         .filter(Boolean)
         .join("\n"),
-      start: { dateTime: appt.startTime, timeZone: TIMEZONE },
-      end: { dateTime: appt.endTime, timeZone: TIMEZONE },
+      start: { dateTime: appt.startTime, timeZone: tz },
+      end: { dateTime: appt.endTime, timeZone: tz },
       colorId: "11",
     },
   });
@@ -377,11 +548,16 @@ export async function createAppointment(appt: Omit<Appointment, "id">): Promise<
   return { ...appt, id: event.data.id! };
 }
 
-export async function getEventsByRange(from: string, to: string): Promise<CalendarEvent[]> {
+export async function getEventsByRange(
+  from: string,
+  to: string,
+  timezone?: string,
+): Promise<CalendarEvent[]> {
+  const tz = timezone ?? (await getClinicTimezone());
   const calendar = getCalendarClient();
   const calId = calendarId();
-  const timeMin = chicagoHourToUtc(from, 0).toISOString();
-  const timeMax = chicagoHourToUtc(to, 24).toISOString();
+  const timeMin = zonedHourToUtc(from, 0, tz).toISOString();
+  const timeMax = zonedHourToUtc(to, 24, tz).toISOString();
 
   const res = await calendar.events.list({
     calendarId: calId,
@@ -392,16 +568,16 @@ export async function getEventsByRange(from: string, to: string): Promise<Calend
   });
 
   return (res.data.items ?? [])
-    .filter((e) => e.start?.dateTime)
-    .map((e) => {
+    .filter(isCalendarEventWithStartTime)
+    .map((e: calendar_v3.Schema$Event) => {
       const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
       const { room, practitioner, contact, notes } = parseDesc(e.description ?? "");
       return {
         id: e.id!,
         treatment,
         clientName,
-        startTime: e.start!.dateTime!,
-        endTime: e.end!.dateTime ?? e.start!.dateTime!,
+        startTime: e.start.dateTime,
+        endTime: e.end?.dateTime ?? e.start.dateTime,
         clientContact: contact,
         notes,
         room: room ?? "",
@@ -471,25 +647,35 @@ export async function getCalendarBookingDetails(eventId: string): Promise<Calend
   };
 }
 
-function setDescriptionEmail(description: string, email: string): string {
+/** Sets (or inserts) a single "Prefix: value" line in a calendar event description, anchoring a new line right after `afterPrefix` if the prefix doesn't already exist. */
+function setDescriptionField(
+  description: string,
+  prefix: string,
+  value: string,
+  afterPrefix = "Contact:",
+): string {
   const lines = description.split("\n");
   let found = false;
   const updated = lines.map((line) => {
-    if (line.startsWith("Email:")) {
+    if (line.startsWith(prefix)) {
       found = true;
-      return `Email: ${email}`;
+      return `${prefix} ${value}`;
     }
     return line;
   });
   if (!found) {
-    const contactIdx = updated.findIndex((l) => l.startsWith("Contact:"));
-    if (contactIdx >= 0) {
-      updated.splice(contactIdx + 1, 0, `Email: ${email}`);
+    const anchorIdx = updated.findIndex((l) => l.startsWith(afterPrefix));
+    if (anchorIdx >= 0) {
+      updated.splice(anchorIdx + 1, 0, `${prefix} ${value}`);
     } else {
-      updated.push(`Email: ${email}`);
+      updated.push(`${prefix} ${value}`);
     }
   }
   return updated.join("\n");
+}
+
+function setDescriptionEmail(description: string, email: string): string {
+  return setDescriptionField(description, "Email:", email);
 }
 
 export async function updateCalendarBookingEmail(eventId: string, email: string): Promise<void> {
@@ -505,11 +691,42 @@ export async function updateCalendarBookingEmail(eventId: string, email: string)
   });
 }
 
+/**
+ * Patches a subset of an existing booking's fields in place (used by the booking-completion
+ * link flow) — never creates a new calendar event. Regenerates the event summary when the
+ * client name changes, since `summary` is built as "<treatment> — <clientName>".
+ */
+export async function patchCalendarBookingFields(
+  eventId: string,
+  fields: { clientName?: string; email?: string },
+): Promise<void> {
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+  const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+
+  let description = event.description ?? "";
+  if (fields.clientName) {
+    description = setDescriptionField(description, "Client:", fields.clientName);
+  }
+  if (fields.email) {
+    description = setDescriptionEmail(description, fields.email);
+  }
+
+  const requestBody: calendar_v3.Schema$Event = { description };
+  if (fields.clientName) {
+    const { treatment } = parseEventSummary(event.summary ?? "");
+    requestBody.summary = `${treatment} — ${fields.clientName}`;
+  }
+
+  await calendar.events.patch({ calendarId: calId, eventId, requestBody });
+}
+
 /** Reschedule a calendar event to a new start/end time. Returns old and new start times. */
 export async function rescheduleCalendarEvent(
   eventId: string,
   newStartTime: string,
   newEndTime: string,
+  timezone?: string,
 ): Promise<{
   clientName: string;
   treatment: string;
@@ -517,6 +734,7 @@ export async function rescheduleCalendarEvent(
   oldStartTime: string;
   newStartTime: string;
 }> {
+  const tz = timezone ?? (await getClinicTimezone());
   const calendar = getCalendarClient();
   const calId = calendarId();
   const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
@@ -526,8 +744,8 @@ export async function rescheduleCalendarEvent(
     eventId,
     requestBody: {
       ...event,
-      start: { dateTime: newStartTime, timeZone: TIMEZONE },
-      end: { dateTime: newEndTime, timeZone: TIMEZONE },
+      start: { dateTime: newStartTime, timeZone: tz },
+      end: { dateTime: newEndTime, timeZone: tz },
     },
   });
   const { treatment, clientName } = resolveEventClient(
@@ -560,16 +778,16 @@ export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointmen
   });
 
   return (res.data.items ?? [])
-    .filter((e) => e.start?.dateTime)
-    .map((e) => {
+    .filter(isCalendarEventWithStartTime)
+    .map((e: calendar_v3.Schema$Event) => {
       const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
       const { contact } = parseDesc(e.description ?? "");
       return {
         id: e.id!,
         treatment,
         clientName,
-        startTime: e.start!.dateTime!,
-        endTime: e.end!.dateTime ?? e.start!.dateTime!,
+        startTime: e.start.dateTime,
+        endTime: e.end?.dateTime ?? e.start.dateTime,
         clientContact: contact,
         confirmed: "pending",
       };

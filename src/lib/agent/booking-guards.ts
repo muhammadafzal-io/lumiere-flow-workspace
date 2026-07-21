@@ -43,34 +43,62 @@ export async function enrichBookingInput(input: Record<string, unknown>): Promis
   }
 }
 
+/**
+ * Booking gate — behavior depends on the calling channel:
+ *
+ * - **Chat (default)**: full name, treatment, phone, time, a valid email, and a valid birthday
+ *   are all required inline, same as before the voice-only completion-link redesign. Chat has
+ *   no speech-recognition risk, so there's no reason to defer these fields.
+ * - **Voice** (`requireFullProfile: false`): only treatment, phone, and time are required — name,
+ *   email, and birthday are collected afterward via the booking-completion link
+ *   (`src/lib/booking/completion-link.ts`), since phone-call speech recognition is exactly the
+ *   hallucination risk that redesign exists to avoid. If the caller volunteers a name anyway it's
+ *   still accepted (validated as a full name if present), just never required.
+ *
+ * `enrichBookingInput` still opportunistically backfills email/birthday from an existing CRM
+ * record when a *returning* client already has them on file, for both channels.
+ */
 export async function validateBookAppointment(
   input: Record<string, unknown>,
+  opts?: { requireFullProfile?: boolean },
 ): Promise<string | null> {
   await enrichBookingInput(input);
+  const requireFullProfile = opts?.requireFullProfile !== false;
 
   const missing: string[] = [];
   const clientName = String(input.client_name ?? "").trim();
-  if (!clientName) missing.push("client_name");
-  else if (!isFullName(clientName)) missing.push("client_name (full first and last name)");
+  if (requireFullProfile) {
+    if (!clientName) missing.push("client_name");
+    else if (!isFullName(clientName)) missing.push("client_name (full first and last name)");
+  } else if (clientName && !isFullName(clientName)) {
+    // Not required, but if the caller volunteered something, it still has to look like a real name.
+    missing.push("client_name (full first and last name)");
+  }
   if (!String(input.treatment ?? "").trim()) missing.push("treatment");
   if (!String(input.client_contact ?? "").trim()) missing.push("client_contact (phone)");
   if (!String(input.date_time ?? "").trim()) missing.push("date_time");
-  if (!normalizeEmail(input.client_email)) missing.push("client_email");
-  if (input.birthday_skipped === true || input.birthdaySkipped === true) {
-    return "Birthday is required to book. Ask for the client's full date of birth (month, day, and year), save it via upsert_client, then pass birthday as YYYY-MM-DD in book_appointment.";
-  }
-  if (!hasValidBirthday(input)) {
-    missing.push("birthday (required — YYYY-MM-DD, e.g. 1990-03-15)");
+
+  if (requireFullProfile) {
+    if (!normalizeEmail(input.client_email)) missing.push("client_email");
+    if (input.birthday_skipped === true || input.birthdaySkipped === true) {
+      return "Birthday is required to book. Ask for the client's full date of birth (month, day, and year), save it via upsert_client, then pass birthday as YYYY-MM-DD in book_appointment.";
+    }
+    if (!hasValidBirthday(input)) {
+      missing.push("birthday (required — YYYY-MM-DD, e.g. 1990-03-15)");
+    }
   }
 
   if (missing.length === 0) return null;
-  if (!clientName) {
-    return `Cannot book: missing required fields: ${missing.join(", ")}. Collect full name, phone, email, and birthday BEFORE saying "Locking in your appointment now!"`;
+  const suffix = requireFullProfile
+    ? `Collect full name, phone, email, and birthday BEFORE saying "Locking in your appointment now!"`
+    : `Collect phone and treatment BEFORE booking — name, email, and birthday are collected afterward via the completion link.`;
+  if (requireFullProfile && !clientName) {
+    return `Cannot book: missing required fields: ${missing.join(", ")}. ${suffix}`;
   }
-  if (!isFullName(clientName)) {
+  if (clientName && !isFullName(clientName)) {
     return `${fullNameValidationError("client_name")} ${missing.length > 1 ? `Also missing: ${missing.filter((m) => !m.startsWith("client_name")).join(", ")}.` : ""}`;
   }
-  return `Cannot book: missing required fields: ${missing.join(", ")}. Collect full name, phone, email, and birthday BEFORE saying "Locking in your appointment now!"`;
+  return `Cannot book: missing required fields: ${missing.join(", ")}. ${suffix}`;
 }
 
 export function validatePortalBooking(input: {

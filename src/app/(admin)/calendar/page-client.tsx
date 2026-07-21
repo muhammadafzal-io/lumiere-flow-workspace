@@ -38,7 +38,8 @@ import { store } from "@/lib/store";
 import { mapTeamToPractitioners } from "@/lib/practitioners";
 import type { Appointment, Practitioner, Customer, Treatment } from "@/lib/types";
 import {
-  BUSSINESS_TZ,
+  getDisplayTimezone,
+  setDisplayTimezone,
   HOUR_START,
   HOUR_END,
   SLOT_MIN,
@@ -127,7 +128,7 @@ export default function CalendarPage() {
   const dateRangeLabel = useMemo(() => {
     if (view === "day")
       return anchor.toLocaleDateString("en-US", {
-        timeZone: BUSSINESS_TZ,
+        timeZone: getDisplayTimezone(),
         weekday: "long",
         month: "short",
         day: "numeric",
@@ -137,8 +138,8 @@ export default function CalendarPage() {
     const end = days[days.length - 1];
     const sameMonth = fmtDateShort(start).split(" ")[0] === fmtDateShort(end).split(" ")[0];
     return sameMonth
-      ? `${fmtDateShort(start)} – ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, day: "numeric" })}, ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, year: "numeric" })}`
-      : `${fmtDateShort(start)} – ${fmtDateShort(end)}, ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, year: "numeric" })}`;
+      ? `${fmtDateShort(start)} – ${end.toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), day: "numeric" })}, ${end.toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), year: "numeric" })}`
+      : `${fmtDateShort(start)} – ${fmtDateShort(end)}, ${end.toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), year: "numeric" })}`;
   }, [days, view, anchor]);
 
   const goPrev = () => setAnchor((d) => addDays(d, view === "day" ? -1 : -7));
@@ -158,6 +159,7 @@ export default function CalendarPage() {
       if (settingsRes.ok) {
         const settingsJson = await settingsRes.json();
         setPractitioners(mapTeamToPractitioners(settingsJson.team ?? []));
+        if (settingsJson.clinic?.timezone) setDisplayTimezone(settingsJson.clinic.timezone);
       }
     } catch (err) {
       console.error("[calendar] meta load failed:", err);
@@ -572,7 +574,7 @@ function CalendarGrid({
     const nowHour =
       parseInt(
         new Intl.DateTimeFormat("en-US", {
-          timeZone: BUSSINESS_TZ,
+          timeZone: getDisplayTimezone(),
           hour: "2-digit",
           hour12: false,
         }).format(now),

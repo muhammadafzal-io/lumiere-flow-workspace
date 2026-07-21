@@ -15,13 +15,28 @@ function mapRow(r: any) {
     specialty: r["Specialty"] ?? "",
     bio: r["Bio"] ?? "",
     status: r["Status"] ?? "Active",
+    qualifications: r["Qualifications"] ?? [],
+    workingHours: r["WorkingHours"] ?? null,
+    breaks: r["Breaks"] ?? null,
+    timeOff: r["TimeOff"] ?? null,
   };
 }
 
 export async function POST(req: Request) {
   try {
     const sb = getSupabase();
-    const { name, email, role, color, specialty, bio } = await req.json();
+    const {
+      name,
+      email,
+      role,
+      color,
+      specialty,
+      bio,
+      qualifications,
+      workingHours,
+      breaks,
+      timeOff,
+    } = await req.json();
     if (!name?.trim()) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
     }
@@ -37,6 +52,10 @@ export async function POST(req: Request) {
         Bio: bio ?? "",
         Status: "Active",
         "Calendar ID": null,
+        Qualifications: qualifications ?? [],
+        WorkingHours: workingHours ?? null,
+        Breaks: breaks ?? null,
+        TimeOff: timeOff ?? null,
       })
       .select()
       .single();
@@ -52,10 +71,23 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const sb = getSupabase();
-    const { id, name, email, role, color, specialty, bio, status } = await req.json();
+    const {
+      id,
+      name,
+      email,
+      role,
+      color,
+      specialty,
+      bio,
+      status,
+      qualifications,
+      workingHours,
+      breaks,
+      timeOff,
+    } = await req.json();
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
-    const fields: Record<string, string> = {};
+    const fields: Record<string, any> = {};
     if (name !== undefined) fields["Name"] = name;
     if (email !== undefined) fields["Email"] = email;
     if (role !== undefined) fields["Role"] = role;
@@ -63,6 +95,10 @@ export async function PATCH(req: Request) {
     if (specialty !== undefined) fields["Specialty"] = specialty;
     if (bio !== undefined) fields["Bio"] = bio;
     if (status !== undefined) fields["Status"] = status;
+    if (qualifications !== undefined) fields["Qualifications"] = qualifications;
+    if (workingHours !== undefined) fields["WorkingHours"] = workingHours;
+    if (breaks !== undefined) fields["Breaks"] = breaks;
+    if (timeOff !== undefined) fields["TimeOff"] = timeOff;
 
     const { data, error } = await sb.from(TABLE).update(fields).eq("id", id).select().single();
 

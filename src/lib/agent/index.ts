@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources";
-import { SYSTEM_PROMPT } from "./system-prompt";
+import { getSystemPrompt } from "./system-prompt";
 import { TOOLS } from "./tools";
 import {
   checkAvailability,
@@ -8,13 +8,18 @@ import {
   suggestSlot,
   findEarliestAvailability,
 } from "@/lib/services/booking-service";
-import { cancelCalendarEvent, rescheduleCalendarEvent } from "@/lib/integrations/google-calendar";
+import {
+  cancelCalendarEvent,
+  rescheduleCalendarEvent,
+  getCalendarBookingDetails,
+} from "@/lib/integrations/google-calendar";
 import {
   lookupClient,
   upsertClient,
   createAppointmentRecord,
   getPractitioners,
 } from "@/lib/integrations/airtable";
+import { listActiveServices } from "@/lib/booking/recipe";
 import { validatePromoCode } from "@/lib/credits/validate-code";
 import {
   validateBookAppointment,
@@ -39,6 +44,15 @@ import {
 } from "@/lib/booking/resend-confirmation";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import { getOpenAIApiKey } from "@/lib/openai-config";
+import {
+  createCompletionLink,
+  markCompletionDeliveryError,
+  PENDING_NAME_PLACEHOLDER,
+} from "@/lib/booking/completion-link";
+import { findOpenCompletionByPhone } from "@/lib/booking/completion-followups";
+import { sendSms } from "@/lib/integrations/sms";
+import { getClinicTimezone } from "@/lib/clinic-timezone";
+import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 import type { AgentResult } from "@/types";
 
 function getOpenAI() {
@@ -50,6 +64,101 @@ function getOpenAI() {
 }
 
 const MAX_TOOL_ROUNDS = 8;
+
+const SMS_CONFIGURED = () =>
+  !!(
+    process.env.TWILIO_ACCOUNT_SID &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    process.env.TWILIO_FROM_NUMBER
+  );
+
+/**
+ * Creates the booking-completion link and delivers it on the best available channel:
+ * email (if already on file) > SMS (voice calls only) > directly in the chat reply
+ * (text-based channels with no email on file).
+ *
+ * The channel is decided synchronously (DB lookups + an env-var check only) so the model
+ * always gets an accurate `sentVia` to relay to the client — but the actual network send
+ * (the slow part: an email/SMS provider round-trip) is fired in the background, not awaited,
+ * so it never adds latency to a live phone call. A background failure is recorded on the
+ * `BookingCompletions` row (`markCompletionDeliveryError`) so it surfaces on the Pending
+ * Bookings staff page instead of only a server log.
+ */
+async function deliverCompletionLink(opts: {
+  eventId: string;
+  phone: string;
+  clientName?: string;
+  treatment?: string;
+  platform: string;
+  appointmentStartTime: string;
+}): Promise<{ url: string; sentVia: "email" | "sms" | "chat_reply" | "none"; note?: string }> {
+  const client = await lookupClient({ phone: opts.phone }).catch(() => null);
+  const email = client?.email;
+
+  const sentVia: "email" | "sms" | "chat_reply" | "none" = email
+    ? "email"
+    : opts.platform === "voice"
+      ? SMS_CONFIGURED()
+        ? "sms"
+        : "none"
+      : "chat_reply";
+
+  const { url, token } = await createCompletionLink({
+    eventId: opts.eventId,
+    phone: opts.phone,
+    clientName: opts.clientName,
+    treatment: opts.treatment,
+    appointmentStartTime: opts.appointmentStartTime,
+    deliveryChannel: sentVia,
+  });
+
+  const recordFailure = (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[completion-link] background delivery failed:", message);
+    markCompletionDeliveryError(token, message).catch(() => undefined);
+  };
+
+  if (sentVia === "email") {
+    void sendRetentionEmail({
+      to: email!,
+      subject: "Finish setting up your Lumière appointment",
+      flowType: "booking",
+      text: [
+        `Hi${opts.clientName ? ` ${opts.clientName}` : ""}, thanks for booking with Lumière!`,
+        ``,
+        `Please complete a few final details for your appointment${opts.treatment ? ` (${opts.treatment})` : ""} using the secure link below.`,
+      ].join("\n"),
+      cta: { label: "Complete My Booking", url },
+    }).catch(recordFailure);
+    return { url, sentVia };
+  }
+
+  if (sentVia === "sms") {
+    void sendSms({
+      to: opts.phone,
+      body: `Lumière Med Spa: finish setting up your appointment here: ${url}`,
+    })
+      .then((sms) => {
+        if (!sms.sent) recordFailure(new Error(sms.error ?? "unknown SMS failure"));
+      })
+      .catch(recordFailure);
+    return { url, sentVia };
+  }
+
+  if (sentVia === "none") {
+    return {
+      url,
+      sentVia,
+      note: "No delivery channel available (no email on file, SMS not configured). Let the client know staff will follow up to collect their name, email, and birthday.",
+    };
+  }
+
+  return {
+    url,
+    sentVia,
+    note: "No email on file and this isn't a voice call — include this exact link directly in your next reply so the client can finish their booking.",
+  };
+}
 
 export async function executeTool(
   toolName: string,
@@ -80,10 +189,39 @@ export async function executeTool(
       }
     }
 
+    case "get_services": {
+      try {
+        const services = await listActiveServices(input.query as string | undefined);
+        return {
+          result: {
+            services: services.map((s) => ({
+              name: s.name,
+              durationMinutes: s.durationMinutes,
+              onlineBookable: s.onlineBookable,
+              requiresConsultation: s.requiresConsultation,
+            })),
+            note:
+              services.length === 0
+                ? "No configured service matched — use the knowledge base's description and a reasonable duration estimate instead."
+                : undefined,
+          },
+        };
+      } catch (err) {
+        return {
+          result: {
+            services: [],
+            note: "Service list unavailable — use the knowledge base's treatment descriptions and durations instead.",
+            error: err instanceof Error ? err.message : String(err),
+          },
+        };
+      }
+    }
+
     case "check_availability": {
       try {
         const availability = await checkAvailability({
           date: input.date as string,
+          treatment: input.treatment as string | undefined,
           durationMinutes: (input.duration_minutes as number) ?? 60,
           practitionerName:
             (input.preferred_practitioner as string | undefined) ||
@@ -91,16 +229,51 @@ export async function executeTool(
           room: input.preferred_room as string | undefined,
         });
 
+        // Without a stated preference, keep the existing earliest-of-day behavior. With one,
+        // pick the 6 slots closest to it (falling back to whatever's nearest if none are close)
+        // instead of always surfacing the morning regardless of what the caller actually asked for.
+        const preferredTime = input.preferred_time as string | undefined;
+        let displaySlots = availability.slots.slice(0, 6);
+        if (preferredTime && /^\d{1,2}:\d{2}$/.test(preferredTime)) {
+          const [ph, pm] = preferredTime.split(":").map(Number);
+          const preferredMinutes = ph * 60 + pm;
+          const tz = await getClinicTimezone();
+          displaySlots = availability.slots
+            .map((s) => {
+              const start = new Date(s.startTime);
+              const hour =
+                parseInt(
+                  new Intl.DateTimeFormat("en-US", {
+                    timeZone: tz,
+                    hour: "2-digit",
+                    hour12: false,
+                  }).format(start),
+                  10,
+                ) % 24;
+              const minute = parseInt(
+                new Intl.DateTimeFormat("en-US", { timeZone: tz, minute: "2-digit" }).format(
+                  start,
+                ),
+                10,
+              );
+              return { slot: s, distance: Math.abs(hour * 60 + minute - preferredMinutes) };
+            })
+            .sort((a, b) => a.distance - b.distance)
+            .slice(0, 6)
+            .map((x) => x.slot)
+            .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+        }
+
         return {
           result: {
             date: availability.date,
             durationMinutes: availability.durationMinutes,
-            slots: availability.slots.slice(0, 6),
+            slots: displaySlots,
             availablePractitioners: availability.availablePractitioners,
             availableRooms: availability.availableRooms,
             summary:
               availability.slots.length > 0
-                ? `Found ${availability.slots.length} available slots on ${availability.date}. Available practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Available rooms: ${availability.availableRooms.join(", ") || "any"}.`
+                ? `Found ${availability.slots.length} available slots on ${availability.date}${preferredTime ? ` — showing the closest to ${preferredTime}` : ""}. Available practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Available rooms: ${availability.availableRooms.join(", ") || "any"}.`
                 : `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`,
           },
         };
@@ -119,6 +292,7 @@ export async function executeTool(
     case "find_earliest_availability": {
       try {
         const result = await findEarliestAvailability({
+          treatment: input.treatment as string | undefined,
           durationMinutes: (input.duration_minutes as number) ?? 60,
           practitionerName:
             (input.preferred_practitioner as string | undefined) ||
@@ -145,9 +319,30 @@ export async function executeTool(
     }
 
     case "book_appointment": {
-      const guardError = await validateBookAppointment(input);
+      const isVoice = context.platform === "voice";
+      const guardError = await validateBookAppointment(input, {
+        requireFullProfile: !isVoice,
+      });
       if (guardError) {
         return { result: { error: guardError } };
+      }
+
+      // Duplicate-booking guard: this phone number may already have an appointment sitting in
+      // "waiting on the completion form" state. Surface it and let the model confirm with the
+      // caller rather than silently stacking a second booking — same warn-don't-silently-block
+      // pattern used by the Settings recipe engine's manual-override warnings.
+      if (input.confirm_new_booking !== true) {
+        const existing = await findOpenCompletionByPhone(String(input.client_contact ?? "")).catch(
+          () => null,
+        );
+        if (existing) {
+          return {
+            result: {
+              warning: `This phone number already has an appointment (${existing.treatment ?? "a service"}) still waiting on a couple final details. Confirm with the caller whether this is about that same appointment or a genuinely new visit before booking again — if it's a new visit, call book_appointment again with confirm_new_booking: true.`,
+              existing_event_id: existing.eventId,
+            },
+          };
+        }
       }
 
       const durationMin = (input.duration_minutes as number) ?? 60;
@@ -165,6 +360,7 @@ export async function executeTool(
             durationMinutes: durationMin,
             preferredPractitioner: practitioner,
             preferredRoom: room,
+            treatment: input.treatment as string,
           });
           room = room || suggestion.room;
           practitioner = practitioner || suggestion.practitioner;
@@ -178,8 +374,13 @@ export async function executeTool(
         }
       }
 
+      // Voice no longer collects a name during the call — book with whatever the caller
+      // volunteered, or a placeholder that gets overwritten once the completion form is submitted.
+      const rawClientName = String(input.client_name ?? "").trim();
+      const resolvedClientName = rawClientName || (isVoice ? PENDING_NAME_PLACEHOLDER : rawClientName);
+
       const apptData = {
-        clientName: input.client_name as string,
+        clientName: resolvedClientName,
         clientContact: input.client_contact as string,
         clientEmail: normalizeEmail(input.client_email) || undefined,
         treatment: input.treatment as string,
@@ -188,6 +389,7 @@ export async function executeTool(
         practitionerName: practitioner,
         room,
         notes: input.notes as string | undefined,
+        source: "bot" as const,
       };
 
       const appt = await bookAppointment(apptData);
@@ -236,15 +438,67 @@ export async function executeTool(
         }
       }
 
+      // Completion link is a voice-only concept — chat already collected everything inline
+      // (validateBookAppointment required it above), so there's nothing left to complete and
+      // no link should ever be created for chat/Telegram/Discord bookings.
+      const profileComplete =
+        resolvedClientName !== PENDING_NAME_PLACEHOLDER &&
+        !!clientEmail &&
+        !!normalizeBirthdayForStorage(String(input.birthday ?? ""));
+      let completionLink: Awaited<ReturnType<typeof deliverCompletionLink>> | null = null;
+      if (isVoice && !profileComplete) {
+        completionLink = await deliverCompletionLink({
+          eventId: appt.id,
+          phone: apptData.clientContact,
+          clientName:
+            apptData.clientName === PENDING_NAME_PLACEHOLDER ? undefined : apptData.clientName,
+          treatment: apptData.treatment,
+          platform: context.platform,
+          appointmentStartTime: apptData.startTime,
+        }).catch((err) => {
+          console.error("[agent/book] completion link failed:", err);
+          return null;
+        });
+      }
+
       return {
         result: {
           ...appt,
           event_id: appt.id,
           confirmation_email_sent: confirmationEmailSent,
           confirmation_sent_to: confirmationEmailSent ? clientEmail : undefined,
+          completion_link: completionLink
+            ? {
+                sent_via: completionLink.sentVia,
+                url: completionLink.url,
+                note: completionLink.note,
+              }
+            : undefined,
         },
         booked: true,
       };
+    }
+
+    case "send_booking_completion_link": {
+      try {
+        const eventId = String(input.event_id ?? "");
+        const booking = await getCalendarBookingDetails(eventId);
+        const result = await deliverCompletionLink({
+          eventId,
+          phone: String(input.client_contact ?? ""),
+          clientName: input.client_name as string | undefined,
+          treatment: input.treatment as string | undefined,
+          platform: context.platform,
+          appointmentStartTime: booking.startTime,
+        });
+        return { result };
+      } catch (err) {
+        return {
+          result: {
+            error: err instanceof Error ? err.message : "Could not send the completion link.",
+          },
+        };
+      }
     }
 
     case "resend_booking_confirmation": {
@@ -287,17 +541,20 @@ export async function executeTool(
         (await lookupClient({ phone: cancelled.clientContact }).catch(() => null))?.email;
 
       if (cancelEmail) {
+        const cancelTimezone = await getClinicTimezone();
         const displayTime = cancelled.startTime
           ? new Date(cancelled.startTime).toLocaleString("en-US", {
-              timeZone: "America/Chicago",
+              timeZone: cancelTimezone,
               weekday: "long",
               month: "long",
               day: "numeric",
               hour: "numeric",
               minute: "2-digit",
               hour12: true,
+              timeZoneName: "short",
             })
           : "your scheduled time";
+        const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
 
         sendRetentionEmail({
           to: cancelEmail,
@@ -307,9 +564,9 @@ export async function executeTool(
             `Hi ${cancelled.clientName}, your appointment at Lumière has been cancelled.`,
             ``,
             `Treatment: ${cancelled.treatment}`,
-            `Original Date: ${displayTime} CT`,
+            `Original Date: ${displayTime}`,
             ``,
-            `We'd love to rebook you at a time that works better. Reply here or visit us Monday–Saturday, 9 AM–7 PM.`,
+            `We'd love to rebook you at a time that works better. Reply here or visit us ${businessHoursLabel}.`,
             widgetLinkLine(),
             ``,
             `— The Lumière Team`,
@@ -350,16 +607,19 @@ export async function executeTool(
         (await lookupClient({ phone: rescheduled.clientContact }).catch(() => null))?.email;
 
       if (rescheduleEmail) {
+        const rescheduleTimezone = await getClinicTimezone();
         const fmtTime = (iso: string) =>
           new Date(iso).toLocaleString("en-US", {
-            timeZone: "America/Chicago",
+            timeZone: rescheduleTimezone,
             weekday: "long",
             month: "long",
             day: "numeric",
             hour: "numeric",
             minute: "2-digit",
             hour12: true,
+            timeZoneName: "short",
           });
+        const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
 
         sendRetentionEmail({
           to: rescheduleEmail,
@@ -369,11 +629,10 @@ export async function executeTool(
             `Hi ${rescheduled.clientName}, your Lumière appointment has been rescheduled.`,
             ``,
             `Treatment: ${rescheduled.treatment}`,
-            rescheduled.oldStartTime ? `Old Date: ${fmtTime(rescheduled.oldStartTime)} CT` : "",
-            `New Date: ${fmtTime(rescheduled.newStartTime)} CT`,
-            `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
+            rescheduled.oldStartTime ? `Old Date: ${fmtTime(rescheduled.oldStartTime)}` : "",
+            `New Date: ${fmtTime(rescheduled.newStartTime)}`,
             ``,
-            `Need further changes? Reply here or contact us Monday–Saturday, 9 AM–7 PM.`,
+            `Need further changes? Reply here or contact us ${businessHoursLabel}.`,
             widgetLinkLine(),
             ``,
             `See you soon!`,
@@ -504,7 +763,7 @@ export async function runAgent(opts: {
   const { userMessage, history, platform, chatId } = opts;
 
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: await getSystemPrompt() },
     ...history,
     { role: "user", content: userMessage },
   ];

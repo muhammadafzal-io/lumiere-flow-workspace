@@ -19,6 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Check, X, RefreshCw, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import { toast } from "sonner";
@@ -29,12 +30,33 @@ interface ClinicSettings {
   timezone: string;
   address: string;
   businessHours: string;
+  businessHoursSchedule: WeeklyHours;
 }
 
 interface ChannelStatus {
   connected: boolean;
   label: string;
 }
+
+/** Shared shape for Room.ClosedTimes / Equipment.ClosedTimes / Practitioner.TimeOff. */
+interface ClosedTimeEntry {
+  start: string;
+  end: string;
+  label?: string;
+}
+
+/** One start/end pair per weekday — used for both WorkingHours and Breaks. */
+interface WeeklyHours {
+  mon?: { start: string; end: string };
+  tue?: { start: string; end: string };
+  wed?: { start: string; end: string };
+  thu?: { start: string; end: string };
+  fri?: { start: string; end: string };
+  sat?: { start: string; end: string };
+  sun?: { start: string; end: string };
+}
+
+type WeekdayKey = keyof WeeklyHours;
 
 interface TeamMember {
   id: string;
@@ -45,6 +67,55 @@ interface TeamMember {
   specialty?: string;
   bio?: string;
   status?: string;
+  qualifications?: string[];
+  workingHours?: WeeklyHours | null;
+  breaks?: WeeklyHours | null;
+  timeOff?: ClosedTimeEntry[] | null;
+}
+
+interface RoomItem {
+  id: string;
+  name: string;
+  type: string;
+  cleanupMinutes: number;
+  status: string;
+  closedTimes: ClosedTimeEntry[] | null;
+}
+
+interface EquipmentItem {
+  id: string;
+  name: string;
+  type: string;
+  homeRoom: string | null;
+  cleanupMinutes: number;
+  status: string;
+  closedTimes: ClosedTimeEntry[] | null;
+}
+
+type RoomRequirementRule =
+  | { mode: "any_of_type"; roomType: string }
+  | { mode: "specific"; roomIds: string[] };
+
+interface EquipmentRequirementRule {
+  equipmentIds: string[];
+}
+
+interface ServiceRequirement {
+  id: string;
+  kind: string;
+  rule: any;
+}
+
+interface ServiceItem {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  onlineBookable: boolean;
+  requiresConsultation: boolean;
+  minNoticeHours: number;
+  maxAdvanceDays: number;
+  status: string;
+  requirements: ServiceRequirement[];
 }
 
 interface SettingsData {
@@ -52,7 +123,37 @@ interface SettingsData {
   channels: Record<string, ChannelStatus>;
   team: TeamMember[];
   rooms?: string[];
+  equipment?: EquipmentItem[];
+  services?: ServiceItem[];
 }
+
+/** Every IANA timezone the runtime knows about, falling back to a short curated list on older runtimes without `Intl.supportedValuesOf`. */
+function listTimezones(): string[] {
+  if (typeof Intl.supportedValuesOf === "function") {
+    return Intl.supportedValuesOf("timeZone");
+  }
+  return [
+    "America/Chicago",
+    "America/New_York",
+    "America/Denver",
+    "America/Los_Angeles",
+    "Asia/Karachi",
+    "Asia/Kolkata",
+    "Asia/Dubai",
+    "Europe/London",
+    "Europe/Berlin",
+    "Australia/Sydney",
+  ];
+}
+
+const DEFAULT_BUSINESS_HOURS: WeeklyHours = {
+  mon: { start: "09:00", end: "19:00" },
+  tue: { start: "09:00", end: "19:00" },
+  wed: { start: "09:00", end: "19:00" },
+  thu: { start: "09:00", end: "19:00" },
+  fri: { start: "09:00", end: "19:00" },
+  sat: { start: "09:00", end: "19:00" },
+};
 
 const DEFAULT_CLINIC: ClinicSettings = {
   recordId: null,
@@ -60,6 +161,7 @@ const DEFAULT_CLINIC: ClinicSettings = {
   timezone: "America/Chicago",
   address: "",
   businessHours: "",
+  businessHoursSchedule: DEFAULT_BUSINESS_HOURS,
 };
 
 const PRESET_COLORS = [
@@ -115,6 +217,7 @@ function ClinicTab({
 }) {
   const [form, setForm] = useState(initial);
   const [saving, setSaving] = useState(false);
+  const [timezones] = useState<string[]>(listTimezones);
 
   useEffect(() => {
     setForm(initial);
@@ -152,7 +255,27 @@ function ClinicTab({
         </div>
         <div>
           <Label>Timezone</Label>
-          <Input value={form.timezone} onChange={field("timezone")} className="mt-1.5" />
+          <Select
+            value={form.timezone}
+            onValueChange={(value) => setForm((f) => ({ ...f, timezone: value }))}
+          >
+            <SelectTrigger className="mt-1.5 w-full">
+              <SelectValue placeholder="Select timezone" />
+            </SelectTrigger>
+            <SelectContent className="max-h-72">
+              {!timezones.includes(form.timezone) && form.timezone && (
+                <SelectItem value={form.timezone}>{form.timezone} (unrecognized)</SelectItem>
+              )}
+              {timezones.map((tz) => (
+                <SelectItem key={tz} value={tz}>
+                  {tz}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">
+            Every booking, business-hours check, and the AI's sense of "today" run in this timezone.
+          </p>
         </div>
         <div className="col-span-2">
           <Label>Address</Label>
@@ -160,11 +283,14 @@ function ClinicTab({
         </div>
         <div className="col-span-2">
           <Label>Business hours</Label>
-          <Input
-            value={form.businessHours}
-            onChange={field("businessHours")}
-            className="mt-1.5"
-            placeholder="e.g. Mon–Sat · 9am – 7pm"
+          <p className="text-xs text-muted-foreground mt-1 mb-2">
+            The clinic's own open days/hours — the booking engine and AI both check this directly;
+            a day left off is closed. A practitioner without their own working hours set for a day
+            defaults to being busy the clinic's full hours that day.
+          </p>
+          <WeeklyHoursEditor
+            value={form.businessHoursSchedule}
+            onChange={(v) => setForm((f) => ({ ...f, businessHoursSchedule: v }))}
           />
         </div>
       </div>
@@ -221,14 +347,144 @@ function ChannelsTab({ channels }: { channels: Record<string, ChannelStatus> }) 
   );
 }
 
+const WEEKDAYS: { key: WeekdayKey; label: string }[] = [
+  { key: "mon", label: "Mon" },
+  { key: "tue", label: "Tue" },
+  { key: "wed", label: "Wed" },
+  { key: "thu", label: "Thu" },
+  { key: "fri", label: "Fri" },
+  { key: "sat", label: "Sat" },
+  { key: "sun", label: "Sun" },
+];
+
+/** Repeatable start/end/label rows — used for Room/Equipment ClosedTimes and Practitioner TimeOff. */
+function ClosedTimesEditor({
+  value,
+  onChange,
+}: {
+  value: ClosedTimeEntry[];
+  onChange: (entries: ClosedTimeEntry[]) => void;
+}) {
+  const update = (i: number, patch: Partial<ClosedTimeEntry>) =>
+    onChange(value.map((entry, idx) => (idx === i ? { ...entry, ...patch } : entry)));
+  const remove = (i: number) => onChange(value.filter((_, idx) => idx !== i));
+  const add = () => onChange([...value, { start: "", end: "", label: "" }]);
+
+  return (
+    <div className="space-y-2">
+      {value.map((entry, i) => (
+        <div key={i} className="flex items-center gap-2">
+          <Input
+            type="datetime-local"
+            value={entry.start}
+            onChange={(e) => update(i, { start: e.target.value })}
+            className="h-9 text-xs"
+          />
+          <span className="text-xs text-muted-foreground flex-shrink-0">to</span>
+          <Input
+            type="datetime-local"
+            value={entry.end}
+            onChange={(e) => update(i, { end: e.target.value })}
+            className="h-9 text-xs"
+          />
+          <Input
+            placeholder="Reason (optional)"
+            value={entry.label ?? ""}
+            onChange={(e) => update(i, { label: e.target.value })}
+            className="h-9 text-xs"
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 flex-shrink-0"
+            onClick={() => remove(i)}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="outline" size="sm" onClick={add}>
+        <Plus className="h-3.5 w-3.5 mr-1.5" /> Add closed period
+      </Button>
+    </div>
+  );
+}
+
+/** Per-weekday start/end editor — reused for both WorkingHours and Breaks. */
+function WeeklyHoursEditor({
+  value,
+  onChange,
+}: {
+  value: WeeklyHours;
+  onChange: (v: WeeklyHours) => void;
+}) {
+  const setDay = (key: WeekdayKey, patch: { start?: string; end?: string } | null) => {
+    if (patch === null) {
+      const rest = { ...value };
+      delete rest[key];
+      onChange(rest);
+      return;
+    }
+    onChange({
+      ...value,
+      [key]: { start: value[key]?.start ?? "09:00", end: value[key]?.end ?? "17:00", ...patch },
+    });
+  };
+
+  return (
+    <div className="space-y-1.5">
+      {WEEKDAYS.map(({ key, label }) => {
+        const day = value[key];
+        return (
+          <div key={key} className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDay(key, day ? null : {})}
+              className={`w-14 flex-shrink-0 text-xs px-2 py-1.5 rounded-md border text-center transition-colors ${
+                day
+                  ? "bg-primary/10 border-primary/30 text-primary font-medium"
+                  : "border-border text-muted-foreground hover:border-primary/20"
+              }`}
+            >
+              {label}
+            </button>
+            {day ? (
+              <>
+                <Input
+                  type="time"
+                  value={day.start}
+                  onChange={(e) => setDay(key, { start: e.target.value })}
+                  className="h-8 w-28 text-xs"
+                />
+                <span className="text-xs text-muted-foreground flex-shrink-0">to</span>
+                <Input
+                  type="time"
+                  value={day.end}
+                  onChange={(e) => setDay(key, { end: e.target.value })}
+                  className="h-8 w-28 text-xs"
+                />
+              </>
+            ) : (
+              <span className="text-xs text-muted-foreground">Off</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function PractitionerDialog({
   open,
   editing,
+  services,
   onClose,
   onSaved,
 }: {
   open: boolean;
   editing: TeamMember | null;
+  services: ServiceItem[];
   onClose: () => void;
   onSaved: (member: TeamMember) => void;
 }) {
@@ -239,6 +495,10 @@ function PractitionerDialog({
     color: PRESET_COLORS[0],
     specialties: [] as string[],
     bio: "",
+    qualifications: [] as string[],
+    workingHours: {} as WeeklyHours,
+    breaks: {} as WeeklyHours,
+    timeOff: [] as ClosedTimeEntry[],
   };
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
@@ -253,6 +513,10 @@ function PractitionerDialog({
             color: editing.color,
             specialties: parseSpecialties(editing.specialty),
             bio: editing.bio ?? "",
+            qualifications: editing.qualifications ?? [],
+            workingHours: editing.workingHours ?? {},
+            breaks: editing.breaks ?? {},
+            timeOff: editing.timeOff ?? [],
           }
         : blank,
     );
@@ -265,6 +529,14 @@ function PractitionerDialog({
       specialties: f.specialties.includes(s)
         ? f.specialties.filter((x) => x !== s)
         : [...f.specialties, s],
+    }));
+
+  const toggleQualification = (serviceId: string) =>
+    setForm((f) => ({
+      ...f,
+      qualifications: f.qualifications.includes(serviceId)
+        ? f.qualifications.filter((x) => x !== serviceId)
+        : [...f.qualifications, serviceId],
     }));
 
   const save = async () => {
@@ -392,6 +664,80 @@ function PractitionerDialog({
               className="mt-1.5 w-full px-3 py-2 border rounded-md text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               placeholder="Short description of the practitioner"
               rows={3}
+            />
+          </div>
+
+          {/* Qualifications — services this person is allowed to perform */}
+          <div>
+            <Label>Qualifications</Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Services this practitioner is allowed to perform. The bot will never book them for a
+              service they aren't qualified for.
+            </p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {services.map((s) => {
+                const checked = form.qualifications.includes(s.id);
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => toggleQualification(s.id)}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm text-left transition-colors ${
+                      checked
+                        ? "bg-primary/10 border-primary/30 text-primary font-medium"
+                        : "border-border text-muted-foreground hover:border-primary/20 hover:text-foreground"
+                    }`}
+                  >
+                    <span
+                      className={`h-3.5 w-3.5 rounded border flex-shrink-0 flex items-center justify-center ${
+                        checked ? "bg-primary border-primary" : "border-muted-foreground/40"
+                      }`}
+                    >
+                      {checked && <Check className="h-2.5 w-2.5 text-white" />}
+                    </span>
+                    {s.name}
+                  </button>
+                );
+              })}
+              {services.length === 0 && (
+                <p className="text-xs text-muted-foreground col-span-2">
+                  No services configured yet — add some in the Services tab.
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Working hours */}
+          <div>
+            <Label>Working hours</Label>
+            <p className="text-xs text-muted-foreground mb-2">Days and times this person works.</p>
+            <WeeklyHoursEditor
+              value={form.workingHours}
+              onChange={(workingHours) => setForm((f) => ({ ...f, workingHours }))}
+            />
+          </div>
+
+          {/* Breaks */}
+          <div>
+            <Label>Breaks</Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              E.g. a lunch break. The bot will not book over a break.
+            </p>
+            <WeeklyHoursEditor
+              value={form.breaks}
+              onChange={(breaks) => setForm((f) => ({ ...f, breaks }))}
+            />
+          </div>
+
+          {/* Time off */}
+          <div>
+            <Label>Time off</Label>
+            <p className="text-xs text-muted-foreground mb-2">
+              Holidays and vacation. The bot will not book during time off.
+            </p>
+            <ClosedTimesEditor
+              value={form.timeOff}
+              onChange={(timeOff) => setForm((f) => ({ ...f, timeOff }))}
             />
           </div>
 
@@ -693,111 +1039,924 @@ function TeamTab({
   );
 }
 
-function RoomsTab({ rooms, onSaved }: { rooms: string[]; onSaved: (rooms: string[]) => void }) {
-  const [form, setForm] = useState<string[]>(rooms);
+function RoomsTab({ rooms, onSaved }: { rooms: RoomItem[]; onSaved: (rooms: RoomItem[]) => void }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [active, setActive] = useState<RoomItem | null>(null);
   const [saving, setSaving] = useState(false);
-  const [newRoom, setNewRoom] = useState("");
+  const [form, setForm] = useState<Partial<RoomItem>>({
+    type: "Treatment",
+    status: "Active",
+    cleanupMinutes: 0,
+    closedTimes: [],
+  });
 
   useEffect(() => {
-    setForm(rooms);
-  }, [rooms]);
-
-  const addRoom = () => {
-    if (newRoom.trim() && !form.includes(newRoom.trim())) {
-      const updated = [...form, newRoom.trim()].sort();
-      setForm(updated);
-      setNewRoom("");
+    if (active) {
+      setForm({ ...active, closedTimes: active.closedTimes ?? [] });
+    } else {
+      setForm({ type: "Treatment", status: "Active", cleanupMinutes: 0, closedTimes: [] });
     }
+  }, [active]);
+
+  const startAdd = () => {
+    setActive(null);
+    setDialogOpen(true);
   };
 
-  const removeRoom = (room: string) => {
-    setForm(form.filter((r) => r !== room));
+  const editItem = (item: RoomItem) => {
+    setActive(item);
+    setDialogOpen(true);
   };
 
   const save = async () => {
-    if (form.length === 0) {
-      toast.error("At least one room is required");
+    if (!form.name || !form.name.trim()) {
+      toast.error("Room name is required");
       return;
     }
+
     setSaving(true);
     try {
+      const payload = {
+        Name: form.name,
+        Type: form.type ?? "Treatment",
+        CleanupMinutes: form.cleanupMinutes ?? 0,
+        Status: form.status || "Active",
+        ClosedTimes: form.closedTimes ?? [],
+      } as any;
+
+      const method = active ? "PATCH" : "POST";
+      if (active) payload.id = active.id;
+
       const res = await fetch("/api/settings/rooms", {
-        method: "PATCH",
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rooms: form }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error();
-      onSaved(form);
-      toast.success("Rooms updated");
+      const json = await res.json();
+      const item = json.room as RoomItem;
+      onSaved(
+        active
+          ? rooms.map((r) => (r.id === item.id ? item : r))
+          : [...rooms, item].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setDialogOpen(false);
+      toast.success(`Room ${active ? "updated" : "added"}`);
     } catch {
-      toast.error("Failed to save rooms");
+      toast.error("Failed to save room");
     } finally {
       setSaving(false);
     }
   };
 
+  const removeItem = async (item: RoomItem) => {
+    if (!window.confirm(`Delete ${item.name}?`)) return;
+    try {
+      const res = await fetch(`/api/settings/rooms?id=${item.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      onSaved(rooms.filter((r) => r.id !== item.id));
+      toast.success("Room deleted");
+    } catch {
+      toast.error("Failed to delete room");
+    }
+  };
+
   return (
     <div className="space-y-4">
-      <div className="rounded-lg border bg-card p-5">
-        <h3 className="font-medium mb-3">Clinic Rooms</h3>
-        <p className="text-xs text-muted-foreground mb-4">
-          Define which rooms are available for appointments. Rooms must be unique and will be used
-          across the booking system.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Clinic rooms</h3>
+          <p className="text-sm text-muted-foreground">
+            Rooms available for appointments. Services pick their room requirement from here.
+          </p>
+        </div>
+        <Button onClick={startAdd} variant="outline">
+          <Plus className="mr-2 h-4 w-4" /> Add room
+        </Button>
+      </div>
 
-        {form.length > 0 && (
-          <div className="mb-4">
-            <label className="text-xs text-muted-foreground block mb-2">Active rooms</label>
-            <div className="space-y-2">
-              {form.map((room) => (
-                <div
-                  key={room}
-                  className="flex items-center justify-between bg-muted/40 px-3 py-2 rounded-md"
+      <div className="rounded-lg border bg-card overflow-hidden">
+        <table className="min-w-full text-sm">
+          <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Cleanup (min)</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rooms.map((item) => (
+              <tr key={item.id} className="border-t">
+                <td className="px-4 py-3">{item.name}</td>
+                <td className="px-4 py-3">{item.type}</td>
+                <td className="px-4 py-3">{item.cleanupMinutes}</td>
+                <td className="px-4 py-3">{item.status}</td>
+                <td className="px-4 py-3 flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => editItem(item)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => removeItem(item)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+            {rooms.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                  No rooms configured yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{active ? "Edit room" : "Add room"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 overflow-y-auto pr-1 flex-1">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Name</Label>
+                <Input
+                  value={form.name ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="e.g. Room 3, VIP Suite"
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>Type</Label>
+                <Select
+                  onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
+                  value={form.type ?? "Treatment"}
                 >
-                  <span className="text-sm font-medium">{room}</span>
-                  <button
-                    onClick={() => removeRoom(room)}
-                    className="text-xs text-destructive hover:text-destructive/80 transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
+                  <SelectTrigger className="w-full h-9 mt-1.5">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Treatment">Treatment</SelectItem>
+                    <SelectItem value="Consultation">Consultation</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Cleanup minutes</Label>
+                <Input
+                  type="number"
+                  value={String(form.cleanupMinutes ?? 0)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, cleanupMinutes: Number(e.target.value) }))
+                  }
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>Status</Label>
+                <Select
+                  onValueChange={(value) => setForm((f) => ({ ...f, status: value }))}
+                  value={form.status ?? "Active"}
+                >
+                  <SelectTrigger className="w-full h-9 mt-1.5">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Closed times</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Dates or times this room is unavailable (deep clean, repairs).
+              </p>
+              <ClosedTimesEditor
+                value={form.closedTimes ?? []}
+                onChange={(closedTimes) => setForm((f) => ({ ...f, closedTimes }))}
+              />
             </div>
           </div>
-        )}
-
-        <div className="space-y-2 pt-3 border-t">
-          <label className="text-xs text-muted-foreground block">Add new room</label>
-          <div className="flex gap-2">
-            <Input
-              placeholder="e.g. Room 3, VIP Suite, Laser Room"
-              value={newRoom}
-              onChange={(e) => setNewRoom(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addRoom()}
-              className="h-9 text-sm"
-            />
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={addRoom}
-              disabled={!newRoom.trim() || form.includes(newRoom.trim())}
-            >
-              <Plus className="h-4 w-4" />
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
+              Cancel
             </Button>
-          </div>
+            <Button onClick={save} disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save room
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function EquipmentTab({
+  equipment,
+  rooms,
+  onSaved,
+}: {
+  equipment: EquipmentItem[];
+  rooms: string[];
+  onSaved: (equipment: EquipmentItem[]) => void;
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [active, setActive] = useState<EquipmentItem | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<Partial<EquipmentItem>>({
+    type: "Mobile",
+    status: "Active",
+    cleanupMinutes: 0,
+    closedTimes: [],
+  });
+
+  useEffect(() => {
+    if (active) {
+      setForm({ ...active, closedTimes: active.closedTimes ?? [] });
+    } else {
+      setForm({ type: "Mobile", status: "Active", cleanupMinutes: 0, closedTimes: [] });
+    }
+  }, [active]);
+
+  const startAdd = () => {
+    setActive(null);
+    setDialogOpen(true);
+  };
+
+  const editItem = (item: EquipmentItem) => {
+    setActive(item);
+    setDialogOpen(true);
+  };
+
+  const save = async () => {
+    if (!form.name || !form.name.trim()) {
+      toast.error("Equipment name is required");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const payload = {
+        Name: form.name,
+        Type: form.type,
+        HomeRoom: form.homeRoom || null,
+        CleanupMinutes: form.cleanupMinutes ?? 0,
+        Status: form.status || "Active",
+        ClosedTimes: form.closedTimes ?? [],
+      } as any;
+
+      const method = active ? "PATCH" : "POST";
+      if (active) payload.id = active.id;
+
+      const res = await fetch("/api/settings/equipment", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      const item = json.equipment as EquipmentItem;
+      onSaved(
+        active
+          ? equipment.map((eq) => (eq.id === item.id ? item : eq))
+          : [...equipment, item].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setDialogOpen(false);
+      toast.success(`Equipment ${active ? "updated" : "added"}`);
+    } catch {
+      toast.error("Failed to save equipment");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeItem = async (item: EquipmentItem) => {
+    if (!window.confirm(`Delete ${item.name}?`)) return;
+    try {
+      const res = await fetch(`/api/settings/equipment?id=${item.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      onSaved(equipment.filter((eq) => eq.id !== item.id));
+      toast.success("Equipment deleted");
+    } catch {
+      toast.error("Failed to delete equipment");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Equipment inventory</h3>
+          <p className="text-sm text-muted-foreground">
+            Manage installed and mobile equipment used for services.
+          </p>
         </div>
+        <Button onClick={startAdd} variant="outline">
+          <Plus className="mr-2 h-4 w-4" /> Add equipment
+        </Button>
       </div>
 
-      <div className="flex justify-end gap-2">
-        <Button variant="outline" onClick={() => setForm(rooms)} disabled={saving}>
-          Reset
-        </Button>
-        <Button onClick={save} disabled={saving || JSON.stringify(form) === JSON.stringify(rooms)}>
-          {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-          Save rooms
+      <div className="rounded-lg border bg-card overflow-hidden">
+        <table className="min-w-full text-sm">
+          <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Type</th>
+              <th className="px-4 py-3">Home room</th>
+              <th className="px-4 py-3">Cleanup (min)</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {equipment.map((item) => (
+              <tr key={item.id} className="border-t">
+                <td className="px-4 py-3">{item.name}</td>
+                <td className="px-4 py-3">{item.type}</td>
+                <td className="px-4 py-3">{item.homeRoom || "—"}</td>
+                <td className="px-4 py-3">{item.cleanupMinutes}</td>
+                <td className="px-4 py-3">{item.status}</td>
+                <td className="px-4 py-3 flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => editItem(item)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => removeItem(item)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+            {equipment.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                  No equipment configured yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{active ? "Edit equipment" : "Add equipment"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 overflow-y-auto pr-1 flex-1">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Name</Label>
+                <Input
+                  value={form.name ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>Type</Label>
+                <Select
+                  onValueChange={(value) => setForm((f) => ({ ...f, type: value }))}
+                  value={form.type ?? "Mobile"}
+                >
+                  <SelectTrigger className="w-full h-9 mt-1.5">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Mobile">Mobile</SelectItem>
+                    <SelectItem value="Installed">Installed</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Home room</Label>
+                <Select
+                  onValueChange={(value) =>
+                    setForm((f) => ({ ...f, homeRoom: value === "none" ? null : value }))
+                  }
+                  value={form.homeRoom ?? "none"}
+                >
+                  <SelectTrigger className="w-full h-9 mt-1.5">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">None</SelectItem>
+                    {rooms.map((room) => (
+                      <SelectItem key={room} value={room}>
+                        {room}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Cleanup minutes</Label>
+                <Input
+                  type="number"
+                  value={String(form.cleanupMinutes ?? 0)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, cleanupMinutes: Number(e.target.value) }))
+                  }
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>Status</Label>
+                <Select
+                  onValueChange={(value) => setForm((f) => ({ ...f, status: value }))}
+                  value={form.status ?? "Active"}
+                >
+                  <SelectTrigger className="w-full h-9 mt-1.5">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div>
+              <Label>Closed times</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Maintenance windows or downtime for this piece of equipment.
+              </p>
+              <ClosedTimesEditor
+                value={form.closedTimes ?? []}
+                onChange={(closedTimes) => setForm((f) => ({ ...f, closedTimes }))}
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save equipment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function ServicesTab({
+  services,
+  equipment,
+  rooms,
+  onSaved,
+}: {
+  services: ServiceItem[];
+  equipment: EquipmentItem[];
+  rooms: RoomItem[];
+  onSaved: (services: ServiceItem[]) => void;
+}) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [active, setActive] = useState<ServiceItem | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<Partial<ServiceItem>>({
+    durationMinutes: 60,
+    onlineBookable: true,
+    requiresConsultation: false,
+    minNoticeHours: 0,
+    maxAdvanceDays: 365,
+    status: "Active",
+  });
+  const [roomRequirement, setRoomRequirement] = useState<RoomRequirementRule | null>(null);
+  const [equipmentRequirements, setEquipmentRequirements] = useState<EquipmentRequirementRule[]>(
+    [],
+  );
+
+  useEffect(() => {
+    if (active) {
+      setForm(active);
+      const roomReq = (active.requirements ?? []).find((r) => r.kind === "room");
+      setRoomRequirement(roomReq ? (roomReq.rule as RoomRequirementRule) : null);
+      setEquipmentRequirements(
+        (active.requirements ?? [])
+          .filter((r) => r.kind === "equipment")
+          .map((r) => r.rule as EquipmentRequirementRule),
+      );
+    } else {
+      setForm({
+        durationMinutes: 60,
+        onlineBookable: true,
+        requiresConsultation: false,
+        minNoticeHours: 0,
+        maxAdvanceDays: 365,
+        status: "Active",
+      });
+      setRoomRequirement(null);
+      setEquipmentRequirements([]);
+    }
+  }, [active]);
+
+  const startAdd = () => {
+    setActive(null);
+    setDialogOpen(true);
+  };
+
+  const editItem = (item: ServiceItem) => {
+    setActive(item);
+    setDialogOpen(true);
+  };
+
+  const save = async () => {
+    if (!form.name || !form.name.trim()) {
+      toast.error("Service name is required");
+      return;
+    }
+
+    const requirements = [
+      ...(roomRequirement ? [{ kind: "room", rule: roomRequirement }] : []),
+      ...equipmentRequirements
+        .filter((r) => r.equipmentIds.length > 0)
+        .map((rule) => ({ kind: "equipment", rule })),
+    ];
+
+    setSaving(true);
+    try {
+      const payload = {
+        Name: form.name,
+        DurationMinutes: form.durationMinutes ?? 60,
+        OnlineBookable: form.onlineBookable ?? true,
+        RequiresConsultation: form.requiresConsultation ?? false,
+        MinNoticeHours: form.minNoticeHours ?? 0,
+        MaxAdvanceDays: form.maxAdvanceDays ?? 365,
+        Status: form.status ?? "Active",
+        requirements,
+      } as any;
+
+      const method = active ? "PATCH" : "POST";
+      if (active) payload.id = active.id;
+
+      const res = await fetch("/api/settings/services", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      const item = json.service as ServiceItem;
+      onSaved(
+        active
+          ? services.map((svc) => (svc.id === item.id ? { ...item, requirements } : svc))
+          : [...services, { ...item, requirements }].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setDialogOpen(false);
+      toast.success(`Service ${active ? "updated" : "added"}`);
+    } catch {
+      toast.error("Failed to save service");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeItem = async (item: ServiceItem) => {
+    if (!window.confirm(`Delete ${item.name}?`)) return;
+    try {
+      const res = await fetch(`/api/settings/services?id=${item.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      onSaved(services.filter((svc) => svc.id !== item.id));
+      toast.success("Service deleted");
+    } catch {
+      toast.error("Failed to delete service");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Services catalog</h3>
+          <p className="text-sm text-muted-foreground">
+            Create and manage services, including resource requirements.
+          </p>
+        </div>
+        <Button onClick={startAdd} variant="outline">
+          <Plus className="mr-2 h-4 w-4" /> Add service
         </Button>
       </div>
+
+      <div className="rounded-lg border bg-card overflow-hidden">
+        <table className="min-w-full text-sm">
+          <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Duration</th>
+              <th className="px-4 py-3">Requirements</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {services.map((item) => (
+              <tr key={item.id} className="border-t">
+                <td className="px-4 py-3">{item.name}</td>
+                <td className="px-4 py-3">{item.durationMinutes} min</td>
+                <td className="px-4 py-3">{item.requirements?.length ?? 0}</td>
+                <td className="px-4 py-3">{item.status}</td>
+                <td className="px-4 py-3 flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => editItem(item)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => removeItem(item)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+            {services.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                  No services configured yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{active ? "Edit service" : "Add service"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 overflow-y-auto pr-1 flex-1">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div>
+                <Label>Name</Label>
+                <Input
+                  value={form.name ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>Duration (minutes)</Label>
+                <Input
+                  type="number"
+                  value={String(form.durationMinutes ?? 60)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, durationMinutes: Number(e.target.value) }))
+                  }
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>Min notice (hours)</Label>
+                <Input
+                  type="number"
+                  value={String(form.minNoticeHours ?? 0)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, minNoticeHours: Number(e.target.value) }))
+                  }
+                  className="mt-1.5"
+                />
+              </div>
+              <div>
+                <Label>Max advance (days)</Label>
+                <Input
+                  type="number"
+                  value={String(form.maxAdvanceDays ?? 365)}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, maxAdvanceDays: Number(e.target.value) }))
+                  }
+                  className="mt-1.5"
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md border px-3 h-9">
+                <Label className="mb-0">Online bookable</Label>
+                <Switch
+                  checked={form.onlineBookable ?? true}
+                  onCheckedChange={(checked) => setForm((f) => ({ ...f, onlineBookable: checked }))}
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md border px-3 h-9">
+                <Label className="mb-0">Requires consultation</Label>
+                <Switch
+                  checked={form.requiresConsultation ?? false}
+                  onCheckedChange={(checked) =>
+                    setForm((f) => ({ ...f, requiresConsultation: checked }))
+                  }
+                />
+              </div>
+              <div>
+                <Label>Status</Label>
+                <Select
+                  onValueChange={(value) => setForm((f) => ({ ...f, status: value }))}
+                  value={form.status ?? "Active"}
+                >
+                  <SelectTrigger className="w-full h-9 mt-1.5">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Inactive">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="border-t pt-4">
+              <Label>Room requirement</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                Done in any available room, a specific room, or a short list of allowed rooms.
+              </p>
+              <div className="flex gap-2 mb-2">
+                <Button
+                  type="button"
+                  variant={roomRequirement?.mode === "any_of_type" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setRoomRequirement({ mode: "any_of_type", roomType: "Treatment" })}
+                >
+                  Any room of a type
+                </Button>
+                <Button
+                  type="button"
+                  variant={roomRequirement?.mode === "specific" ? "default" : "outline"}
+                  size="sm"
+                  onClick={() => setRoomRequirement({ mode: "specific", roomIds: [] })}
+                >
+                  Specific room(s)
+                </Button>
+                {roomRequirement && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setRoomRequirement(null)}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+              {roomRequirement?.mode === "any_of_type" && (
+                <Select
+                  value={roomRequirement.roomType}
+                  onValueChange={(value) =>
+                    setRoomRequirement({ mode: "any_of_type", roomType: value })
+                  }
+                >
+                  <SelectTrigger className="w-full h-9">
+                    <SelectValue placeholder="Room type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Treatment">Treatment</SelectItem>
+                    <SelectItem value="Consultation">Consultation</SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
+              {roomRequirement?.mode === "specific" && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {rooms.map((r) => {
+                    const checked = roomRequirement.roomIds.includes(r.id);
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={() =>
+                          setRoomRequirement({
+                            mode: "specific",
+                            roomIds: checked
+                              ? roomRequirement.roomIds.filter((id) => id !== r.id)
+                              : [...roomRequirement.roomIds, r.id],
+                          })
+                        }
+                        className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm text-left transition-colors ${
+                          checked
+                            ? "bg-primary/10 border-primary/30 text-primary font-medium"
+                            : "border-border text-muted-foreground hover:border-primary/20 hover:text-foreground"
+                        }`}
+                      >
+                        <span
+                          className={`h-3.5 w-3.5 rounded border flex-shrink-0 flex items-center justify-center ${
+                            checked ? "bg-primary border-primary" : "border-muted-foreground/40"
+                          }`}
+                        >
+                          {checked && <Check className="h-2.5 w-2.5 text-white" />}
+                        </span>
+                        {r.name}
+                      </button>
+                    );
+                  })}
+                  {rooms.length === 0 && (
+                    <p className="text-xs text-muted-foreground col-span-2">
+                      No rooms configured yet — add some in the Rooms tab.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <Label>Equipment requirements</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Optional. Each row needs one of the selected machines (e.g. "Laser A or Laser
+                    B").
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEquipmentRequirements((r) => [...r, { equipmentIds: [] }])}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {equipmentRequirements.map((req, i) => (
+                  <div key={i} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-muted-foreground">Needs 1 of:</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() =>
+                          setEquipmentRequirements((r) => r.filter((_, idx) => idx !== i))
+                        }
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {equipment.map((eq) => {
+                        const checked = req.equipmentIds.includes(eq.id);
+                        return (
+                          <button
+                            key={eq.id}
+                            type="button"
+                            onClick={() =>
+                              setEquipmentRequirements((rows) =>
+                                rows.map((row, idx) =>
+                                  idx === i
+                                    ? {
+                                        equipmentIds: checked
+                                          ? row.equipmentIds.filter((id) => id !== eq.id)
+                                          : [...row.equipmentIds, eq.id],
+                                      }
+                                    : row,
+                                ),
+                              )
+                            }
+                            className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm text-left transition-colors ${
+                              checked
+                                ? "bg-primary/10 border-primary/30 text-primary font-medium"
+                                : "border-border text-muted-foreground hover:border-primary/20 hover:text-foreground"
+                            }`}
+                          >
+                            <span
+                              className={`h-3.5 w-3.5 rounded border flex-shrink-0 flex items-center justify-center ${
+                                checked ? "bg-primary border-primary" : "border-muted-foreground/40"
+                              }`}
+                            >
+                              {checked && <Check className="h-2.5 w-2.5 text-white" />}
+                            </span>
+                            {eq.name}{" "}
+                            <span className="text-muted-foreground text-xs">({eq.type})</span>
+                          </button>
+                        );
+                      })}
+                      {equipment.length === 0 && (
+                        <p className="text-xs text-muted-foreground col-span-2">
+                          No equipment configured yet — add some in the Equipment tab.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                {equipmentRequirements.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No equipment required for this service.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save service
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -830,6 +1989,12 @@ function BillingTab() {
 export default function SettingsPage() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
+  const [roomsList, setRoomsList] = useState<RoomItem[]>([]);
+  const [equipmentLoading, setEquipmentLoading] = useState(true);
+  const [servicesLoading, setServicesLoading] = useState(true);
+  const [roomsLoading, setRoomsLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
 
@@ -846,9 +2011,51 @@ export default function SettingsPage() {
     }
   }, []);
 
+  const fetchEquipment = useCallback(async () => {
+    setEquipmentLoading(true);
+    try {
+      const res = await fetch("/api/settings/equipment");
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setEquipment(json.equipment ?? []);
+    } catch {
+      toast.error("Failed to load equipment");
+    } finally {
+      setEquipmentLoading(false);
+    }
+  }, []);
+
+  const fetchServices = useCallback(async () => {
+    setServicesLoading(true);
+    try {
+      const res = await fetch("/api/settings/services");
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setServices(json.services ?? []);
+    } catch {
+      toast.error("Failed to load services");
+    } finally {
+      setServicesLoading(false);
+    }
+  }, []);
+
+  const fetchRooms = useCallback(async () => {
+    setRoomsLoading(true);
+    try {
+      const res = await fetch("/api/settings/rooms");
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setRoomsList(json.rooms ?? []);
+    } catch {
+      toast.error("Failed to load rooms");
+    } finally {
+      setRoomsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    void fetchSettings();
-  }, [fetchSettings]);
+    void Promise.all([fetchSettings(), fetchEquipment(), fetchServices(), fetchRooms()]);
+  }, [fetchSettings, fetchEquipment, fetchServices, fetchRooms]);
 
   const openAdd = () => {
     setEditing(null);
@@ -900,6 +2107,8 @@ export default function SettingsPage() {
         <TabsList>
           <TabsTrigger value="clinic">Clinic info</TabsTrigger>
           <TabsTrigger value="rooms">Rooms</TabsTrigger>
+          <TabsTrigger value="equipment">Equipment</TabsTrigger>
+          <TabsTrigger value="services">Services</TabsTrigger>
           <TabsTrigger value="channels">Channels</TabsTrigger>
           <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="billing">Billing</TabsTrigger>
@@ -924,16 +2133,46 @@ export default function SettingsPage() {
         </TabsContent>
 
         <TabsContent value="rooms" className="mt-4">
-          {loading ? (
+          {roomsLoading ? (
             <div className="rounded-lg border bg-card p-6 space-y-4 animate-pulse">
               {Array.from({ length: 3 }).map((_, i) => (
                 <div key={i} className="h-10 bg-muted rounded" />
               ))}
             </div>
           ) : (
-            <RoomsTab
-              rooms={data?.rooms ?? ["Room 1", "Room 2"]}
-              onSaved={(rooms) => setData((d) => d && { ...d, rooms })}
+            <RoomsTab rooms={roomsList} onSaved={(rooms) => setRoomsList(rooms)} />
+          )}
+        </TabsContent>
+
+        <TabsContent value="equipment" className="mt-4">
+          {equipmentLoading ? (
+            <div className="rounded-lg border bg-card p-6 space-y-4 animate-pulse">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-10 bg-muted rounded" />
+              ))}
+            </div>
+          ) : (
+            <EquipmentTab
+              equipment={equipment}
+              rooms={roomsList.filter((r) => r.status === "Active").map((r) => r.name)}
+              onSaved={(eq) => setEquipment(eq)}
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="services" className="mt-4">
+          {servicesLoading ? (
+            <div className="rounded-lg border bg-card p-6 space-y-4 animate-pulse">
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-10 bg-muted rounded" />
+              ))}
+            </div>
+          ) : (
+            <ServicesTab
+              services={services}
+              equipment={equipment}
+              rooms={roomsList}
+              onSaved={(servicesData) => setServices(servicesData)}
             />
           )}
         </TabsContent>
@@ -971,6 +2210,7 @@ export default function SettingsPage() {
       <PractitionerDialog
         open={dialogOpen}
         editing={editing}
+        services={services}
         onClose={() => setDialogOpen(false)}
         onSaved={handleSaved}
       />

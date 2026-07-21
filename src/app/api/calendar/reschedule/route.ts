@@ -4,6 +4,15 @@ import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { widgetLinkLine } from "@/lib/client-channels";
+import { getClinicTimezone } from "@/lib/clinic-timezone";
+import {
+  getClinicBusinessHours,
+  describeClinicHours,
+  hoursForWeekday,
+  weekdayKeyForDateStr,
+  fractionalHourToClock,
+} from "@/lib/booking/clinic-hours";
+import { dateInZone } from "@/lib/booking/dates";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -64,20 +73,41 @@ export async function PATCH(req: NextRequest) {
     );
   }
 
+  // Validated against the CLINIC's configured timezone and business-hours schedule, not the
+  // server process's own local timezone — `Date.getDay()`/`getHours()` would silently use
+  // whichever timezone Node happens to run in, which is not necessarily the clinic's.
+  const timezone = await getClinicTimezone();
+  const schedule = await getClinicBusinessHours();
   const newStartDate = new Date(newStartTime);
-  const dayOfWeek = newStartDate.getDay();
-  const hours = newStartDate.getHours();
+  const localDateStr = dateInZone(newStartDate, timezone);
+  const weekday = weekdayKeyForDateStr(localDateStr);
+  const hoursToday = hoursForWeekday(schedule, weekday);
 
-  if (dayOfWeek === 0) {
+  if (!hoursToday) {
     return NextResponse.json(
-      { error: "Cannot reschedule on Sundays — clinic is closed", code: "INVALID_DAY" },
+      { error: "Cannot reschedule to this day — clinic is closed", code: "INVALID_DAY" },
       { status: 400 },
     );
   }
 
-  if (hours < 9 || hours >= 19) {
+  const hourPart = parseInt(
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hour12: false }).format(
+      newStartDate,
+    ),
+    10,
+  ) % 24;
+  const minutePart = parseInt(
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone, minute: "2-digit" }).format(newStartDate),
+    10,
+  );
+  const fractionalHour = hourPart + minutePart / 60;
+
+  if (fractionalHour < hoursToday.startHour || fractionalHour >= hoursToday.endHour) {
     return NextResponse.json(
-      { error: "Can only reschedule between 9:00 AM and 7:00 PM", code: "INVALID_TIME" },
+      {
+        error: `Can only reschedule between ${fractionalHourToClock(hoursToday.startHour)} and ${fractionalHourToClock(hoursToday.endHour)}`,
+        code: "INVALID_TIME",
+      },
       { status: 400 },
     );
   }
@@ -90,7 +120,6 @@ export async function PATCH(req: NextRequest) {
     const event = getRes.data;
     const oldStartTime = event.start?.dateTime;
 
-    const timezone = "America/Chicago";
     const updatedEvent = await calendar.events.update({
       calendarId: calId,
       eventId,
@@ -122,14 +151,16 @@ export async function PATCH(req: NextRequest) {
 
         const fmtTime = (iso: string) =>
           new Date(iso).toLocaleString("en-US", {
-            timeZone: "America/Chicago",
+            timeZone,
             weekday: "long",
             month: "long",
             day: "numeric",
             hour: "numeric",
             minute: "2-digit",
             hour12: true,
+            timeZoneName: "short",
           });
+        const businessHoursLabel = describeClinicHours(schedule);
 
         await sendRetentionEmail({
           to: email,
@@ -145,11 +176,10 @@ export async function PATCH(req: NextRequest) {
             `Hi ${clientName}, your Lumière appointment has been rescheduled.`,
             ``,
             `Treatment: ${treatment}`,
-            oldStartTime ? `Old Date: ${fmtTime(oldStartTime)} CT` : "",
-            `New Date: ${fmtTime(newStartTime)} CT`,
-            `Location: 2847 S Lamar Blvd, Suite 120, Austin TX 78704`,
+            oldStartTime ? `Old Date: ${fmtTime(oldStartTime)}` : "",
+            `New Date: ${fmtTime(newStartTime)}`,
             ``,
-            `Need to make further changes? Reply to this email or contact us Monday–Saturday, 9 AM–7 PM.`,
+            `Need to make further changes? Reply to this email or contact us ${businessHoursLabel}.`,
             widgetLinkLine(),
             ``,
             `See you soon!`,

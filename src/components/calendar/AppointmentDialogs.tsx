@@ -52,11 +52,12 @@ import {
 } from "@/lib/birthday";
 import { store } from "@/lib/store";
 import {
-  BUSSINESS_TZ,
+  getDisplayTimezone,
   fmtTimeRange,
   fmtTime,
   practitionerById,
-  chicagoParts,
+  zonedParts,
+  zonedDateTimeToUtc,
 } from "@/lib/calendar-utils";
 
 function statusPill(s: AppointmentStatus) {
@@ -166,7 +167,7 @@ export function AppointmentSlideOver({
                 icon={<CalendarIcon className="h-3.5 w-3.5" />}
                 label="Date"
                 value={start.toLocaleDateString("en-US", {
-                  timeZone: BUSSINESS_TZ,
+                  timeZone: getDisplayTimezone(),
                   weekday: "long",
                   month: "long",
                   day: "numeric",
@@ -185,8 +186,8 @@ export function AppointmentSlideOver({
                 label="Source"
                 value={
                   a.source === "ai_booked"
-                    ? `Booked by AI on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, month: "short", day: "numeric" })}, ${fmtTime(new Date(a.created_at))}`
-                    : `Manually booked${a.created_by ? ` by ${a.created_by}` : ""} on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, month: "short", day: "numeric" })}`
+                    ? `Booked by AI on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), month: "short", day: "numeric" })}, ${fmtTime(new Date(a.created_at))}`
+                    : `Manually booked${a.created_by ? ` by ${a.created_by}` : ""} on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), month: "short", day: "numeric" })}`
                 }
               />
             </div>
@@ -233,7 +234,7 @@ export function AppointmentSlideOver({
                     <div className="text-muted-foreground">Last visit</div>
                     <div className="font-semibold mt-0.5">
                       {new Date(customer.last_visit).toLocaleDateString("en-US", {
-                        timeZone: BUSSINESS_TZ,
+                        timeZone: getDisplayTimezone(),
                         month: "short",
                         day: "numeric",
                         year: "numeric",
@@ -438,7 +439,7 @@ function ReminderRow({ label, sent, when }: { label: string; sent: boolean; when
       <div className="flex-1">{label}</div>
       <div className="text-xs text-muted-foreground">
         {when.toLocaleString("en-US", {
-          timeZone: BUSSINESS_TZ,
+          timeZone: getDisplayTimezone(),
           month: "short",
           day: "numeric",
           hour: "numeric",
@@ -487,8 +488,8 @@ export function RescheduleModal({
   // Initialize date/time when modal opens
   useEffect(() => {
     if (initialNs) {
-      // Get Chicago timezone date components
-      const parts = chicagoParts(initialNs);
+      // Get clinic-local timezone date components
+      const parts = zonedParts(initialNs);
 
       // Format as YYYY-MM-DD for HTML date input
       const dateStr = `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
@@ -499,9 +500,10 @@ export function RescheduleModal({
     }
   }, [initialNs]);
 
-  // Build the actual new start time from date/time inputs
+  // Build the actual new start time from date/time inputs, anchored to the clinic's timezone
+  // (not the admin's browser timezone).
   const ns = useMemo(
-    () => (editDate && editTime ? new Date(`${editDate}T${editTime}:00`) : initialNs),
+    () => (editDate && editTime ? zonedDateTimeToUtc(editDate, editTime) : initialNs),
     [editDate, editTime, initialNs],
   );
 
@@ -654,7 +656,7 @@ export function RescheduleModal({
                   <span className="font-medium">{customer?.name || a.clientName}</span> —{" "}
                   {a.treatment} —{" "}
                   {new Date(a.start_time).toLocaleDateString("en-US", {
-                    timeZone: BUSSINESS_TZ,
+                    timeZone: getDisplayTimezone(),
                     weekday: "short",
                     month: "short",
                     day: "numeric",
@@ -952,7 +954,7 @@ export function CancelModal({
               </div>
               <div className="text-xs text-muted-foreground mt-0.5">
                 {new Date(appointment.start_time).toLocaleDateString("en-US", {
-                  timeZone: BUSSINESS_TZ,
+                  timeZone: getDisplayTimezone(),
                   weekday: "long",
                   month: "short",
                   day: "numeric",
@@ -1081,15 +1083,17 @@ export function NewAppointmentModal({
 }) {
   const [customerId, setCustomerId] = useState<string>("");
   const [treatment, setTreatment] = useState<Treatment>("HydraFacial");
-  const [date, setDate] = useState<string>(() =>
-    (defaultStart || new Date()).toISOString().slice(0, 10),
-  );
+  const [date, setDate] = useState<string>(() => {
+    const p = zonedParts(defaultStart || new Date());
+    return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
+  });
   const [practitionerId, setPractitionerId] = useState<string>(practitioners[0]?.id || "");
   const [room, setRoom] = useState<string>("Room 1");
   const [notes, setNotes] = useState("");
   const [notify, setNotify] = useState(true);
   const [search, setSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [warnings, setWarnings] = useState<string[] | null>(null);
   const [availableSlots, setAvailableSlots] = useState<AvailableSlot[]>([]);
   const [selectedSlotStart, setSelectedSlotStart] = useState<string>("");
   const [loadingSlots, setLoadingSlots] = useState(false);
@@ -1226,7 +1230,8 @@ export function NewAppointmentModal({
   const roomOptions = selectedSlot && slotRooms.length > 0 ? slotRooms : clinicRooms;
   const roomSelectValue = selectedSlot && roomOptions.includes(room) ? room : undefined;
 
-  const save = async () => {
+  const save = async (forceOverride = false) => {
+    setWarnings(null);
     const resolvedName =
       clientMode === "new" ? clientName.trim() : (cust?.name ?? clientName.trim());
 
@@ -1308,12 +1313,18 @@ export function NewAppointmentModal({
           notes,
           sendConfirmation: notify,
           birthday: normalizeBirthdayForStorage(birthday.trim()),
+          force: forceOverride,
         }),
       });
 
       const data = await res.json();
 
       if (!res.ok) {
+        if (data.code === "WARNINGS" && Array.isArray(data.warnings)) {
+          // PRD §9: don't silently block — let the person reviewing decide whether to override.
+          setWarnings(data.warnings);
+          return;
+        }
         toast.error(data.error ?? "Booking failed");
         return;
       }
@@ -1370,6 +1381,7 @@ export function NewAppointmentModal({
       setSearch("");
       setSelectedSlotStart("");
       setBirthday("");
+      setWarnings(null);
     } catch {
       toast.error("Network error — could not save appointment");
     } finally {
@@ -1672,11 +1684,33 @@ export function NewAppointmentModal({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
-          <Button onClick={save} disabled={saving}>
+          <Button onClick={() => save()} disabled={saving}>
             {saving ? "Checking availability…" : "Create appointment"}
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Manual override (PRD §9) — never silently block or silently allow a rule-breaking booking */}
+      <Dialog open={!!warnings} onOpenChange={(o) => !o && setWarnings(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>This booking breaks a rule</DialogTitle>
+          </DialogHeader>
+          <ul className="space-y-1.5 text-sm text-muted-foreground list-disc pl-4">
+            {(warnings ?? []).map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setWarnings(null)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={() => save(true)} disabled={saving}>
+              {saving ? "Booking…" : "Book anyway"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

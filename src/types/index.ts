@@ -37,6 +37,7 @@ export interface AvailableSlot {
   displayTime: string;
   availableRooms: string[];
   availablePractitioners: string[];
+  availableEquipment?: string[];
 }
 
 // Minimal shape returned by getEventsByRange (used by admin calendar)
