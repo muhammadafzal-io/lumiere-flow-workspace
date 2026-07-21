@@ -48,15 +48,22 @@ function getDefaultRooms(): string[] {
 
 const DEFAULT_ROOMS = getDefaultRooms();
 
+type EventWithDateTimes = calendar_v3.Schema$Event & {
+  start: { dateTime: string };
+  end: { dateTime: string };
+};
+
+type EventWithStartTime = calendar_v3.Schema$Event & { start: { dateTime: string } };
+
 function isCalendarEventWithDateTimes(
   e: calendar_v3.Schema$Event | null | undefined,
-): e is calendar_v3.Schema$Event {
+): e is EventWithDateTimes {
   return !!e?.start?.dateTime && !!e.end?.dateTime;
 }
 
 function isCalendarEventWithStartTime(
   e: calendar_v3.Schema$Event | null | undefined,
-): e is calendar_v3.Schema$Event {
+): e is EventWithStartTime {
   return !!e?.start?.dateTime;
 }
 
@@ -254,12 +261,12 @@ export async function getAvailableSlots(
     end: Date;
     room: string | null;
     practitioner: string | null;
-    equipment: string | null;
+    equipment: string[];
   };
 
   const busyEvents: BusyEvent[] = (res.data.items ?? [])
     .filter(isCalendarEventWithDateTimes)
-    .map((e: calendar_v3.Schema$Event) => {
+    .map((e) => {
       const { room, practitioner, equipment } = parseDesc(e.description ?? "");
       return {
         start: new Date(e.start.dateTime),
@@ -293,7 +300,8 @@ export async function getAvailableSlots(
   const isEquipmentFree = (eq: string, start: Date, end: Date) => {
     const calendarBusy = busyEvents.some(
       (e) =>
-        e.equipment === eq && intervalsConflict(start, end, e.start, e.end, equipmentBuffer(eq)),
+        e.equipment.includes(eq) &&
+        intervalsConflict(start, end, e.start, e.end, equipmentBuffer(eq)),
     );
     if (calendarBusy) return false;
     return !resourceExtraBusyConflict(context?.equipmentExtraBusy?.[eq], start, end);
@@ -306,7 +314,7 @@ export async function getAvailableSlots(
       (e) =>
         e.room === null &&
         e.practitioner === null &&
-        e.equipment === null &&
+        e.equipment.length === 0 &&
         intervalsConflict(cursor, slotEnd, e.start, e.end, SLOT_BUFFER_MINUTES),
     );
 
@@ -432,7 +440,7 @@ export async function bookAdminAppointment(booking: {
     singleEvents: true,
   });
 
-  const conflict = (res.data.items ?? []).find((e: calendar_v3.Schema$Event | null | undefined) => {
+  const conflict = (res.data.items ?? []).find((e) => {
     if (!e.start?.dateTime || !e.end?.dateTime) return false;
     const eStart = new Date(e.start.dateTime);
     const eEnd = new Date(e.end.dateTime);
@@ -567,23 +575,21 @@ export async function getEventsByRange(
     orderBy: "startTime",
   });
 
-  return (res.data.items ?? [])
-    .filter(isCalendarEventWithStartTime)
-    .map((e: calendar_v3.Schema$Event) => {
-      const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
-      const { room, practitioner, contact, notes } = parseDesc(e.description ?? "");
-      return {
-        id: e.id!,
-        treatment,
-        clientName,
-        startTime: e.start.dateTime,
-        endTime: e.end?.dateTime ?? e.start.dateTime,
-        clientContact: contact,
-        notes,
-        room: room ?? "",
-        practitioner: practitioner ?? "",
-      };
-    });
+  return (res.data.items ?? []).filter(isCalendarEventWithStartTime).map((e) => {
+    const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
+    const { room, practitioner, contact, notes } = parseDesc(e.description ?? "");
+    return {
+      id: e.id!,
+      treatment,
+      clientName,
+      startTime: e.start.dateTime,
+      endTime: e.end?.dateTime ?? e.start.dateTime,
+      clientContact: contact,
+      notes,
+      room: room ?? "",
+      practitioner: practitioner ?? "",
+    };
+  });
 }
 
 /** Cancel (delete) a calendar event by ID. Returns the event data before deletion. */
@@ -777,19 +783,17 @@ export async function getUpcomingAppointments(daysAhead = 3): Promise<Appointmen
     orderBy: "startTime",
   });
 
-  return (res.data.items ?? [])
-    .filter(isCalendarEventWithStartTime)
-    .map((e: calendar_v3.Schema$Event) => {
-      const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
-      const { contact } = parseDesc(e.description ?? "");
-      return {
-        id: e.id!,
-        treatment,
-        clientName,
-        startTime: e.start.dateTime,
-        endTime: e.end?.dateTime ?? e.start.dateTime,
-        clientContact: contact,
-        confirmed: "pending",
-      };
-    });
+  return (res.data.items ?? []).filter(isCalendarEventWithStartTime).map((e) => {
+    const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
+    const { contact } = parseDesc(e.description ?? "");
+    return {
+      id: e.id!,
+      treatment,
+      clientName,
+      startTime: e.start.dateTime,
+      endTime: e.end?.dateTime ?? e.start.dateTime,
+      clientContact: contact,
+      confirmed: "pending",
+    };
+  });
 }

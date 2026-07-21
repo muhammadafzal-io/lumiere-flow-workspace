@@ -156,7 +156,7 @@ export async function PATCH(req: NextRequest) {
 
         const fmtTime = (iso: string) =>
           new Date(iso).toLocaleString("en-US", {
-            timeZone,
+            timeZone: timezone,
             weekday: "long",
             month: "long",
             day: "numeric",
