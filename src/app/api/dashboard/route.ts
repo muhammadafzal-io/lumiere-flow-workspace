@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { readActivityLog } from "@/lib/integrations/activity-log";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
+import { requireApiPermission } from "@/lib/rbac/guard";
 import type { OpsLogEntry } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -93,6 +94,9 @@ async function fetchRules() {
 }
 
 export async function GET() {
+  const check = await requireApiPermission("dashboard", "View");
+  if (!check.ok) return check.response;
+
   try {
     const [clients, rules, recentActivity, calendarEvents] = await Promise.allSettled([
       fetchClients(),

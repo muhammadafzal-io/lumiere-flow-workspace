@@ -5,10 +5,14 @@ import {
   type EmailSendStatus,
   type EmailSendTrigger,
 } from "@/lib/integrations/email-send-log";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("email_logs", "View");
+  if (!check.ok) return check.response;
+
   try {
     const params = req.nextUrl.searchParams;
     const category = (params.get("category") ?? "all") as EmailSendCategory | "all";

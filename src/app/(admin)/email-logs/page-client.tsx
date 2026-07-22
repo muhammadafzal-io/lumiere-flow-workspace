@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RefreshCw, Mail } from "lucide-react";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import type { EmailSendLogEntry, EmailSendCategory } from "@/lib/integrations/email-send-log";
 
 const CATEGORIES = [
@@ -78,6 +79,7 @@ export default function EmailLogsPage() {
   const [stats, setStats] = useState({ sent: 0, failed: 0, skipped: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
 
   const [category, setCategory] = useState(() => searchParams.get("category") ?? "all");
   const [categories, setCategories] = useState<EmailSendCategory[] | null>(initialCategories);
@@ -89,6 +91,7 @@ export default function EmailLogsPage() {
   const fetchLogs = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setAccessDenied(null);
     try {
       const qs = new URLSearchParams();
       if (categories?.length) {
@@ -101,6 +104,10 @@ export default function EmailLogsPage() {
       if (search.trim()) qs.set("search", search.trim());
 
       const res = await fetch(`/api/email-logs?${qs.toString()}`);
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setEntries(data.entries ?? []);
@@ -117,6 +124,18 @@ export default function EmailLogsPage() {
   }, [fetchLogs]);
 
   const total = useMemo(() => stats.sent + stats.failed + stats.skipped, [stats]);
+
+  if (accessDenied) {
+    return (
+      <div className="flex flex-col gap-4 p-6 max-w-[1400px]">
+        <h1 className="text-xl font-semibold flex items-center gap-2">
+          <Mail className="h-5 w-5" />
+          Email Send Log
+        </h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4 p-6 max-w-[1400px]">

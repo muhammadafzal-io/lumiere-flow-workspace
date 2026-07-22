@@ -17,6 +17,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import { NewAppointmentModal } from "@/components/calendar/AppointmentDialogs";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import type { CalendarEvent } from "@/types";
 import type { OpsLogEntry, EventType } from "@/types";
 import type { Customer, Practitioner } from "@/lib/types";
@@ -116,6 +117,7 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
   const [bookOpen, setBookOpen] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
@@ -149,8 +151,13 @@ export default function Dashboard() {
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
     setError(false);
+    setAccessDenied(null);
     try {
       const res = await fetch("/api/dashboard");
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error("Failed");
       const json = await res.json();
       setData(json);
@@ -221,6 +228,15 @@ export default function Dashboard() {
     d.setHours(0, 0, 0, 0);
     return d;
   });
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
