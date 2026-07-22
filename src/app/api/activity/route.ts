@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readActivityLog } from "@/lib/integrations/activity-log";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
+import { requireApiPermission } from "@/lib/rbac/guard";
 import type { OpsLogEntry } from "@/types";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +55,9 @@ function calEventToLogRow(e: {
 }
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("activity", "View");
+  if (!check.ok) return check.response;
+
   const { searchParams } = req.nextUrl;
   const limit = Math.min(Number(searchParams.get("limit") ?? "500"), 1000);
   const eventType = searchParams.get("eventType") ?? "all";

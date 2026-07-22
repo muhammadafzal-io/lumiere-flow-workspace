@@ -12,6 +12,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import type { OpsLogEntry } from "@/types";
 
 type LogRow = OpsLogEntry & { id: string };
@@ -83,6 +84,7 @@ export default function ActivityPage() {
   const [entries, setEntries] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
 
   const [eventType, setEventType] = useState("all");
   const [status, setStatus] = useState("all");
@@ -93,8 +95,13 @@ export default function ActivityPage() {
   const fetchEntries = async () => {
     setLoading(true);
     setError(null);
+    setAccessDenied(null);
     try {
       const res = await fetch("/api/activity?limit=500");
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setEntries(data.entries ?? []);
@@ -132,6 +139,15 @@ export default function ActivityPage() {
       return true;
     });
   }, [entries, eventType, status, platform, search]);
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-5">
+        <h1 className="text-2xl font-semibold tracking-tight">Activity log</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">
