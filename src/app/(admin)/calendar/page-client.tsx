@@ -36,6 +36,7 @@ import {
 import { toast } from "sonner";
 import { store } from "@/lib/store";
 import { mapTeamToPractitioners } from "@/lib/practitioners";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import type { Appointment, Practitioner, Customer, Treatment } from "@/lib/types";
 import {
   getDisplayTimezone,
@@ -75,6 +76,7 @@ export default function CalendarPage() {
   const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
   const [calEvents, setCalEvents] = useState<Appointment[]>([]);
   const [calLoading, setCalLoading] = useState(false);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
 
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "week";
@@ -176,6 +178,10 @@ export default function CalendarPage() {
       const fmt = (d: Date) => d.toISOString().slice(0, 10);
       try {
         const res = await fetch(`/api/calendar/events?from=${fmt(from)}&to=${fmt(to)}`);
+        if (res.status === 401 || res.status === 403) {
+          setAccessDenied(res.status);
+          return;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const events: Appointment[] = (data.events ?? []).map(
@@ -296,6 +302,15 @@ export default function CalendarPage() {
   const selectedApt = appointments.find((a) => a.id === selectedAptId) || null;
   const reschedApt = appointments.find((a) => a.id === reschedAptId) || null;
   const cancelApt = appointments.find((a) => a.id === cancelAptId) || null;
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

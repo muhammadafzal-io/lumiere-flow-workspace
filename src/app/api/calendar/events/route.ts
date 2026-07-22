@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("calendar", "View");
+  if (!check.ok) return check.response;
+
   const { searchParams } = req.nextUrl;
   const from = searchParams.get("from");
   const to = searchParams.get("to");

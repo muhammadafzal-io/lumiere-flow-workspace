@@ -31,6 +31,7 @@ import { Search, Download, Plus, MoreHorizontal, RefreshCw, Pencil, Loader2 } fr
 import type { Customer } from "@/lib/types";
 import { birthdayToInputValue, formatBirthdayDisplay } from "@/lib/birthday";
 import { toast } from "sonner";
+import { AccessGate } from "@/components/rbac/AccessGate";
 
 function statusPill(s: string) {
   const map: Record<string, string> = {
@@ -411,6 +412,7 @@ function CustomerSheet({
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
   const [last, setLast] = useState("any");
@@ -422,10 +424,15 @@ export default function CustomersPage() {
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
+    setAccessDenied(null);
     try {
       const params = new URLSearchParams({ limit: "500" });
       if (status !== "all") params.set("status", status);
       const res = await fetch(`/api/customers?${params}`);
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       setCustomers(data.customers ?? []);
@@ -526,6 +533,15 @@ export default function CustomersPage() {
   const activeCount = customers.filter((c) => c.status === "Active").length;
   const vipCount = customers.filter((c) => c.status === "VIP").length;
   const dormantCount = customers.filter((c) => c.status === "Dormant").length;
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-5">
+        <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

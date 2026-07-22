@@ -13,6 +13,7 @@ import {
   fractionalHourToClock,
 } from "@/lib/booking/clinic-hours";
 import { dateInZone } from "@/lib/booking/dates";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -43,6 +44,9 @@ function parseField(description: string, field: string): string {
 }
 
 export async function PATCH(req: NextRequest) {
+  const check = await requireApiPermission("calendar", "Update");
+  if (!check.ok) return check.response;
+
   let body: unknown;
   try {
     body = await req.json();

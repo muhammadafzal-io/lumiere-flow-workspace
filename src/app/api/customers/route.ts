@@ -3,6 +3,7 @@ import { deriveLastVisit } from "@/lib/customers/last-visit";
 import { countCustomerVisits, splitAppointmentField } from "@/lib/customers/visit-count";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import { getSupabase } from "@/lib/supabase";
+import { requireApiPermission } from "@/lib/rbac/guard";
 import type { Customer, Status, Treatment } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -62,6 +63,9 @@ function mapRow(row: any): Customer {
 }
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("customers", "View");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const { searchParams } = req.nextUrl;
@@ -102,6 +106,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: Request) {
+  const check = await requireApiPermission("customers", "Create");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -133,6 +140,9 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const check = await requireApiPermission("customers", "Update");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -178,6 +188,9 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const check = await requireApiPermission("customers", "Delete");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);

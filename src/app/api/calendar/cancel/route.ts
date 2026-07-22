@@ -6,6 +6,7 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import { getClinicTimezone } from "@/lib/clinic-timezone";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -36,6 +37,9 @@ function parseField(description: string, field: string): string {
 }
 
 export async function DELETE(req: NextRequest) {
+  const check = await requireApiPermission("calendar", "Delete");
+  if (!check.ok) return check.response;
+
   let body: unknown;
   try {
     body = await req.json();

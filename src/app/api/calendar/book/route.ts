@@ -4,8 +4,12 @@ import { lookupClient, upsertClient } from "@/lib/integrations/airtable";
 import { sendBookingConfirmationEmail } from "@/lib/booking/confirmation-email";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import { validatePortalBooking, normalizeEmail } from "@/lib/agent/booking-guards";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export async function POST(req: NextRequest) {
+  const check = await requireApiPermission("calendar", "Create");
+  if (!check.ok) return check.response;
+
   let body: unknown;
   try {
     body = await req.json();

@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAvailableSlots } from "@/lib/integrations/google-calendar";
 import { SLOT_BUFFER_MINUTES } from "@/lib/booking/constants";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("calendar", "View");
+  if (!check.ok) return check.response;
+
   const { searchParams } = req.nextUrl;
   const date = searchParams.get("date");
   const duration = Number(searchParams.get("duration") ?? "60");
