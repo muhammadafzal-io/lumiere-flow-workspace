@@ -21,6 +21,7 @@ export function CompleteBookingForm({
 }) {
   const [fullName, setFullName] = useState(initialName);
   const [email, setEmail] = useState("");
+  const [confirmEmail, setConfirmEmail] = useState("");
   const [birthday, setBirthday] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -33,6 +34,10 @@ export function CompleteBookingForm({
     else if (!isFullName(fullName)) next.fullName = "Please enter your first and last name.";
 
     if (!email.trim() || !validateEmail(email)) next.email = "Please enter a valid email address.";
+    else if (email.trim().toLowerCase() !== confirmEmail.trim().toLowerCase()) {
+      next.confirmEmail =
+        "Doesn't match the email above — a mistyped address will bounce silently.";
+    }
 
     if (!isValidBirthdayInput(birthday)) next.birthday = "Please enter a valid date of birth.";
 
@@ -105,6 +110,21 @@ export function CompleteBookingForm({
           placeholder="you@example.com"
         />
         {errors.email && <p className="text-xs text-destructive mt-1">{errors.email}</p>}
+      </div>
+
+      <div>
+        <Label>Confirm email address</Label>
+        <Input
+          type="email"
+          value={confirmEmail}
+          onChange={(e) => setConfirmEmail(e.target.value)}
+          onPaste={(e) => e.preventDefault()}
+          className="mt-1.5"
+          placeholder="Re-enter your email"
+        />
+        {errors.confirmEmail && (
+          <p className="text-xs text-destructive mt-1">{errors.confirmEmail}</p>
+        )}
       </div>
 
       <div>
