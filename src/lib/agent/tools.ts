@@ -135,21 +135,21 @@ export const TOOLS: ChatCompletionTool[] = [
           client_name: {
             type: "string",
             description:
-              "Client's full legal name — first and last (e.g. Sarah Johnson). Required for chat/Telegram/Discord bookings (single first names rejected). Optional for voice calls — omit it unless the caller volunteers it; it's collected afterward via the completion link along with email and birthday.",
+              "Client's full legal name — first and last (e.g. Sarah Johnson). Required for chat/Discord bookings (single first names rejected). Optional for voice calls — omit it unless the caller volunteers it; it's collected afterward via the completion link along with email and birthday.",
           },
           treatment: { type: "string", description: "Name of the treatment being booked" },
           date_time: { type: "string", description: "Appointment start time in ISO 8601 format" },
           duration_minutes: { type: "number", description: "Duration in minutes" },
-          client_contact: { type: "string", description: "Client phone number or Telegram ID" },
+          client_contact: { type: "string", description: "Client phone number or Discord ID" },
           client_email: {
             type: "string",
             description:
-              "Required for chat/Telegram/Discord bookings; collected afterward via a completion link for voice calls (don't ask for it there). Remove ALL spaces (e.g. talhaazeem@gmail.com, never talha azeem@gmail.com).",
+              "Required for chat/Discord bookings; collected afterward via a completion link for voice calls (don't ask for it there). Remove ALL spaces (e.g. talhaazeem@gmail.com, never talha azeem@gmail.com).",
           },
           birthday: {
             type: "string",
             description:
-              "Required for chat/Telegram/Discord bookings (YYYY-MM-DD); collected afterward via a completion link for voice calls (don't ask for it there).",
+              "Required for chat/Discord bookings (YYYY-MM-DD); collected afterward via a completion link for voice calls (don't ask for it there).",
           },
           practitioner_name: {
             type: "string",
@@ -292,8 +292,7 @@ export const TOOLS: ChatCompletionTool[] = [
         properties: {
           telegram_id: {
             type: "string",
-            description:
-              "Platform user ID — Telegram ID, Discord user ID, or similar unique identifier",
+            description: "Platform user ID — Discord user ID or similar unique identifier",
           },
           phone: { type: "string", description: "Phone number (any format)" },
         },
@@ -306,7 +305,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "upsert_client",
       description:
-        "Create a new client record or update an existing one in Airtable. Call as soon as you have the client's full name (first and last — required), and again after collecting phone/email. Pass platform user ID (Discord ID, Telegram ID) as telegram_id. The returned id field is the Airtable record ID — store it and pass it as client_id in every subsequent log_operation call.",
+        "Create a new client record or update an existing one in Airtable. Call as soon as you have the client's full name (first and last — required), and again after collecting phone/email. Pass platform user ID (Discord ID) as telegram_id. The returned id field is the Airtable record ID — store it and pass it as client_id in every subsequent log_operation call.",
       parameters: {
         type: "object",
         properties: {
@@ -322,7 +321,7 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           telegram_id: {
             type: "string",
-            description: "Platform user ID — Discord user ID, Telegram ID, or similar",
+            description: "Platform user ID — Discord user ID or similar",
           },
           last_visit: { type: "string", description: 'Date only, YYYY-MM-DD, e.g. "2026-05-17"' },
           last_treatment: { type: "string", description: 'Treatment name, e.g. "Botox"' },
@@ -385,7 +384,7 @@ export const TOOLS: ChatCompletionTool[] = [
           status: { type: "string", enum: ["success", "pending", "failed"] },
           platform: {
             type: "string",
-            description: "telegram | whatsapp | discord | widget | system",
+            description: "whatsapp | discord | widget | system",
           },
         },
         required: ["event_type", "client_name", "details"],
@@ -437,7 +436,7 @@ export const TOOLS: ChatCompletionTool[] = [
           },
           client_info: {
             type: "string",
-            description: "Name, Telegram handle, or phone of the client",
+            description: "Name, Discord handle, or phone of the client",
           },
           conversation_summary: {
             type: "string",

@@ -16,10 +16,6 @@ function getChannelStatus() {
       connected: process.env.MESSAGING_PROVIDER === "whatsapp",
       label: "WhatsApp Business",
     },
-    telegram: {
-      connected: !!process.env.TELEGRAM_BOT_TOKEN,
-      label: "Telegram Bot",
-    },
     discord: {
       connected: !!process.env.DISCORD_BOT_TOKEN,
       label: "Discord",

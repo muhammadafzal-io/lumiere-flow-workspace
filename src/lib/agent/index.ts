@@ -441,7 +441,7 @@ export async function executeTool(
 
       // Completion link is a voice-only concept — chat already collected everything inline
       // (validateBookAppointment required it above), so there's nothing left to complete and
-      // no link should ever be created for chat/Telegram/Discord bookings.
+      // no link should ever be created for chat/Discord bookings.
       const profileComplete =
         resolvedClientName !== PENDING_NAME_PLACEHOLDER &&
         !!clientEmail &&

@@ -73,7 +73,6 @@ function platformBadge(p: string) {
   const map: Record<string, string> = {
     calendar: "bg-emerald-500/10 text-emerald-700 border-emerald-300/30",
     widget: "bg-blue-500/10 text-blue-700 border-blue-300/30",
-    telegram: "bg-sky-500/10 text-sky-700 border-sky-300/30",
     discord: "bg-indigo-500/10 text-indigo-700 border-indigo-300/30",
     system: "bg-muted text-muted-foreground border-border",
   };

@@ -58,7 +58,7 @@ export interface InboundMessage {
   from: string;
   chatId: string;
   text: string;
-  platform: "telegram" | "whatsapp" | "discord" | "widget";
+  platform: "whatsapp" | "discord" | "widget";
   callbackData?: string;
   firstName?: string;
   lastName?: string;
