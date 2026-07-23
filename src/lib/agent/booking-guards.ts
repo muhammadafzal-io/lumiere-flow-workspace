@@ -2,7 +2,7 @@ import { logFlowStep } from "@/lib/voice/flow-context";
 import { lookupClientByPhone } from "@/lib/integrations/airtable";
 import { isValidBirthdayInput, normalizeBirthdayForStorage } from "@/lib/birthday";
 import { normalizeEmail } from "@/lib/email";
-import { phoneSearchVariants, extractPhoneForLookup, phoneDigits } from "@/lib/phone";
+import { phoneSearchVariants, extractPhoneForLookup, phoneDigits, phonesMatch } from "@/lib/phone";
 import { fullNameValidationError, isFullName } from "@/lib/agent/client-name";
 
 export { normalizeEmail };
@@ -274,58 +274,80 @@ export async function prepareCancelRescheduleInput(
     (p): p is string => Boolean(p?.trim()),
   );
 
-  if (!input.event_id) {
-    logFlowStep("cancel-reschedule:lookup appointment", { phones: lookupPhones });
-    const { findUpcomingAppointmentByPhone } = await import("@/lib/booking/appointment-by-phone");
-    let appt = null as Awaited<ReturnType<typeof findUpcomingAppointmentByPhone>>;
-    for (const phoneCandidate of lookupPhones) {
-      appt = await findUpcomingAppointmentByPhone(phoneCandidate);
-      if (appt) break;
+  // A model-supplied event_id (e.g. reused from an earlier find_upcoming_appointment call in
+  // the same session, or from book_appointment) is only trusted once verified to actually
+  // belong to THIS phone number. Without this check, phone isn't really the identifier at all —
+  // a stale, hallucinated, or manipulated event_id would let the caller act on any appointment
+  // regardless of whose phone they gave. If it doesn't match, fall through to a fresh phone-only
+  // lookup instead of trusting it.
+  if (input.event_id) {
+    const { getCalendarBookingDetails } = await import("@/lib/integrations/google-calendar");
+    const booking = await getCalendarBookingDetails(String(input.event_id)).catch(() => null);
+    const belongsToCaller =
+      !!booking?.clientContact && lookupPhones.some((p) => phonesMatch(booking.clientContact, p));
+
+    if (booking && belongsToCaller) {
+      if (!String(input.client_name ?? "").trim()) input.client_name = booking.clientName;
+      if (!normalizeEmail(input.client_email)) input.client_email = booking.clientEmail;
+      input.appointment_treatment = input.appointment_treatment ?? booking.treatment;
+      input.appointment_start_time = input.appointment_start_time ?? booking.startTime;
+      input.appointment_end_time = input.appointment_end_time ?? booking.endTime;
+      if (!input.duration_minutes) {
+        const { durationMinutesForAppointment } =
+          await import("@/lib/booking/appointment-duration");
+        input.duration_minutes = durationMinutesForAppointment(booking);
+      }
+      logFlowStep("cancel-reschedule:using verified event_id", {
+        event_id: input.event_id,
+        client_email: input.client_email,
+      });
+      logFlowStep("cancel-reschedule:prepare complete", {
+        event_id: input.event_id,
+        client_name: input.client_name,
+        treatment: input.appointment_treatment,
+        start_time: input.appointment_start_time,
+      });
+      return null;
     }
-    if (!appt) {
-      logFlowStep("cancel-reschedule:appointment not found", { phones: lookupPhones });
-      return "No upcoming appointment found for this phone number. Confirm the number is correct or check if the appointment already passed.";
-    }
-    input.event_id = appt.eventId;
-    if (!String(input.client_name ?? "").trim()) input.client_name = appt.clientName;
-    if (!normalizeEmail(input.client_email)) input.client_email = appt.clientEmail;
-    input.appointment_treatment = appt.treatment;
-    input.appointment_start_time = appt.startTime;
-    input.appointment_end_time = appt.endTime;
-    if (!input.duration_minutes) {
-      const { durationMinutesForAppointment } = await import("@/lib/booking/appointment-duration");
-      input.duration_minutes = durationMinutesForAppointment(appt);
-    }
-    logFlowStep("cancel-reschedule:appointment resolved", {
-      event_id: appt.eventId,
-      client_name: appt.clientName,
-      treatment: appt.treatment,
-      start_time: appt.startTime,
-      end_time: appt.endTime,
-      client_email: appt.clientEmail,
-      practitioner_name: appt.practitionerName,
-      room: appt.room,
-    });
-  } else if (!normalizeEmail(input.client_email)) {
-    logFlowStep("cancel-reschedule:resolve email", { event_id: input.event_id });
-    const { resolveAppointmentNotificationEmail } =
-      await import("@/lib/booking/appointment-by-phone");
-    const email = await resolveAppointmentNotificationEmail({
-      phone: normalized,
-      eventId: String(input.event_id),
-    });
-    if (email) {
-      input.client_email = email;
-      logFlowStep("cancel-reschedule:email resolved", { email });
-    } else {
-      logFlowStep("cancel-reschedule:email not found", { event_id: input.event_id });
-    }
-  } else {
-    logFlowStep("cancel-reschedule:using provided event_id", {
+
+    logFlowStep("cancel-reschedule:event_id does not match phone, ignoring", {
       event_id: input.event_id,
-      client_email: input.client_email,
+      phone: normalized,
     });
+    delete input.event_id;
   }
+
+  logFlowStep("cancel-reschedule:lookup appointment", { phones: lookupPhones });
+  const { findUpcomingAppointmentByPhone } = await import("@/lib/booking/appointment-by-phone");
+  let appt = null as Awaited<ReturnType<typeof findUpcomingAppointmentByPhone>>;
+  for (const phoneCandidate of lookupPhones) {
+    appt = await findUpcomingAppointmentByPhone(phoneCandidate);
+    if (appt) break;
+  }
+  if (!appt) {
+    logFlowStep("cancel-reschedule:appointment not found", { phones: lookupPhones });
+    return "No upcoming appointment found for this phone number. Confirm the number is correct or check if the appointment already passed.";
+  }
+  input.event_id = appt.eventId;
+  if (!String(input.client_name ?? "").trim()) input.client_name = appt.clientName;
+  if (!normalizeEmail(input.client_email)) input.client_email = appt.clientEmail;
+  input.appointment_treatment = appt.treatment;
+  input.appointment_start_time = appt.startTime;
+  input.appointment_end_time = appt.endTime;
+  if (!input.duration_minutes) {
+    const { durationMinutesForAppointment } = await import("@/lib/booking/appointment-duration");
+    input.duration_minutes = durationMinutesForAppointment(appt);
+  }
+  logFlowStep("cancel-reschedule:appointment resolved", {
+    event_id: appt.eventId,
+    client_name: appt.clientName,
+    treatment: appt.treatment,
+    start_time: appt.startTime,
+    end_time: appt.endTime,
+    client_email: appt.clientEmail,
+    practitioner_name: appt.practitionerName,
+    room: appt.room,
+  });
 
   logFlowStep("cancel-reschedule:prepare complete", {
     event_id: input.event_id,

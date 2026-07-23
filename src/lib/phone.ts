@@ -3,19 +3,23 @@ export function phoneDigits(phone: string): string {
   return phone.replace(/\D/g, "");
 }
 
-/** Match phones across +1, spaces, dashes — compares full digits and last 10 (US). */
+/**
+ * Match phones across +1/leading-1/no-prefix variants — compares full digits, then the last-10
+ * national number. Deliberately NOT a substring-anywhere check: two unrelated phone numbers can
+ * easily share a run of digits in the middle (e.g. a 7-digit local-number overlap), and this
+ * function backs cancel/reschedule-by-phone, where a false match means acting on the wrong
+ * client's appointment. A match only counts when one number, after normalizing away a leading
+ * country/trunk-prefix digit, is identical to the other — never a loose "contains" check.
+ */
 export function phonesMatch(text: string, phone: string): boolean {
   const haystack = phoneDigits(text);
   const needle = phoneDigits(phone);
   if (!needle || needle.length < 7 || !haystack) return false;
   if (haystack === needle) return true;
-  if (haystack.includes(needle) || needle.includes(haystack)) return true;
 
-  const n10 = needle.slice(-10);
-  if (n10.length === 10 && haystack.includes(n10)) return true;
-
-  const n7 = needle.slice(-7);
-  if (n7.length === 7 && haystack.includes(n7)) return true;
+  const h10 = haystack.length >= 10 ? haystack.slice(-10) : haystack;
+  const n10 = needle.length >= 10 ? needle.slice(-10) : needle;
+  if (h10.length === 10 && n10.length === 10 && h10 === n10) return true;
 
   return false;
 }

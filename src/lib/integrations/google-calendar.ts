@@ -1,11 +1,6 @@
 import { google, type calendar_v3 } from "googleapis";
 import type { AvailableSlot, CalendarEvent, Appointment } from "@/types";
-import {
-  SLOT_BUFFER_MINUTES,
-  SLOT_STEP_MS,
-  intervalsConflict,
-  intervalsOverlap,
-} from "@/lib/booking/constants";
+import { SLOT_BUFFER_MINUTES, intervalsConflict, intervalsOverlap } from "@/lib/booking/constants";
 import { getClinicTimezone } from "@/lib/clinic-config";
 import {
   getClinicBusinessHours,
@@ -255,6 +250,11 @@ export async function getAvailableSlots(
 
   const dayStart = zonedHourToUtc(date, todayHours.startHour, tz);
   const dayEnd = zonedHourToUtc(date, todayHours.endHour, tz);
+  // Slot step is dynamic (= this booking's own duration), never a fixed constant — a fixed
+  // step of 0 previously left the slot-generation loop below unable to advance its cursor,
+  // hanging the process forever. Guard the floor at 1 minute so a bad/zero duration can never
+  // reintroduce that infinite loop.
+  const stepMs = Math.max(durationMinutes, 1) * 60_000;
 
   const res = await calendar.events.list({
     calendarId: calId,
@@ -294,8 +294,8 @@ export async function getAvailableSlots(
     // time a conversation (chat/voice round-trips) actually reaches booking confirmation.
     const MIN_LEAD_MS = 3 * 60_000;
     const elapsed = now.getTime() - dayStart.getTime() + MIN_LEAD_MS;
-    const blocks = Math.ceil(elapsed / SLOT_STEP_MS);
-    cursor = new Date(dayStart.getTime() + blocks * SLOT_STEP_MS);
+    const blocks = Math.ceil(elapsed / stepMs);
+    cursor = new Date(dayStart.getTime() + blocks * stepMs);
   }
 
   const roomBuffer = (name: string) => context?.roomCleanupMinutes?.[name] ?? SLOT_BUFFER_MINUTES;
@@ -395,7 +395,7 @@ export async function getAvailableSlots(
       });
     }
 
-    cursor = new Date(cursor.getTime() + SLOT_STEP_MS);
+    cursor = new Date(cursor.getTime() + stepMs);
   }
 
   return slots;

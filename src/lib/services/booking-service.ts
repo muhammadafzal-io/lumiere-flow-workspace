@@ -24,7 +24,6 @@ import {
 } from "@/lib/booking/recipe";
 import { getClinicTimezone } from "@/lib/clinic-config";
 import { getPractitioners } from "@/lib/integrations/airtable";
-import { SLOT_STEP_MS } from "@/lib/booking/constants";
 import {
   getClinicBusinessHours,
   hoursForWeekday,
@@ -579,7 +578,7 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     .sort((a, b) => a.distanceMs - b.distanceMs);
 
   const requestedSlot =
-    matchingCandidates.length > 0 && matchingCandidates[0].distanceMs <= SLOT_STEP_MS
+    matchingCandidates.length > 0 && matchingCandidates[0].distanceMs <= duration * 60_000
       ? matchingCandidates[0].slot
       : undefined;
 
