@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Clock } from "lucide-react";
+import { AccessGate } from "@/components/rbac/AccessGate";
 
 interface PendingBookingItem {
   token: string;
@@ -46,12 +47,18 @@ export default function PendingBookingsPage() {
   const [items, setItems] = useState<PendingBookingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setAccessDenied(null);
     try {
       const res = await fetch("/api/booking-completions");
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setItems(data.items ?? []);
@@ -68,6 +75,18 @@ export default function PendingBookingsPage() {
 
   const pendingCount = items.filter((i) => displayStatus(i) !== "expired").length;
   const expiredCount = items.filter((i) => displayStatus(i) === "expired").length;
+
+  if (accessDenied) {
+    return (
+      <div className="flex flex-col gap-4 p-6 max-w-[1400px]">
+        <h1 className="text-xl font-semibold flex items-center gap-2">
+          <Clock className="h-5 w-5" />
+          Pending Bookings
+        </h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4 p-6 max-w-[1400px]">

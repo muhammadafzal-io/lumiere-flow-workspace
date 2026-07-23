@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getFilterSuggestions } from "@/lib/retention/audience";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("flows", "View");
+  if (!check.ok) return check.response;
+
   try {
     const field = req.nextUrl.searchParams.get("field") as
       | "status"

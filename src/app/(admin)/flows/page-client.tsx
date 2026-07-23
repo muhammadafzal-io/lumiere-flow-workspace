@@ -26,6 +26,7 @@ import type {
   RetentionFlowKey,
 } from "@/lib/retention/audience-config";
 import { defaultFiltersForFlow } from "@/lib/retention/audience-config";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import { toast } from "sonner";
 
 interface FlowResult {
@@ -111,6 +112,7 @@ export default function FlowsClient() {
   const [eligible, setEligible] = useState(0);
   const [activeCount, setActiveCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
   const [showFilters, setShowFilters] = useState(true);
   const [search, setSearch] = useState("");
   const [result, setResult] = useState<FlowResult>({ status: "idle" });
@@ -120,10 +122,15 @@ export default function FlowsClient() {
 
   const loadAudience = useCallback(async () => {
     setLoading(true);
+    setAccessDenied(null);
     try {
       const merged = { ...filters, q: search || filters.q };
       const params = filtersToParams(flow, merged);
       const res = await fetch(`/api/retention/audience?${params}`);
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error("Failed to load audience");
       const data = await res.json();
       setRows(data.rows ?? []);
@@ -199,6 +206,15 @@ export default function FlowsClient() {
     if (selected.size === rows.length) setSelected(new Set());
     else setSelected(new Set(rows.map((r) => r.id)));
   };
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-4 p-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Retention Flows</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-[calc(100vh-7rem)] -m-6">
