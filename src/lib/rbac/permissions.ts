@@ -25,6 +25,17 @@ export async function getUserPermissions(userId: string): Promise<Set<string>> {
   if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   const sb = getSupabase();
+
+  // A Disabled account (or one with no Users row at all) gets zero permissions,
+  // regardless of what roles are still assigned — this is what makes "Disable"
+  // in the RBAC admin UI actually take effect everywhere at once.
+  const { data: userRow } = await sb.from("Users").select("Status").eq("id", userId).maybeSingle();
+  if (!userRow || userRow.Status !== "Active") {
+    const empty = new Set<string>();
+    cache.set(userId, { value: empty, expiresAt: Date.now() + CACHE_TTL_MS });
+    return empty;
+  }
+
   const { data, error } = await sb
     .from("User_Roles")
     .select("Roles(Role_Permissions(Permissions(Module,Action)))")
