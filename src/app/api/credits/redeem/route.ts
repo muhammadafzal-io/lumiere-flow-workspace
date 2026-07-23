@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getClientByCreditCode, redeemCreditCode } from "@/lib/integrations/airtable";
 import { logEvent } from "@/lib/integrations/activity-log";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,9 @@ export const dynamic = "force-dynamic";
  * Call this once at checkout AFTER confirming with the client.
  */
 export async function POST(req: NextRequest) {
+  const check = await requireApiPermission("credits", "Update");
+  if (!check.ok) return check.response;
+
   let body: { code?: string };
   try {
     body = (await req.json()) as { code?: string };

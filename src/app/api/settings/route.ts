@@ -7,6 +7,7 @@ import {
   invalidateClinicBusinessHoursCache,
   type ClinicHoursSchedule,
 } from "@/lib/booking/clinic-hours";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,9 @@ function getChannelStatus() {
 }
 
 export async function GET() {
+  const check = await requireApiPermission("settings", "View");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
 
@@ -115,6 +119,9 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
+  const check = await requireApiPermission("settings", "Update");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();

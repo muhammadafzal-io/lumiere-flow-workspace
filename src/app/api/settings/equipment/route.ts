@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,9 @@ function mapRow(r: any) {
 }
 
 export async function GET() {
+  const check = await requireApiPermission("settings", "View");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const { data, error } = await sb.from(TABLE).select("*").order("Name");
@@ -31,6 +35,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const check = await requireApiPermission("settings", "Create");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -59,6 +66,9 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const check = await requireApiPermission("settings", "Update");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -83,6 +93,9 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const check = await requireApiPermission("settings", "Delete");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);

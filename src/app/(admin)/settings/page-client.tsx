@@ -22,6 +22,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Check, X, RefreshCw, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import { toast } from "sonner";
 
 interface ClinicSettings {
@@ -1994,6 +1995,7 @@ function BillingTab() {
 export default function SettingsPage() {
   const [data, setData] = useState<SettingsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
   const [equipment, setEquipment] = useState<EquipmentItem[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [roomsList, setRoomsList] = useState<RoomItem[]>([]);
@@ -2005,8 +2007,13 @@ export default function SettingsPage() {
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
+    setAccessDenied(null);
     try {
       const res = await fetch("/api/settings");
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error();
       setData(await res.json());
     } catch {
@@ -2093,6 +2100,15 @@ export default function SettingsPage() {
   const clinic = data?.clinic ?? DEFAULT_CLINIC;
   const channels = data?.channels ?? {};
   const team = data?.team ?? [];
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-5 max-w-3xl">
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5 max-w-3xl">

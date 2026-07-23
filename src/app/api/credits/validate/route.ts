@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { validatePromoCode } from "@/lib/credits/validate-code";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,9 @@ export const dynamic = "force-dynamic";
  * Safe to call at checkout — does NOT mark the code as used.
  */
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("credits", "View");
+  if (!check.ok) return check.response;
+
   const code = req.nextUrl.searchParams.get("code")?.trim().toUpperCase();
   const phone = req.nextUrl.searchParams.get("phone")?.trim() ?? "";
 
