@@ -7,6 +7,7 @@ import {
   type EmailSendTrigger,
 } from "@/lib/integrations/email-send-log";
 import { getClinicConfig } from "@/lib/clinic-config";
+import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 
 export type EmailFlowType =
   | "reminder"
@@ -133,6 +134,7 @@ function escapeHtml(s: string): string {
 
 async function buildEmailHtml(opts: SendEmailOptions): Promise<string> {
   const clinic = await getClinicConfig();
+  const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
   const flowType = opts.flowType ?? "general";
   const accent = FLOW_ACCENT[flowType];
   const icon = FLOW_ICON[flowType];
@@ -207,7 +209,7 @@ async function buildEmailHtml(opts: SendEmailOptions): Promise<string> {
               </p>
               <p style="margin:8px 0 0 0;font-size:12px;color:#8a8aaa;line-height:1.6;">
                 ${escapeHtml(clinic.address)}<br/>
-                ${escapeHtml(clinic.businessHours)}
+                ${escapeHtml(businessHoursLabel)}
               </p>
               <p style="margin:12px 0 0 0;font-size:11px;color:#5a5a7a;">
                 You're receiving this because you're a valued Lumière client.

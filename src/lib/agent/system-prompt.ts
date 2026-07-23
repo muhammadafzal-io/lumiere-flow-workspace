@@ -193,6 +193,6 @@ Always get the exact duration from **get_services** (step 2 of the booking flow)
 
 ---
 
-${buildKnowledgeBase(clinic.address, clinic.businessHours)}
+${buildKnowledgeBase(clinic.address, businessHoursLabel)}
 `;
 }

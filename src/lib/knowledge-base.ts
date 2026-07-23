@@ -18,7 +18,7 @@ Lumière is a boutique aesthetic clinic in Austin, Texas, founded in 2021 by Dr.
 Address: ${address}
 Phone: (512) 555-0192  |  Email: hello@lumierespa.com
 Online chat & booking: ${WIDGET_URL}
-Hours: ${businessHours}  |  Closed Sunday
+Hours: ${businessHours}
 Parking: Free surface lot directly behind the building (enter from Lamar Blvd).
 
 ---

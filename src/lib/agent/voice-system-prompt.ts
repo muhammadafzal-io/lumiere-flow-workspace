@@ -162,6 +162,6 @@ Always get the exact duration from **get_services** (STEP 1c) — never guess or
 ## Services, pricing & durations
 **If the caller asks what treatments/services you offer, or which practitioners perform a treatment — call get_services (and get_practitioners if they ask specifically who performs something) and answer from THAT, not from the list below.** The information below is illustrative background (contraindications, pre/post-care, general pricing color) and may not match the clinic's actual current menu — get_services/get_practitioners always wins for "what do you offer" and "who does X" questions. Read your answer aloud naturally (no bullet lists, no markdown).
 
-${buildKnowledgeBase(clinic.address, clinic.businessHours)}
+${buildKnowledgeBase(clinic.address, businessHoursLabel)}
 `;
 }
