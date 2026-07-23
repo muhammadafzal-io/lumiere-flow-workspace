@@ -95,7 +95,12 @@ export function hoursForWeekday(
   return { startHour: toFractionalHour(day.start), endHour: toFractionalHour(day.end) };
 }
 
-/** Human-readable summary for the AI's prompts and client-facing text, e.g. "Monday–Saturday, 9:00 AM – 7:00 PM" (only exact-matching consecutive days are grouped; falls back to a plain list otherwise). */
+/** "9:00 AM – 7:00 PM" for one day's configured start/end. */
+function dayHoursLabel(day: { start: string; end: string }): string {
+  return `${fractionalHourToClock(toFractionalHour(day.start))} – ${fractionalHourToClock(toFractionalHour(day.end))}`;
+}
+
+/** Human-readable summary for the AI's prompts and client-facing text, e.g. "Monday–Saturday, 9:00 AM – 7:00 PM" when every open day shares identical hours (only exact-matching consecutive days are grouped; falls back to a plain list otherwise). When open days have DIFFERENT hours from each other, lists each day with its own hours instead of silently dropping the time — e.g. "Monday 9:00 AM – 7:00 PM, Tuesday 9:00 AM – 7:00 PM, Wednesday 9:00 AM – 5:00 PM". */
 export function describeClinicHours(schedule: ClinicHoursSchedule): string {
   const openDays = WEEKDAY_BY_UTC_DAY.filter((d) => schedule[d]);
   if (openDays.length === 0) return "Closed all week";
@@ -112,15 +117,22 @@ export function describeClinicHours(schedule: ClinicHoursSchedule): string {
     (d, i) => i === 0 || order.indexOf(d) === order.indexOf(orderedOpenDays[i - 1]) + 1,
   );
 
-  const hoursLabel = sameHours
-    ? `${fractionalHourToClock(toFractionalHour(schedule[openDays[0]]!.start))} – ${fractionalHourToClock(toFractionalHour(schedule[openDays[0]]!.end))}`
-    : null;
+  if (!sameHours) {
+    // Different days have different hours — list each day with its own range rather than
+    // dropping the time entirely, which previously left the AI with no time info at all
+    // whenever the schedule wasn't perfectly uniform across open days.
+    return orderedOpenDays
+      .map((d) => `${WEEKDAY_LABEL[d]} ${dayHoursLabel(schedule[d]!)}`)
+      .join(", ");
+  }
+
+  const hoursLabel = dayHoursLabel(schedule[openDays[0]]!);
 
   if (isConsecutiveRun && orderedOpenDays.length > 1) {
     const daysLabel = `${WEEKDAY_LABEL[orderedOpenDays[0]]}–${WEEKDAY_LABEL[orderedOpenDays[orderedOpenDays.length - 1]]}`;
-    return hoursLabel ? `${daysLabel}, ${hoursLabel}` : daysLabel;
+    return `${daysLabel}, ${hoursLabel}`;
   }
 
   const daysLabel = orderedOpenDays.map((d) => WEEKDAY_LABEL[d]).join(", ");
-  return hoursLabel ? `${daysLabel}, ${hoursLabel}` : daysLabel;
+  return `${daysLabel}, ${hoursLabel}`;
 }
