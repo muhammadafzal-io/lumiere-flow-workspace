@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { AINotConfiguredError, generateRuleMessageWithAI } from "@/lib/rules/ai";
 import type { TriggerType } from "@/lib/types";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const check = await requireApiPermission("rules", "View");
+  if (!check.ok) return check.response;
+
   try {
     const body = await req.json();
     const { ruleName, triggerType, triggerConfig, offerCode, instruction } = body as {

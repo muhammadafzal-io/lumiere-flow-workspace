@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { normalizeRuleChannel } from "@/lib/types";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 const TABLE = "Rules";
 
@@ -33,6 +34,9 @@ function mapRow(r: Record<string, unknown>) {
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, ctx: RouteCtx) {
+  const check = await requireApiPermission("rules", "View");
+  if (!check.ok) return check.response;
+
   try {
     const { id } = await ctx.params;
     const sb = getSupabase();

@@ -4,6 +4,7 @@ import { buildRuleAudience } from "@/lib/rules/audience";
 import { parseRuleAudienceParams } from "@/lib/rules/audience-config";
 import type { Rule } from "@/lib/types";
 import { normalizeRuleChannel } from "@/lib/types";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 const TABLE = "Rules";
 
@@ -36,6 +37,9 @@ function mapRow(r: Record<string, unknown>): Rule {
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function GET(req: NextRequest, ctx: RouteCtx) {
+  const check = await requireApiPermission("rules", "View");
+  if (!check.ok) return check.response;
+
   try {
     const { id } = await ctx.params;
     const sb = getSupabase();

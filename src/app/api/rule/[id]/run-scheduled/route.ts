@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runScheduledRules } from "@/lib/rules/run-scheduled";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -8,6 +9,9 @@ type RouteCtx = { params: Promise<{ id: string }> };
 
 /** Admin: force-run auto-send for one rule (same logic as cron). */
 export async function POST(_req: NextRequest, ctx: RouteCtx) {
+  const check = await requireApiPermission("rules", "Update");
+  if (!check.ok) return check.response;
+
   try {
     const { id } = await ctx.params;
     const result = await runScheduledRules({ ruleId: id, force: true });

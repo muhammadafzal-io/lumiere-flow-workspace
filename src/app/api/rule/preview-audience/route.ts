@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server";
 import { buildRuleAudience } from "@/lib/rules/audience";
 import type { Channel, Rule, TriggerType } from "@/lib/types";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const check = await requireApiPermission("rules", "View");
+  if (!check.ok) return check.response;
+
   try {
     const body = await req.json();
     const triggerType = body.triggerType as TriggerType;

@@ -29,6 +29,7 @@ import { parseRuleSchedule, scheduleSummary } from "@/lib/rules/schedule-config"
 import { RuleModal } from "@/components/RuleModal";
 import { treatmentTriggerLabel } from "@/lib/rules/audience-match";
 import { formatOfferSummaryFromRule } from "@/lib/rules/offer-config";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import { toast } from "sonner";
 
 function filtersToParams(f: RuleAudienceFilters): URLSearchParams {
@@ -71,6 +72,7 @@ export default function RuleAudiencePage() {
   const [filters, setFilters] = useState<RuleAudienceFilters>(defaultRuleAudienceFilters());
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
   const [sending, setSending] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -87,9 +89,14 @@ export default function RuleAudiencePage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setAccessDenied(null);
     try {
       const merged = { ...filters, q: search || filters.q };
       const res = await fetch(`/api/rule/${id}/audience?${filtersToParams(merged)}`);
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setRule(data.rule);
@@ -202,6 +209,19 @@ export default function RuleAudiencePage() {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-4 p-6">
+        <Button variant="ghost" size="sm" asChild className="-ml-2">
+          <Link href="/rules">
+            <ArrowLeft className="h-4 w-4 mr-1" /> Rules & Campaigns
+          </Link>
+        </Button>
+        <AccessGate status={accessDenied} />
       </div>
     );
   }
