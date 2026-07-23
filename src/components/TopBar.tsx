@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect } from "react";
-import { Search, ChevronDown } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Search, ChevronDown, LogOut } from "lucide-react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Input } from "@/components/ui/input";
 import {
@@ -12,18 +13,17 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { useAuth } from "@/lib/auth-context";
-import type { UserRole } from "@/lib/permissions";
+import { useCurrentUser } from "@/lib/current-user-context";
+import { getSupabaseBrowser } from "@/lib/supabase-auth/client";
 
-const ROLES: { value: UserRole; label: string; color: string }[] = [
-  { value: "admin", label: "Admin", color: "bg-destructive" },
-  { value: "receptionist", label: "Receptionist", color: "bg-blue-500" },
-  { value: "practitioner", label: "Practitioner", color: "bg-green-500" },
-];
+function initialsFor(name: string, email: string): string {
+  const source = name?.trim() || email;
+  return source ? source[0]!.toUpperCase() : "?";
+}
 
 export function TopBar() {
-  const { userRole, setUserRole } = useAuth();
-  const roleInfo = ROLES.find((r) => r.value === userRole);
+  const { user } = useCurrentUser();
+  const router = useRouter();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -36,6 +36,12 @@ export function TopBar() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  const logout = async () => {
+    await getSupabaseBrowser().auth.signOut();
+    router.push("/login");
+    router.refresh();
+  };
 
   return (
     <header className="h-14 border-b bg-background flex items-center gap-3 px-4 sticky top-0 z-30">
@@ -57,29 +63,24 @@ export function TopBar() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button className="flex items-center gap-2 px-3 py-2 rounded-md border bg-background hover:bg-muted/50 transition-colors">
-              <div
-                className={`h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium text-white ${roleInfo?.color || "bg-muted"}`}
-              >
-                {userRole[0].toUpperCase()}
+              <div className="h-6 w-6 rounded-full flex items-center justify-center text-xs font-medium text-white bg-primary">
+                {initialsFor(user?.name ?? "", user?.email ?? "")}
               </div>
-              <span className="text-sm font-medium hidden sm:inline">{roleInfo?.label}</span>
+              <span className="text-sm font-medium hidden sm:inline max-w-[160px] truncate">
+                {user?.name || user?.email || "Account"}
+              </span>
               <ChevronDown className="h-4 w-4 text-muted-foreground" />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
-              Switch Role (Demo)
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="text-xs text-muted-foreground truncate">
+              {user?.email ?? "Signed in"}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            {ROLES.map((role) => (
-              <DropdownMenuItem key={role.value} onClick={() => setUserRole(role.value)}>
-                <div className="flex items-center gap-2 w-full">
-                  <div className={`h-4 w-4 rounded-full ${role.color}`} />
-                  <span className="text-sm">{role.label}</span>
-                  {userRole === role.value && <span className="ml-auto text-xs">✓</span>}
-                </div>
-              </DropdownMenuItem>
-            ))}
+            <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive">
+              <LogOut className="h-4 w-4 mr-2" />
+              Log out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
