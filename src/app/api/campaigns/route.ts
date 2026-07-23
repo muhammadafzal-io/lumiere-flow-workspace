@@ -3,10 +3,14 @@ import { getSupabase } from "@/lib/supabase";
 import { mapCampaignRow, computeStats, mapRecipientRow } from "@/lib/campaigns/db";
 import { countEligibleCustomers } from "@/lib/campaigns/customers";
 import { normalizeMinVisits } from "@/lib/customers/visit-count";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("campaigns", "View");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const previewVisits = req.nextUrl.searchParams.get("preview_visits");
@@ -44,6 +48,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: Request) {
+  const check = await requireApiPermission("campaigns", "Create");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -83,6 +90,9 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const check = await requireApiPermission("campaigns", "Update");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -114,6 +124,9 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const check = await requireApiPermission("campaigns", "Delete");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);

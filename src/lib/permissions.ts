@@ -5,14 +5,16 @@ export const ROLE_PAGES: Record<UserRole, string[]> = {
     "/",
     "/rules",
     "/calendar",
+    "/pending-bookings",
     "/customers",
     "/activity",
     "/email-logs",
     "/flows",
     "/checkout",
     "/settings",
+    "/rbac",
   ],
-  receptionist: ["/", "/calendar", "/customers", "/checkout"],
+  receptionist: ["/", "/calendar", "/pending-bookings", "/customers", "/checkout"],
   practitioner: ["/", "/calendar"],
 };
 

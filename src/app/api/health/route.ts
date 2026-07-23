@@ -41,13 +41,11 @@ export async function GET() {
     check("SUPABASE_SERVICE_ROLE_KEY", "Supabase service role key"),
     check("NEXT_PUBLIC_SUPABASE_ANON_KEY", "Supabase anon key", true),
 
-    check("MESSAGING_PROVIDER", "Active messaging channel (discord/telegram/whatsapp)"),
+    check("MESSAGING_PROVIDER", "Active messaging channel (discord/whatsapp)"),
     check("DISCORD_BOT_TOKEN", "Discord bot token for sending messages"),
     check("DISCORD_APPLICATION_ID", "Discord application ID"),
     check("DISCORD_PUBLIC_KEY", "Discord public key for webhook verification"),
     check("DISCORD_CHAT_CHANNEL_ID", "Discord channel for outbound retention messages"),
-    check("TELEGRAM_BOT_TOKEN", "Telegram bot token", true),
-    check("TELEGRAM_WEBHOOK_SECRET", "Telegram webhook secret", true),
     check("WHATSAPP_ACCESS_TOKEN", "WhatsApp Cloud API token", true),
     check("WHATSAPP_PHONE_NUMBER_ID", "WhatsApp phone number ID", true),
 

@@ -32,6 +32,15 @@ export default function ChatMessage({ role, text }: ChatMessageProps) {
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;")
+                // Bare URLs (e.g. the booking-completion link) — auto-linkify so the model
+                // doesn't need to remember to format an <a> tag itself. Skips URLs already
+                // inside an href="..." attribute so explicit <a href> tags below aren't
+                // double-wrapped.
+                .replace(/(?<!href=")(https?:\/\/[^\s<]+)/g, (url) => {
+                  const trailing = url.match(/[.,;:!?)]+$/)?.[0] ?? "";
+                  const clean = trailing ? url.slice(0, -trailing.length) : url;
+                  return `<a href="${clean}" target="_blank" rel="noopener noreferrer">${clean}</a>${trailing}`;
+                })
                 .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
                 .replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/g, "<strong>$1</strong>")
                 .replace(/&lt;\/b&gt;/g, "")

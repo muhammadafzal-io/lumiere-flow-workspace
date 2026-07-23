@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { computeStats, mapCampaignRow, mapRecipientRow, mapRewardRow } from "@/lib/campaigns/db";
 import { countEligibleCustomers } from "@/lib/campaigns/customers";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, ctx: RouteCtx) {
+  const check = await requireApiPermission("campaigns", "View");
+  if (!check.ok) return check.response;
+
   try {
     const { id } = await ctx.params;
     const sb = getSupabase();

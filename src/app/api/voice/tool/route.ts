@@ -64,7 +64,8 @@ export async function POST(req: NextRequest) {
     }
 
     if (toolName === "book_appointment") {
-      const guardError = await validateBookAppointment(input);
+      // This route only ever serves the realtime voice session — always the relaxed gate.
+      const guardError = await validateBookAppointment(input, { requireFullProfile: false });
       if (guardError) {
         flow.step("api:guard blocked", { toolName, error: guardError });
         return NextResponse.json({ error: guardError }, { status: 400 });
@@ -95,8 +96,11 @@ export async function POST(req: NextRequest) {
     }
 
     flow.step("api:executeTool", { toolName });
+    // Platform is never client-supplied — this route only ever serves the realtime voice
+    // session, and a caller sending a different value (as VoiceCall.tsx once did by mistake)
+    // must not be able to silently re-enable the email/birthday gate this route just relaxed.
     const { result } = await executeTool(toolName, input, {
-      platform: platform ?? "voice",
+      platform: "voice",
       chatId: sessionId,
     });
 

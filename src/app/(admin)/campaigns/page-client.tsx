@@ -14,6 +14,7 @@ import { Gift, MoreHorizontal, Plus, RefreshCw, ChevronRight } from "lucide-reac
 import type { Campaign, CampaignStats } from "@/lib/types";
 import { CampaignModal } from "@/components/CampaignModal";
 import { formatRewardLabel } from "@/lib/campaigns/db";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import { toast } from "sonner";
 
 type CampaignWithStats = Campaign & { stats?: CampaignStats };
@@ -38,14 +39,20 @@ function statusBadge(s: string) {
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<CampaignWithStats[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
   const [tab, setTab] = useState("active");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Campaign | null>(null);
 
   const fetchCampaigns = useCallback(async () => {
     setLoading(true);
+    setAccessDenied(null);
     try {
       const res = await fetch("/api/campaigns");
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       setCampaigns(data.campaigns ?? []);
@@ -106,6 +113,15 @@ export default function CampaignsPage() {
       toast.error("Failed to delete campaign");
     }
   };
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Campaign Settings</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

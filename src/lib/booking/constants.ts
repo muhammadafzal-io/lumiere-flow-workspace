@@ -7,10 +7,25 @@ export const SLOT_STEP_MINUTES = 0;
 export const SLOT_BUFFER_MS = 0;
 export const SLOT_STEP_MS = 0;
 
-/** True when two intervals need at least SLOT_BUFFER_MINUTES between them. */
-export function intervalsConflict(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
+/**
+ * True when two intervals need at least `bufferMinutes` between them (defaults to
+ * SLOT_BUFFER_MINUTES). Pass a resource's own cleanup/reset minutes here instead of the
+ * default when checking room/equipment conflicts so each resource gets its own turnover time.
+ */
+export function intervalsConflict(
+  aStart: Date,
+  aEnd: Date,
+  bStart: Date,
+  bEnd: Date,
+  bufferMinutes: number = SLOT_BUFFER_MINUTES,
+): boolean {
+  const bufferMs = bufferMinutes * 60_000;
   return (
-    aStart.getTime() < bEnd.getTime() + SLOT_BUFFER_MS &&
-    bStart.getTime() < aEnd.getTime() + SLOT_BUFFER_MS
+    aStart.getTime() < bEnd.getTime() + bufferMs && bStart.getTime() < aEnd.getTime() + bufferMs
   );
+}
+
+/** Plain overlap check with no turnover buffer — for hard exclusions like closed times or time off. */
+export function intervalsOverlap(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
+  return aStart.getTime() < bEnd.getTime() && bStart.getTime() < aEnd.getTime();
 }

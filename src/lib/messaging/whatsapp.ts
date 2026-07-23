@@ -1,5 +1,5 @@
 /**
- * WhatsApp Cloud API provider — production swap for TelegramProvider.
+ * WhatsApp Cloud API provider — production swap for DiscordProvider.
  *
  * PRODUCTION SWAP GUIDE
  * ─────────────────────
@@ -9,8 +9,9 @@
  *      WHATSAPP_ACCESS_TOKEN      – permanent system-user token
  *      WHATSAPP_WEBHOOK_VERIFY_TOKEN – your own random string
  * 3. Point your Meta webhook URL to  POST /api/webhook/whatsapp
- *    (duplicate the Telegram route handler, already structured to accept any
- *     MessagingProvider — just swap the provider instance).
+ *    (duplicate the Discord route handler at src/app/api/webhook/discord,
+ *     already structured to accept any MessagingProvider — just swap the
+ *     provider instance).
  * 4. That is the ONLY code change required.
  *
  * This stub keeps TypeScript happy during the demo phase and documents

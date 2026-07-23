@@ -3,6 +3,7 @@ import { getSupabase } from "@/lib/supabase";
 import { AINotConfiguredError, parseAudienceQueryWithAI } from "@/lib/rules/ai";
 import type { Rule } from "@/lib/types";
 import { normalizeRuleChannel } from "@/lib/types";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,9 @@ function mapRow(r: Record<string, unknown>): Rule {
 }
 
 export async function POST(req: Request) {
+  const check = await requireApiPermission("rules", "View");
+  if (!check.ok) return check.response;
+
   try {
     const body = await req.json();
     const { query, ruleId } = body as { query?: string; ruleId?: string };

@@ -1,4 +1,3 @@
-import { TelegramProvider } from "./telegram";
 import { WhatsAppProvider } from "./whatsapp";
 import { DiscordProvider } from "./discord";
 import type { MessagingProvider } from "./types";
@@ -16,9 +15,6 @@ export function getMessagingProvider(): MessagingProvider {
     case "whatsapp":
       _provider = new WhatsAppProvider();
       break;
-    case "telegram":
-      _provider = new TelegramProvider();
-      break;
     case "discord":
     default:
       _provider = new DiscordProvider();
@@ -28,6 +24,5 @@ export function getMessagingProvider(): MessagingProvider {
   return _provider;
 }
 
-export { TelegramProvider } from "./telegram";
 export { WhatsAppProvider } from "./whatsapp";
 export { DiscordProvider } from "./discord";

@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { WIDGET_URL } from "@/lib/client-channels";
 import { invalidateClinicConfigCache } from "@/lib/clinic-config";
+import {
+  DEFAULT_CLINIC_HOURS,
+  invalidateClinicBusinessHoursCache,
+  type ClinicHoursSchedule,
+} from "@/lib/booking/clinic-hours";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
@@ -10,10 +16,6 @@ function getChannelStatus() {
     whatsapp: {
       connected: process.env.MESSAGING_PROVIDER === "whatsapp",
       label: "WhatsApp Business",
-    },
-    telegram: {
-      connected: !!process.env.TELEGRAM_BOT_TOKEN,
-      label: "Telegram Bot",
     },
     discord: {
       connected: !!process.env.DISCORD_BOT_TOKEN,
@@ -27,6 +29,9 @@ function getChannelStatus() {
 }
 
 export async function GET() {
+  const check = await requireApiPermission("settings", "View");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
 
@@ -74,6 +79,9 @@ export async function GET() {
           timezone: settingsRow["Timezone"] || "America/Chicago",
           address: settingsRow["Address"] || "Austin, TX",
           businessHours: settingsRow["Business Hours"] || "Mon–Sat 9:00 AM – 7:00 PM",
+          businessHoursSchedule:
+            (settingsRow["BusinessHoursSchedule"] as ClinicHoursSchedule | null) ||
+            DEFAULT_CLINIC_HOURS,
         }
       : null;
 
@@ -86,6 +94,10 @@ export async function GET() {
       specialty: r["Specialty"] ?? "",
       bio: r["Bio"] ?? "",
       status: r["Status"] ?? "Active",
+      qualifications: r["Qualifications"] ?? [],
+      workingHours: r["WorkingHours"] ?? null,
+      breaks: r["Breaks"] ?? null,
+      timeOff: r["TimeOff"] ?? null,
     }));
 
     const rooms = roomRows.length > 0 ? roomRows.map((r: any) => r.Name) : ["Room 1", "Room 2"];
@@ -107,16 +119,21 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
+  const check = await requireApiPermission("settings", "Update");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
-    const { recordId, clinicName, timezone, address, businessHours } = body;
+    const { recordId, clinicName, timezone, address, businessHours, businessHoursSchedule } = body;
 
-    const fields: Record<string, string> = {};
+    const fields: Record<string, unknown> = {};
     if (clinicName !== undefined) fields["Clinic Name"] = clinicName;
     if (timezone !== undefined) fields["Timezone"] = timezone;
     if (address !== undefined) fields["Address"] = address;
     if (businessHours !== undefined) fields["Business Hours"] = businessHours;
+    if (businessHoursSchedule !== undefined)
+      fields["BusinessHoursSchedule"] = businessHoursSchedule;
 
     if (recordId) {
       const { data, error } = await sb
@@ -127,11 +144,13 @@ export async function PATCH(req: Request) {
         .single();
       if (error) throw new Error(error.message);
       invalidateClinicConfigCache();
+      if (businessHoursSchedule !== undefined) invalidateClinicBusinessHoursCache();
       return NextResponse.json({ success: true, recordId: data.id });
     } else {
       const { data, error } = await sb.from("Settings").insert(fields).select().single();
       if (error) throw new Error(error.message);
       invalidateClinicConfigCache();
+      if (businessHoursSchedule !== undefined) invalidateClinicBusinessHoursCache();
       return NextResponse.json({ success: true, recordId: data.id });
     }
   } catch (error) {

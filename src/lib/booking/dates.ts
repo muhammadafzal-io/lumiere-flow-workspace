@@ -9,9 +9,20 @@ export function todayInTz(tz: string): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: tz });
 }
 
+/** Today's date (YYYY-MM-DD) in the given IANA timezone. Alias of todayInTz with a longer name. */
+export function todayInZone(timezone: string): string {
+  return todayInTz(timezone);
+}
+
 /** ISO timestamp → YYYY-MM-DD in the given timezone. */
 export function dateFromIsoInTz(iso: string, tz: string): string {
   return new Date(iso).toLocaleDateString("en-CA", { timeZone: tz });
+}
+
+/** The calendar date (YYYY-MM-DD) an arbitrary instant falls on, in the given IANA timezone. */
+export function dateInZone(date: Date | string, timezone: string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleDateString("en-CA", { timeZone: timezone });
 }
 
 /** ISO timestamp → "HH:mm" (24 h) wall-clock in the given timezone. */
@@ -44,6 +55,14 @@ export function addDays(dateStr: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/**
+ * Adds/subtracts whole calendar days to a YYYY-MM-DD string. Alias of addDays — pure UTC-anchored
+ * date math, timezone-independent since it never crosses a wall-clock hour boundary.
+ */
+export function addCalendarDays(dateStr: string, days: number): string {
+  return addDays(dateStr, days);
+}
+
 /** True when a YYYY-MM-DD date string is a Sunday (UTC noon proxy — works for UTC-12..+11). */
 export function isSunday(dateStr: string): boolean {
   return new Date(`${dateStr}T12:00:00Z`).getUTCDay() === 0;
@@ -62,6 +81,13 @@ export function nextOpenDay(dateStr: string): string {
 /** Tomorrow's date as YYYY-MM-DD in the given timezone. */
 export function tomorrowInTz(tz: string): string {
   return addDays(todayInTz(tz), 1);
+}
+
+/** Whole calendar days between two YYYY-MM-DD strings (positive when `to` is after `from`). */
+export function daysBetweenDates(fromDateStr: string, toDateStr: string): number {
+  const from = new Date(`${fromDateStr}T12:00:00Z`).getTime();
+  const to = new Date(`${toDateStr}T12:00:00Z`).getTime();
+  return Math.round((to - from) / (24 * 60 * 60_000));
 }
 
 // ---------------------------------------------------------------------------

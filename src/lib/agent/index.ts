@@ -5,19 +5,25 @@ import { TOOLS } from "./tools";
 import {
   checkAvailability,
   bookAppointment,
+  suggestSlot,
   findEarliestAvailability,
   resolveRequestedSlot,
   sanitizePractitionerFilter,
   selectPresentableSlots,
   parsePreferredTimeKey,
 } from "@/lib/services/booking-service";
-import { cancelCalendarEvent, rescheduleCalendarEvent } from "@/lib/integrations/google-calendar";
+import {
+  cancelCalendarEvent,
+  rescheduleCalendarEvent,
+  getCalendarBookingDetails,
+} from "@/lib/integrations/google-calendar";
 import {
   lookupClient,
   upsertClient,
   createAppointmentRecord,
   getPractitioners,
 } from "@/lib/integrations/airtable";
+import { listActiveServices } from "@/lib/booking/recipe";
 import { validatePromoCode } from "@/lib/credits/validate-code";
 import {
   validateBookAppointment,
@@ -45,6 +51,14 @@ import {
 } from "@/lib/booking/resend-confirmation";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import { getOpenAIApiKey } from "@/lib/openai-config";
+import {
+  createCompletionLink,
+  markCompletionDeliveryError,
+  PENDING_NAME_PLACEHOLDER,
+} from "@/lib/booking/completion-link";
+import { findOpenCompletionByPhone } from "@/lib/booking/completion-followups";
+import { sendSms } from "@/lib/integrations/sms";
+import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 import type { AgentResult } from "@/types";
 import {
   createVoiceFlowLogger,
@@ -65,6 +79,101 @@ function getOpenAI() {
 }
 
 const MAX_TOOL_ROUNDS = 8;
+
+const SMS_CONFIGURED = () =>
+  !!(
+    process.env.TWILIO_ACCOUNT_SID &&
+    process.env.TWILIO_AUTH_TOKEN &&
+    process.env.TWILIO_FROM_NUMBER
+  );
+
+/**
+ * Creates the booking-completion link and delivers it on the best available channel:
+ * email (if already on file) > SMS (voice calls only) > directly in the chat reply
+ * (text-based channels with no email on file).
+ *
+ * The channel is decided synchronously (DB lookups + an env-var check only) so the model
+ * always gets an accurate `sentVia` to relay to the client — but the actual network send
+ * (the slow part: an email/SMS provider round-trip) is fired in the background, not awaited,
+ * so it never adds latency to a live phone call. A background failure is recorded on the
+ * `BookingCompletions` row (`markCompletionDeliveryError`) so it surfaces on the Pending
+ * Bookings staff page instead of only a server log.
+ */
+async function deliverCompletionLink(opts: {
+  eventId: string;
+  phone: string;
+  clientName?: string;
+  treatment?: string;
+  platform: string;
+  appointmentStartTime: string;
+}): Promise<{ url: string; sentVia: "email" | "sms" | "chat_reply" | "none"; note?: string }> {
+  const client = await lookupClient({ phone: opts.phone }).catch(() => null);
+  const email = client?.email;
+
+  const sentVia: "email" | "sms" | "chat_reply" | "none" = email
+    ? "email"
+    : opts.platform === "voice"
+      ? SMS_CONFIGURED()
+        ? "sms"
+        : "none"
+      : "chat_reply";
+
+  const { url, token } = await createCompletionLink({
+    eventId: opts.eventId,
+    phone: opts.phone,
+    clientName: opts.clientName,
+    treatment: opts.treatment,
+    appointmentStartTime: opts.appointmentStartTime,
+    deliveryChannel: sentVia,
+  });
+
+  const recordFailure = (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[completion-link] background delivery failed:", message);
+    markCompletionDeliveryError(token, message).catch(() => undefined);
+  };
+
+  if (sentVia === "email") {
+    void sendRetentionEmail({
+      to: email!,
+      subject: "Finish setting up your Lumière appointment",
+      flowType: "booking",
+      text: [
+        `Hi${opts.clientName ? ` ${opts.clientName}` : ""}, thanks for booking with Lumière!`,
+        ``,
+        `Please complete a few final details for your appointment${opts.treatment ? ` (${opts.treatment})` : ""} using the secure link below.`,
+      ].join("\n"),
+      cta: { label: "Complete My Booking", url },
+    }).catch(recordFailure);
+    return { url, sentVia };
+  }
+
+  if (sentVia === "sms") {
+    void sendSms({
+      to: opts.phone,
+      body: `Lumière Med Spa: finish setting up your appointment here: ${url}`,
+    })
+      .then((sms) => {
+        if (!sms.sent) recordFailure(new Error(sms.error ?? "unknown SMS failure"));
+      })
+      .catch(recordFailure);
+    return { url, sentVia };
+  }
+
+  if (sentVia === "none") {
+    return {
+      url,
+      sentVia,
+      note: "No delivery channel available (no email on file, SMS not configured). Let the client know staff will follow up to collect their name, email, and birthday.",
+    };
+  }
+
+  return {
+    url,
+    sentVia,
+    note: "No email on file and this isn't a voice call — include this exact link directly in your next reply so the client can finish their booking.",
+  };
+}
 
 export async function executeTool(
   toolName: string,
@@ -104,6 +213,34 @@ export async function executeTool(
         }
       }
 
+      case "get_services": {
+        try {
+          const services = await listActiveServices(input.query as string | undefined);
+          return {
+            result: {
+              services: services.map((s) => ({
+                name: s.name,
+                durationMinutes: s.durationMinutes,
+                onlineBookable: s.onlineBookable,
+                requiresConsultation: s.requiresConsultation,
+              })),
+              note:
+                services.length === 0
+                  ? "No configured service matched — use the knowledge base's description and a reasonable duration estimate instead."
+                  : undefined,
+            },
+          };
+        } catch (err) {
+          return {
+            result: {
+              services: [],
+              note: "Service list unavailable — use the knowledge base's treatment descriptions and durations instead.",
+              error: err instanceof Error ? err.message : String(err),
+            },
+          };
+        }
+      }
+
       case "check_availability": {
         try {
           const preferredTimeRaw =
@@ -114,6 +251,7 @@ export async function executeTool(
           flow?.step("availability:start", {
             date: input.date,
             duration_minutes: input.duration_minutes,
+            treatment: input.treatment,
             practitioner_name: input.practitioner_name ?? input.preferred_practitioner,
             preferred_time: preferredTimeRaw,
             preferred_time_key: preferredTimeKey,
@@ -125,6 +263,7 @@ export async function executeTool(
           );
           const availability = await checkAvailability({
             date: input.date as string,
+            treatment: input.treatment as string | undefined,
             durationMinutes: (input.duration_minutes as number) ?? 60,
             practitionerName,
             room: input.preferred_room as string | undefined,
@@ -139,7 +278,9 @@ export async function executeTool(
 
           let summary: string;
           if (availability.slots.length === 0) {
-            summary = `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`;
+            summary = availability.bookingWindowNote
+              ? `${availability.bookingWindowNote} — this is a booking-policy limit for this treatment, not a full calendar. Tell the client this specific reason rather than saying it's fully booked; offer a date within the allowed window instead.`
+              : `No open slots on ${availability.date}. Call find_earliest_availability (for soonest/ASAP) or try the next business day — do NOT escalate.`;
           } else if (preferredTimeKey && requestedMatch) {
             summary = `${preferredTimeRaw} IS available on ${availability.date} — book it with startTime ${requestedMatch.startTime} (pass date ${availability.date}). Other nearby options are included. Practitioners: ${availability.availablePractitioners.join(", ") || "any"}. Rooms: ${availability.availableRooms.join(", ") || "any"}.`;
           } else if (preferredTimeKey && !requestedMatch) {
@@ -188,6 +329,7 @@ export async function executeTool(
             input.treatment as string | undefined,
           );
           const result = await findEarliestAvailability({
+            treatment: input.treatment as string | undefined,
             durationMinutes: (input.duration_minutes as number) ?? 60,
             practitionerName,
             room: input.preferred_room as string | undefined,
@@ -213,12 +355,34 @@ export async function executeTool(
       }
 
       case "book_appointment": {
-        const guardError = await validateBookAppointment(input);
+        const isVoice = context.platform === "voice";
+        const guardError = await validateBookAppointment(input, {
+          requireFullProfile: !isVoice,
+        });
         if (guardError) {
           flow?.step("book:validation failed", { error: guardError });
           return { result: { error: guardError } };
         }
         flow?.step("book:validation passed");
+
+        // Duplicate-booking guard: this phone number may already have an appointment sitting in
+        // "waiting on the completion form" state. Surface it and let the model confirm with the
+        // caller rather than silently stacking a second booking — same warn-don't-silently-block
+        // pattern used by the Settings recipe engine's manual-override warnings.
+        if (input.confirm_new_booking !== true) {
+          const existing = await findOpenCompletionByPhone(
+            String(input.client_contact ?? ""),
+          ).catch(() => null);
+          if (existing) {
+            flow?.step("book:duplicate pending completion", { eventId: existing.eventId });
+            return {
+              result: {
+                warning: `This phone number already has an appointment (${existing.treatment ?? "a service"}) still waiting on a couple final details. Confirm with the caller whether this is about that same appointment or a genuinely new visit before booking again — if it's a new visit, call book_appointment again with confirm_new_booking: true.`,
+                existing_event_id: existing.eventId,
+              },
+            };
+          }
+        }
 
         const durationMin = (input.duration_minutes as number) ?? 60;
         const bookingDate =
@@ -227,48 +391,53 @@ export async function executeTool(
         let endTime = new Date(new Date(startTime).getTime() + durationMin * 60_000).toISOString();
 
         let room = input.room as string | undefined;
-        let practitioner = await sanitizePractitionerFilter(
-          input.practitioner_name as string | undefined,
-          input.treatment as string | undefined,
-        );
+        let practitioner = input.practitioner_name as string | undefined;
 
         try {
-          flow?.step("book:resolve slot", {
-            startTime,
-            durationMin,
-            practitioner,
-            bookingDate,
-          });
+          flow?.step("book:resolve slot", { startTime, durationMin, practitioner, bookingDate });
           const resolved = await resolveRequestedSlot({
             startTime,
             durationMinutes: durationMin,
             preferredPractitioner: practitioner,
             preferredRoom: room,
+            treatment: input.treatment as string | undefined,
             date: bookingDate,
           });
           startTime = resolved.slot.startTime;
           endTime = resolved.slot.endTime;
           room = resolved.room;
           practitioner = resolved.practitioner;
-          flow?.step("book:slot resolved", {
-            startTime,
-            endTime,
-            room,
-            practitioner,
-          });
+          flow?.step("book:slot resolved", { startTime, endTime, room, practitioner });
         } catch (err) {
-          const error =
-            err instanceof Error ? err.message : "Could not find available room/practitioner";
-          flow?.step("book:slot failed", { error });
-          return {
-            result: {
-              error,
-            },
-          };
+          // resolveRequestedSlot re-validates the exact slot; if the model already has a
+          // suggestion instead (rather than an exact known-open startTime), fall back to
+          // suggestSlot's lighter-weight room/practitioner assignment instead of failing outright.
+          try {
+            const suggestion = await suggestSlot({
+              date: startTime.split("T")[0],
+              durationMinutes: durationMin,
+              preferredPractitioner: practitioner,
+              preferredRoom: room,
+              treatment: input.treatment as string,
+            });
+            room = room || suggestion.room;
+            practitioner = practitioner || suggestion.practitioner;
+          } catch {
+            const error =
+              err instanceof Error ? err.message : "Could not find available room/practitioner";
+            flow?.step("book:slot failed", { error });
+            return { result: { error } };
+          }
         }
 
+        // Voice no longer collects a name during the call — book with whatever the caller
+        // volunteered, or a placeholder that gets overwritten once the completion form is submitted.
+        const rawClientName = String(input.client_name ?? "").trim();
+        const resolvedClientName =
+          rawClientName || (isVoice ? PENDING_NAME_PLACEHOLDER : rawClientName);
+
         const apptData = {
-          clientName: input.client_name as string,
+          clientName: resolvedClientName,
           clientContact: input.client_contact as string,
           clientEmail: normalizeEmail(input.client_email) || undefined,
           treatment: input.treatment as string,
@@ -278,6 +447,7 @@ export async function executeTool(
           room: room!,
           bookingDate,
           notes: input.notes as string | undefined,
+          source: "bot" as const,
         };
         flow?.step("book:calendar create", {
           clientEmail: apptData.clientEmail,
@@ -292,24 +462,26 @@ export async function executeTool(
 
           const storedBirthday = normalizeBirthdayForStorage(String(input.birthday ?? ""));
           const visitDate = dateFromIsoInTz(apptData.startTime, tz);
-          flow?.step("book:upsert client", {
-            email: normalizeEmail(input.client_email),
-            phone: apptData.clientContact,
-            lastVisit: visitDate,
-            lastTreatment: apptData.treatment,
-          });
-          const upsertedClient = await upsertClient({
-            name: apptData.clientName,
-            phone: apptData.clientContact || undefined,
-            email: normalizeEmail(input.client_email) || undefined,
-            lastVisit: visitDate,
-            lastTreatment: apptData.treatment,
-            ...(storedBirthday ? { birthday: storedBirthday } : {}),
-          }).catch(() => null);
+          if (input.client_email || apptData.clientContact) {
+            flow?.step("book:upsert client", {
+              email: normalizeEmail(input.client_email),
+              phone: apptData.clientContact,
+              lastVisit: visitDate,
+              lastTreatment: apptData.treatment,
+            });
+            await upsertClient({
+              name: apptData.clientName,
+              phone: apptData.clientContact || undefined,
+              email: normalizeEmail(input.client_email) || undefined,
+              lastVisit: visitDate,
+              lastTreatment: apptData.treatment,
+              ...(storedBirthday ? { birthday: storedBirthday } : {}),
+            }).catch(() => undefined);
+          }
 
-          const clientRecord =
-            upsertedClient ??
-            (await lookupClient({ phone: apptData.clientContact }).catch(() => null));
+          const clientRecord = await lookupClient({ phone: apptData.clientContact }).catch(
+            () => null,
+          );
           await createAppointmentRecord(
             {
               clientName: apptData.clientName,
@@ -370,23 +542,72 @@ export async function executeTool(
           });
           flow?.step("book:ops log written");
 
+          // Completion link is a voice-only concept — chat already collected everything inline
+          // (validateBookAppointment required it above), so there's nothing left to complete and
+          // no link should ever be created for chat/Discord bookings.
+          const profileComplete =
+            resolvedClientName !== PENDING_NAME_PLACEHOLDER &&
+            !!clientEmail &&
+            !!normalizeBirthdayForStorage(String(input.birthday ?? ""));
+          let completionLink: Awaited<ReturnType<typeof deliverCompletionLink>> | null = null;
+          if (isVoice && !profileComplete) {
+            flow?.step("book:deliver completion link", { eventId: appt.id });
+            completionLink = await deliverCompletionLink({
+              eventId: appt.id,
+              phone: apptData.clientContact,
+              clientName:
+                apptData.clientName === PENDING_NAME_PLACEHOLDER ? undefined : apptData.clientName,
+              treatment: apptData.treatment,
+              platform: context.platform,
+              appointmentStartTime: apptData.startTime,
+            }).catch((err) => {
+              console.error("[agent/book] completion link failed:", err);
+              flow?.step("book:completion link failed", {
+                error: err instanceof Error ? err.message : String(err),
+              });
+              return null;
+            });
+          }
+
           const result = {
             ...appt,
             event_id: appt.id,
             confirmation_email_sent: confirmationEmailSent,
             confirmation_sent_to: confirmationEmailSent ? clientEmail : undefined,
+            completion_link: completionLink
+              ? {
+                  sent_via: completionLink.sentVia,
+                  url: completionLink.url,
+                  note: completionLink.note,
+                }
+              : undefined,
           };
           flow?.step("book:complete", { result: summarizeForFlowLog(result) });
-          return {
-            result,
-            booked: true,
-          };
+          return { result, booked: true };
         } catch (err) {
           const error = err instanceof Error ? err.message : "Booking failed";
           flow?.step("book:failed", { error });
+          return { result: { error } };
+        }
+      }
+
+      case "send_booking_completion_link": {
+        try {
+          const eventId = String(input.event_id ?? "");
+          const booking = await getCalendarBookingDetails(eventId);
+          const result = await deliverCompletionLink({
+            eventId,
+            phone: String(input.client_contact ?? ""),
+            clientName: input.client_name as string | undefined,
+            treatment: input.treatment as string | undefined,
+            platform: context.platform,
+            appointmentStartTime: booking.startTime,
+          });
+          return { result };
+        } catch (err) {
           return {
             result: {
-              error,
+              error: err instanceof Error ? err.message : "Could not send the completion link.",
             },
           };
         }
@@ -445,7 +666,6 @@ export async function executeTool(
 
         const { resolveAppointmentNotificationEmail } =
           await import("@/lib/booking/appointment-by-phone");
-        const { getCalendarBookingDetails } = await import("@/lib/integrations/google-calendar");
         flow?.step("cancel:fetch calendar details", { eventId });
         const bookingBefore = await getCalendarBookingDetails(eventId).catch(() => null);
         flow?.step("cancel:calendar details", {
@@ -494,6 +714,7 @@ export async function executeTool(
 
         if (cancelEmail) {
           flow?.step("cancel:send email", { to: cancelEmail });
+          const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
           const displayTime = cancelled.startTime
             ? new Date(cancelled.startTime).toLocaleString("en-US", {
                 timeZone: tz,
@@ -503,6 +724,7 @@ export async function executeTool(
                 hour: "numeric",
                 minute: "2-digit",
                 hour12: true,
+                timeZoneName: "short",
               })
             : "your scheduled time";
 
@@ -521,9 +743,9 @@ export async function executeTool(
                 `Hi ${cancelled.clientName}, your appointment at Lumière has been cancelled.`,
                 ``,
                 `Treatment: ${cancelled.treatment}`,
-                `Original Date: ${displayTime} CT`,
+                `Original Date: ${displayTime}`,
                 ``,
-                `We'd love to rebook you at a time that works better. Reply here or visit us Monday–Saturday, 9 AM–7 PM.`,
+                `We'd love to rebook you at a time that works better. Reply here or visit us ${businessHoursLabel}.`,
                 widgetLinkLine(),
                 ``,
                 `— The Lumière Team`,
@@ -603,7 +825,6 @@ export async function executeTool(
 
         const { resolveAppointmentNotificationEmail } =
           await import("@/lib/booking/appointment-by-phone");
-        const { getCalendarBookingDetails } = await import("@/lib/integrations/google-calendar");
         flow?.step("reschedule:fetch calendar details", { eventId });
         const bookingBefore = await getCalendarBookingDetails(eventId).catch(() => null);
         flow?.step("reschedule:calendar details", {
@@ -632,6 +853,8 @@ export async function executeTool(
 
         if (rescheduleEmail) {
           flow?.step("reschedule:send email", { to: rescheduleEmail });
+          const { address: clinicAddress } = await getClinicConfig();
+          const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
           const fmtTime = (iso: string) =>
             new Date(iso).toLocaleString("en-US", {
               timeZone: tz,
@@ -660,9 +883,9 @@ export async function executeTool(
                 `Treatment: ${rescheduled.treatment}`,
                 rescheduled.oldStartTime ? `Old Date: ${fmtTime(rescheduled.oldStartTime)}` : "",
                 `New Date: ${fmtTime(rescheduled.newStartTime)}`,
-                `Location: ${(await getClinicConfig()).address}`,
+                `Location: ${clinicAddress}`,
                 ``,
-                `Need further changes? Reply here or contact us Monday–Saturday, 9 AM–7 PM.`,
+                `Need further changes? Reply here or contact us ${businessHoursLabel}.`,
                 widgetLinkLine(),
                 ``,
                 `See you soon!`,
@@ -672,7 +895,7 @@ export async function executeTool(
                 .join("\n"),
               cta: {
                 label: "View Location",
-                url: "https://maps.google.com/?q=2847+S+Lamar+Blvd+Suite+120+Austin+TX",
+                url: `https://maps.google.com/?q=${encodeURIComponent(clinicAddress)}`,
               },
             });
             confirmationEmailSent = outcome.sent;
@@ -757,7 +980,7 @@ export async function executeTool(
           client_email: appt.clientEmail,
           practitioner_name: appt.practitionerName,
           room: appt.room,
-          summary: `Upcoming ${appt.treatment} for ${appt.clientName} on ${displayTime} CT (${durationMinutes} min). If caller wants CANCEL: call cancel_appointment with phone only — do NOT use check_reschedule_availability. If RESCHEDULE: ask new date, call check_reschedule_availability(phone, date), then reschedule_appointment(phone, new_date_time). Do NOT ask for name, email, or birthday.`,
+          summary: `Upcoming ${appt.treatment} for ${appt.clientName} on ${displayTime} (${durationMinutes} min). If caller wants CANCEL: call cancel_appointment with phone only — do NOT use check_reschedule_availability. If RESCHEDULE: ask new date, call check_reschedule_availability(phone, date), then reschedule_appointment(phone, new_date_time). Do NOT ask for name, email, or birthday.`,
         };
         flow?.step("fetch:upcoming complete", { result: summarizeForFlowLog(upcomingResult) });
         return { result: upcomingResult };
@@ -825,6 +1048,7 @@ export async function executeTool(
           });
           const availability = await checkAvailability({
             date,
+            treatment: appt.treatment,
             durationMinutes,
             practitionerName,
           });

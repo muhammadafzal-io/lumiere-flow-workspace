@@ -32,6 +32,7 @@ export async function POST() {
   }
 
   try {
+    const instructions = await getVoiceSystemPrompt();
     const res = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
       method: "POST",
       headers: {
@@ -42,7 +43,7 @@ export async function POST() {
         session: {
           type: "realtime",
           model: "gpt-realtime-mini",
-          instructions: await getVoiceSystemPrompt(),
+          instructions,
           output_modalities: ["audio"],
           tools: REALTIME_TOOLS,
           tool_choice: "auto",

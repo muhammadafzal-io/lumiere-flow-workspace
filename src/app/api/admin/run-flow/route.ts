@@ -5,6 +5,7 @@ import { runReminderFlow } from "@/lib/retention/reminders";
 import { runNoshowFlow } from "@/lib/retention/noshow";
 import { runReactivationFlow } from "@/lib/retention/reactivation";
 import type { RunFlowOptions } from "@/types";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 const FLOW_MAP = {
   birthday: runBirthdayFlow,
@@ -21,6 +22,9 @@ async function runOne(flow: FlowKey, opts?: RunFlowOptions) {
 }
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("flows", "Update");
+  if (!check.ok) return check.response;
+
   const flow = req.nextUrl.searchParams.get("flow") as FlowKey | "all" | null;
 
   if (!flow) {
@@ -58,6 +62,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const check = await requireApiPermission("flows", "Update");
+  if (!check.ok) return check.response;
+
   const flow = req.nextUrl.searchParams.get("flow") as FlowKey | null;
   if (!flow || !(flow in FLOW_MAP)) {
     return NextResponse.json(

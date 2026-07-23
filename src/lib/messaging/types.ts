@@ -5,5 +5,5 @@ export interface MessagingProvider {
 
   parseInbound(payload: unknown): InboundMessage | null;
 
-  readonly platform: "telegram" | "whatsapp" | "discord" | "widget";
+  readonly platform: "whatsapp" | "discord" | "widget";
 }

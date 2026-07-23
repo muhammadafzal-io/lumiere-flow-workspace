@@ -6,6 +6,8 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { invalidateEventsRangeCache } from "@/lib/integrations/google-calendar";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import { getClinicConfig } from "@/lib/clinic-config";
+import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -36,6 +38,9 @@ function parseField(description: string, field: string): string {
 }
 
 export async function DELETE(req: NextRequest) {
+  const check = await requireApiPermission("calendar", "Delete");
+  if (!check.ok) return check.response;
+
   let body: unknown;
   try {
     body = await req.json();
@@ -65,7 +70,7 @@ export async function DELETE(req: NextRequest) {
 
     (async () => {
       try {
-        const { timezone, address } = await getClinicConfig();
+        const { timezone } = await getClinicConfig();
         const description = event.description ?? "";
         const contact = parseField(description, "Contact");
         const clientName =
@@ -93,8 +98,10 @@ export async function DELETE(req: NextRequest) {
               hour: "numeric",
               minute: "2-digit",
               hour12: true,
+              timeZoneName: "short",
             })
           : "your scheduled time";
+        const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
 
         await sendRetentionEmail({
           to: email,
@@ -112,7 +119,7 @@ export async function DELETE(req: NextRequest) {
             `Treatment: ${treatment}`,
             `Original Date: ${displayTime}`,
             ``,
-            `We'd love to rebook you at a time that works better. Reply to this email or visit us Monday–Saturday, 9 AM–7 PM.`,
+            `We'd love to rebook you at a time that works better. Reply to this email or visit us ${businessHoursLabel}.`,
             widgetLinkLine(),
             ``,
             `— The Lumière Team`,

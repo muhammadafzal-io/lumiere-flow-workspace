@@ -95,7 +95,23 @@ export default function ChatWidget() {
 
   return (
     <div className="relative flex flex-col h-full bg-lumiere-cream">
-      {voiceActive && <VoiceCall sessionId={sessionId} onClose={() => setVoiceActive(false)} />}
+      {voiceActive && (
+        <VoiceCall
+          sessionId={sessionId}
+          onClose={(completionLinks) => {
+            setVoiceActive(false);
+            if (completionLinks && completionLinks.length > 0) {
+              setMessages((prev) => [
+                ...prev,
+                ...completionLinks.map((url) => ({
+                  role: "assistant" as const,
+                  text: `Here's your booking link to finish adding your name, email, and date of birth: ${url}`,
+                })),
+              ]);
+            }
+          }}
+        />
+      )}
       <div className="bg-lumiere-navy px-5 py-4 flex items-center gap-3 flex-shrink-0">
         <div className="w-9 h-9 rounded-full bg-lumiere-rose flex items-center justify-center">
           <span className="font-serif font-bold text-white text-sm">L</span>

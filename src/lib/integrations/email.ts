@@ -256,6 +256,7 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
   }
 
   const html = await buildEmailHtml({ ...opts, subject });
+  const attempts: { provider: string; error: string }[] = [];
 
   const sgKey = process.env.SENDGRID_API_KEY;
   const sgFrom = process.env.SENDGRID_FROM_EMAIL;
@@ -273,9 +274,8 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
       return { sent: true, provider: "sendgrid" };
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      console.error(`[email] FAILED via SendGrid → ${opts.to}`, error);
-      await persist("failed", { provider: "sendgrid", failReason: error });
-      throw err;
+      console.error(`[email] FAILED via SendGrid → ${opts.to}, trying next provider`, error);
+      attempts.push({ provider: "sendgrid", error });
     }
   }
 
@@ -288,13 +288,33 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
       return { sent: true, provider: "gmail" };
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      console.error(`[email] FAILED via Gmail → ${opts.to}`, error);
-      await persist("failed", { provider: "gmail", failReason: error });
-      throw err;
+      console.error(`[email] FAILED via Gmail → ${opts.to}, trying next provider`, error);
+      attempts.push({ provider: "gmail", error });
     }
   }
 
-  if (!process.env.RESEND_API_KEY) {
+  if (process.env.RESEND_API_KEY) {
+    const from = getFromAddress();
+    const resend = getResend();
+    try {
+      const { error } = await resend.emails.send({
+        from,
+        to: opts.to,
+        subject,
+        html,
+        text: opts.text,
+      });
+      if (error) throw new Error(`Resend error: ${error.message}`);
+      await persist("sent", { provider: "resend" });
+      return { sent: true, provider: "resend" };
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      console.error(`[email] FAILED via Resend → ${opts.to}`, error);
+      attempts.push({ provider: "resend", error });
+    }
+  }
+
+  if (attempts.length === 0) {
     const reason =
       "no email provider configured (no SENDGRID_API_KEY, GMAIL_USER, or RESEND_API_KEY)";
     console.warn(`[email] SKIP — ${reason}`);
@@ -302,23 +322,11 @@ export async function sendRetentionEmail(opts: SendEmailOptions): Promise<SendEm
     return { sent: false, error: reason };
   }
 
-  const from = getFromAddress();
-  const resend = getResend();
-  try {
-    const { error } = await resend.emails.send({
-      from,
-      to: opts.to,
-      subject,
-      html,
-      text: opts.text,
-    });
-    if (error) throw new Error(`Resend error: ${error.message}`);
-    await persist("sent", { provider: "resend" });
-    return { sent: true, provider: "resend" };
-  } catch (err) {
-    const error = err instanceof Error ? err.message : String(err);
-    console.error(`[email] FAILED via Resend → ${opts.to}`, error);
-    await persist("failed", { provider: "resend", failReason: error });
-    throw err;
-  }
+  // Every configured provider was tried and failed — this is the real, final failure.
+  const summary = attempts.map((a) => `${a.provider}: ${a.error}`).join(" | ");
+  await persist("failed", {
+    provider: attempts[attempts.length - 1].provider,
+    failReason: summary,
+  });
+  throw new Error(`All email providers failed — ${summary}`);
 }

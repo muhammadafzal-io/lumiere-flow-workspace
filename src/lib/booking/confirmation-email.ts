@@ -2,6 +2,7 @@ import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { widgetLinkLine } from "@/lib/client-channels";
 import { getClinicConfig } from "@/lib/clinic-config";
+import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 
 export async function sendBookingConfirmationEmail(opts: {
   to: string;
@@ -23,7 +24,9 @@ export async function sendBookingConfirmationEmail(opts: {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
+    timeZoneName: "short",
   });
+  const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
 
   await sendRetentionEmail({
     to: opts.to,
@@ -51,7 +54,7 @@ export async function sendBookingConfirmationEmail(opts: {
       `Location: ${clinic.address}`,
       opts.notes ? `Notes: ${opts.notes}` : "",
       ``,
-      `Need to change anything? Reply to this email or contact us Monday–Saturday, 9 AM–7 PM.`,
+      `Need to change anything? Reply to this email or contact us ${businessHoursLabel}.`,
       widgetLinkLine(),
       ``,
       `See you soon!`,

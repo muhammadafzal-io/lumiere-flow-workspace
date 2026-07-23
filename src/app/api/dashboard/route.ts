@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { readActivityLog } from "@/lib/integrations/activity-log";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
+import { requireApiPermission } from "@/lib/rbac/guard";
 import type { OpsLogEntry } from "@/types";
 import { getClinicTimezone } from "@/lib/clinic-config";
 
@@ -97,6 +98,9 @@ async function fetchRules() {
 }
 
 export async function GET() {
+  const check = await requireApiPermission("dashboard", "View");
+  if (!check.ok) return check.response;
+
   try {
     const tz = await getClinicTimezone();
     const rangeFrom = dateStr(-60, tz);

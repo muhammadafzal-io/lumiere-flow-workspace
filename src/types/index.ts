@@ -37,6 +37,7 @@ export interface AvailableSlot {
   displayTime: string;
   availableRooms: string[];
   availablePractitioners: string[];
+  availableEquipment?: string[];
 }
 
 // Minimal shape returned by getEventsByRange (used by admin calendar)
@@ -58,7 +59,7 @@ export interface InboundMessage {
   from: string;
   chatId: string;
   text: string;
-  platform: "telegram" | "whatsapp" | "discord" | "widget";
+  platform: "whatsapp" | "discord" | "widget";
   callbackData?: string;
   firstName?: string;
   lastName?: string;

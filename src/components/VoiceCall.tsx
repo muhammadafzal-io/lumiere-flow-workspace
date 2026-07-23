@@ -36,11 +36,17 @@ type CallStatus = "idle" | "connecting" | "active" | "reconnecting" | "error";
 interface TranscriptLine {
   role: "user" | "assistant";
   text: string;
+  /** Booking-completion link, shown as a tappable link in-widget — a guaranteed channel that
+   * doesn't depend on SMS/email being configured, since the caller is already looking at this screen. */
+  link?: string;
 }
 
 interface VoiceCallProps {
   sessionId: string;
-  onClose: () => void;
+  /** Any booking-completion links collected during the call are passed back here so the host
+   * widget can keep them visible (e.g. as a persistent chat message) after the voice UI unmounts —
+   * without this, a link shown only in the live transcript vanishes the moment the call auto-closes. */
+  onClose: (completionLinks?: string[]) => void;
 }
 
 const TOOL_LABELS: Record<string, string> = {
@@ -135,6 +141,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
   const micUnmuteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreUserSpeechRef = useRef(false);
   const flowLogRef = useRef(createVoiceFlowLogger(sessionId, "client"));
+  const completionLinksRef = useRef<string[]>([]);
 
   const sendDc = useCallback((payload: Record<string, unknown>) => {
     const dc = dcRef.current;
@@ -214,7 +221,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
 
   /** Fetch with a hard timeout — prevents tool calls from hanging indefinitely */
   const fetchWithTimeout = useCallback(
-    async (url: string, options: RequestInit, timeoutMs = 20000): Promise<Response> => {
+    async (url: string, options: RequestInit, timeoutMs = 45000): Promise<Response> => {
       const controller = new AbortController();
       const id = setTimeout(() => controller.abort(), timeoutMs);
       try {
@@ -266,7 +273,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
     if (audioRef.current) {
       audioRef.current.srcObject = null;
     }
-    onClose();
+    onClose(completionLinksRef.current.length > 0 ? completionLinksRef.current : undefined);
   }, [onClose]);
 
   // FIX #2: handleDataChannelMessage is stable — deps are only stable refs and callbacks
@@ -357,6 +364,14 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
         case "response.created":
           responseHadToolCallRef.current = false;
           if (toolFetchCountRef.current === 0) clearProcessing();
+          // The model has already started generating a response — the "AI went silent after a
+          // heavy tool call" nudge no longer applies. Without this, the gap between response.created
+          // and the first audio byte (composing a multi-slot answer can take a beat) could let the
+          // 5s nudge fire mid-generation, spawning a second, overlapping response.
+          if (resumeTimerRef.current) {
+            clearTimeout(resumeTimerRef.current);
+            resumeTimerRef.current = null;
+          }
           break;
 
         case "input_audio_buffer.speech_started":
@@ -704,6 +719,11 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                         cancelOnly: userWantsCancelOnly(transcriptRef.current),
                       }),
                     },
+                    // book_appointment (and the other SLOW_TOOLS) alone has been measured
+                    // taking up to ~17s in clean local testing (Google Calendar + CRM
+                    // round-trips) — a real call under production network conditions can
+                    // exceed that, so those tools get the full VOICE_TOOL_TIMEOUT_MS instead
+                    // of the faster default.
                     timeoutMs,
                   );
                   output = await res.json();
@@ -739,6 +759,25 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                   callId,
                   result: summarizeForFlowLog(output),
                 });
+
+                // Show the booking-completion link directly in the call's own transcript — this
+                // is a guaranteed channel that works even with no Twilio/email provider configured,
+                // since the caller is already looking at this screen. SMS/email remain the primary
+                // delivery paths once configured; this is always shown in addition to those.
+                const completionUrl = (
+                  output as { completion_link?: { url?: string } } | null | undefined
+                )?.completion_link?.url;
+                if (completionUrl) {
+                  completionLinksRef.current.push(completionUrl);
+                  setTranscript((prev) => [
+                    ...prev,
+                    {
+                      role: "assistant",
+                      text: "Tap below to finish your booking — add your name, email, and date of birth:",
+                      link: completionUrl,
+                    },
+                  ]);
+                }
 
                 const liveDc = dcRef.current;
                 if (liveDc && liveDc.readyState === "open") {
@@ -1405,6 +1444,17 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                     }
                   >
                     {line.text}
+                    {line.link && (
+                      <a
+                        href={line.link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 block underline break-all"
+                        style={{ color: "rgba(255,255,255,0.95)" }}
+                      >
+                        {line.link}
+                      </a>
+                    )}
                   </div>
                 </div>
               ))}

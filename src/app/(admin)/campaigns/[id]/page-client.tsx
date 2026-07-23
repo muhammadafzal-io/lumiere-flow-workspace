@@ -20,6 +20,7 @@ import {
 import type { Campaign, CampaignRecipient, CampaignStats } from "@/lib/types";
 import { formatRewardLabel } from "@/lib/campaigns/db";
 import { CampaignRewardPanel } from "@/components/campaigns/CampaignRewardPanel";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import { toast } from "sonner";
 
 type StatsWithLive = CampaignStats & { live_eligible?: number };
@@ -42,13 +43,19 @@ export default function CampaignDetailPage() {
   const [stats, setStats] = useState<StatsWithLive | null>(null);
   const [recipients, setRecipients] = useState<CampaignRecipient[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
   const [processing, setProcessing] = useState(false);
   const [sending, setSending] = useState(false);
 
   const fetchDetail = useCallback(async () => {
     setLoading(true);
+    setAccessDenied(null);
     try {
       const res = await fetch(`/api/campaigns/${id}`);
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error("Failed to load");
       const data = await res.json();
       setCampaign(data.campaign);
@@ -101,6 +108,19 @@ export default function CampaignDetailPage() {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" asChild className="-ml-2">
+          <Link href="/campaigns">
+            <ArrowLeft className="h-4 w-4 mr-1" /> Campaigns
+          </Link>
+        </Button>
+        <AccessGate status={accessDenied} />
       </div>
     );
   }

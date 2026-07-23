@@ -4,6 +4,7 @@ import { sendRuleEmails } from "@/lib/rules/send";
 import { recordRuleSends } from "@/lib/rules/rule-sends";
 import type { Rule } from "@/lib/types";
 import { normalizeRuleChannel } from "@/lib/types";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 const TABLE = "Rules";
 
@@ -35,6 +36,9 @@ function mapRow(r: Record<string, unknown>): Rule {
 type RouteCtx = { params: Promise<{ id: string }> };
 
 export async function POST(req: NextRequest, ctx: RouteCtx) {
+  const check = await requireApiPermission("rules", "Update");
+  if (!check.ok) return check.response;
+
   try {
     const { id } = await ctx.params;
     const body = await req.json();

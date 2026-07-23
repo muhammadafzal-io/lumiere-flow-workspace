@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { normalizeRuleChannel } from "@/lib/types";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 const TABLE = "Rules";
 
@@ -31,6 +32,9 @@ function mapRow(r: any) {
 }
 
 export async function GET() {
+  const check = await requireApiPermission("rules", "View");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const { data, error } = await sb
@@ -46,6 +50,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const check = await requireApiPermission("rules", "Create");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -82,6 +89,9 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const check = await requireApiPermission("rules", "Update");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const body = await req.json();
@@ -121,6 +131,9 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const check = await requireApiPermission("rules", "Delete");
+  if (!check.ok) return check.response;
+
   try {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);

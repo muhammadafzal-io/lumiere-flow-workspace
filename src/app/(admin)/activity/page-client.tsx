@@ -12,6 +12,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import type { OpsLogEntry } from "@/types";
 
 type LogRow = OpsLogEntry & { id: string };
@@ -73,7 +74,6 @@ function platformBadge(p: string) {
   const map: Record<string, string> = {
     calendar: "bg-emerald-500/10 text-emerald-700 border-emerald-300/30",
     widget: "bg-blue-500/10 text-blue-700 border-blue-300/30",
-    telegram: "bg-sky-500/10 text-sky-700 border-sky-300/30",
     discord: "bg-indigo-500/10 text-indigo-700 border-indigo-300/30",
     system: "bg-muted text-muted-foreground border-border",
   };
@@ -84,6 +84,7 @@ export default function ActivityPage() {
   const [entries, setEntries] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
 
   const [eventType, setEventType] = useState("all");
   const [status, setStatus] = useState("all");
@@ -94,8 +95,13 @@ export default function ActivityPage() {
   const fetchEntries = async () => {
     setLoading(true);
     setError(null);
+    setAccessDenied(null);
     try {
       const res = await fetch("/api/activity?limit=500");
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setEntries(data.entries ?? []);
@@ -133,6 +139,15 @@ export default function ActivityPage() {
       return true;
     });
   }, [entries, eventType, status, platform, search]);
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-5">
+        <h1 className="text-2xl font-semibold tracking-tight">Activity log</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-5">

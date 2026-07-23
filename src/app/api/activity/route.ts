@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readActivityLog } from "@/lib/integrations/activity-log";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
+import { requireApiPermission } from "@/lib/rbac/guard";
 import type { OpsLogEntry } from "@/types";
 import { getClinicTimezone } from "@/lib/clinic-config";
 
@@ -58,6 +59,9 @@ function calEventToLogRow(
 }
 
 export async function GET(req: NextRequest) {
+  const check = await requireApiPermission("activity", "View");
+  if (!check.ok) return check.response;
+
   const tz = await getClinicTimezone();
   const { searchParams } = req.nextUrl;
   const limit = Math.min(Number(searchParams.get("limit") ?? "500"), 1000);

@@ -36,10 +36,11 @@ import {
 import { toast } from "sonner";
 import { store } from "@/lib/store";
 import { mapTeamToPractitioners } from "@/lib/practitioners";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import type { Appointment, Practitioner, Customer, Treatment } from "@/lib/types";
 import {
-  BUSSINESS_TZ,
-  setClinicTimezone,
+  getDisplayTimezone,
+  setDisplayTimezone,
   HOUR_START,
   HOUR_END,
   SLOT_MIN,
@@ -75,6 +76,7 @@ export default function CalendarPage() {
   const [practitioners, setPractitioners] = useState<Practitioner[]>([]);
   const [calEvents, setCalEvents] = useState<Appointment[]>([]);
   const [calLoading, setCalLoading] = useState(false);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
 
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "week";
@@ -128,7 +130,7 @@ export default function CalendarPage() {
   const dateRangeLabel = useMemo(() => {
     if (view === "day")
       return anchor.toLocaleDateString("en-US", {
-        timeZone: BUSSINESS_TZ,
+        timeZone: getDisplayTimezone(),
         weekday: "long",
         month: "short",
         day: "numeric",
@@ -138,8 +140,8 @@ export default function CalendarPage() {
     const end = days[days.length - 1];
     const sameMonth = fmtDateShort(start).split(" ")[0] === fmtDateShort(end).split(" ")[0];
     return sameMonth
-      ? `${fmtDateShort(start)} – ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, day: "numeric" })}, ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, year: "numeric" })}`
-      : `${fmtDateShort(start)} – ${fmtDateShort(end)}, ${end.toLocaleDateString("en-US", { timeZone: BUSSINESS_TZ, year: "numeric" })}`;
+      ? `${fmtDateShort(start)} – ${end.toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), day: "numeric" })}, ${end.toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), year: "numeric" })}`
+      : `${fmtDateShort(start)} – ${fmtDateShort(end)}, ${end.toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), year: "numeric" })}`;
   }, [days, view, anchor]);
 
   const goPrev = () => setAnchor((d) => addDays(d, view === "day" ? -1 : -7));
@@ -159,9 +161,7 @@ export default function CalendarPage() {
       if (settingsRes.ok) {
         const settingsJson = await settingsRes.json();
         setPractitioners(mapTeamToPractitioners(settingsJson.team ?? []));
-        if (settingsJson.clinic?.timezone) {
-          setClinicTimezone(settingsJson.clinic.timezone);
-        }
+        if (settingsJson.clinic?.timezone) setDisplayTimezone(settingsJson.clinic.timezone);
       }
     } catch (err) {
       console.error("[calendar] meta load failed:", err);
@@ -178,6 +178,10 @@ export default function CalendarPage() {
       const fmt = (d: Date) => d.toISOString().slice(0, 10);
       try {
         const res = await fetch(`/api/calendar/events?from=${fmt(from)}&to=${fmt(to)}`);
+        if (res.status === 401 || res.status === 403) {
+          setAccessDenied(res.status);
+          return;
+        }
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const events: Appointment[] = (data.events ?? []).map(
@@ -298,6 +302,15 @@ export default function CalendarPage() {
   const selectedApt = appointments.find((a) => a.id === selectedAptId) || null;
   const reschedApt = appointments.find((a) => a.id === reschedAptId) || null;
   const cancelApt = appointments.find((a) => a.id === cancelAptId) || null;
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-semibold tracking-tight">Calendar</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -576,7 +589,7 @@ function CalendarGrid({
     const nowHour =
       parseInt(
         new Intl.DateTimeFormat("en-US", {
-          timeZone: BUSSINESS_TZ,
+          timeZone: getDisplayTimezone(),
           hour: "2-digit",
           hour12: false,
         }).format(now),

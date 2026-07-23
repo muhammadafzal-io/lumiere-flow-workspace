@@ -1,13 +1,20 @@
 import { NextResponse } from "next/server";
 import { AINotConfiguredError, isAIConfigured, parseRuleWithAI } from "@/lib/rules/ai";
+import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const check = await requireApiPermission("rules", "View");
+  if (!check.ok) return check.response;
+
   return NextResponse.json({ configured: isAIConfigured() });
 }
 
 export async function POST(req: Request) {
+  const check = await requireApiPermission("rules", "Create");
+  if (!check.ok) return check.response;
+
   try {
     const body = await req.json();
     const { description } = body as { description?: string };

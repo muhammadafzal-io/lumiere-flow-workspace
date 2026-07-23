@@ -10,6 +10,8 @@ import {
   Mail,
   Settings as SettingsIcon,
   Calendar as CalendarIcon,
+  Clock,
+  ShieldCheck,
 } from "lucide-react";
 import {
   Sidebar,
@@ -30,10 +32,12 @@ const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Rules & Campaigns", url: "/rules", icon: Zap },
   { title: "Calendar", url: "/calendar", icon: CalendarIcon },
+  { title: "Pending Bookings", url: "/pending-bookings", icon: Clock },
   { title: "Customers", url: "/customers", icon: Users },
   { title: "Activity Log", url: "/activity", icon: ScrollText },
   { title: "Email Log", url: "/email-logs", icon: Mail },
   { title: "Settings", url: "/settings", icon: SettingsIcon },
+  { title: "RBAC Management", url: "/rbac", icon: ShieldCheck },
 ];
 
 export function AppSidebar() {

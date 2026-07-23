@@ -14,6 +14,7 @@ import { MoreHorizontal, Plus, Zap, RefreshCw, ChevronRight, Users, Mail } from 
 import type { Rule } from "@/lib/types";
 import { treatmentTriggerLabel } from "@/lib/rules/audience-match";
 import { RuleModal } from "@/components/RuleModal";
+import { AccessGate } from "@/components/rbac/AccessGate";
 import { toast } from "sonner";
 
 const STATUS_COPY: Record<string, string> = { active: "Active", paused: "Paused", draft: "Draft" };
@@ -61,14 +62,20 @@ function timeAgo(iso: string) {
 export default function RulesPage() {
   const [rules, setRules] = useState<Rule[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
   const [tab, setTab] = useState("active");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Rule | null>(null);
 
   const fetchRules = useCallback(async () => {
     setLoading(true);
+    setAccessDenied(null);
     try {
       const res = await fetch("/api/rule");
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
       if (!res.ok) throw new Error("Failed to fetch");
       const data = await res.json();
       setRules(data.rules ?? []);
@@ -179,6 +186,15 @@ export default function RulesPage() {
       toast.error("Failed to delete rule");
     }
   };
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-6">
+        <h1 className="text-2xl font-semibold tracking-tight">Rules & Campaigns</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
