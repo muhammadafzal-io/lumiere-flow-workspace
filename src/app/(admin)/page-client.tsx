@@ -23,33 +23,22 @@ import type { OpsLogEntry, EventType } from "@/types";
 import type { Customer, Practitioner } from "@/lib/types";
 import { treatmentTriggerLabel } from "@/lib/rules/audience-match";
 import { mapTeamToPractitioners } from "@/lib/practitioners";
-
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-    timeZone: "America/Chicago",
-  });
-}
+import {
+  sameDay,
+  zonedParts,
+  addDays,
+  startOfDay,
+  setDisplayTimezone,
+  fmtTime,
+  fmtWeekday as fmtWeekdayZoned,
+} from "@/lib/calendar-utils";
 
 function fmtWeekday(d: Date) {
-  return d.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase();
-}
-
-function sameDay(a: Date, b: Date) {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+  return fmtWeekdayZoned(d, "short").toUpperCase();
 }
 
 function eventsOnDay(events: CalendarEvent[], day: Date) {
-  return events.filter((e) => {
-    const d = new Date(e.startTime);
-    return sameDay(d, day);
-  });
+  return events.filter((e) => sameDay(new Date(e.startTime), day));
 }
 
 function eventTypeBadge(type: EventType | string) {
@@ -160,6 +149,7 @@ export default function Dashboard() {
       }
       if (!res.ok) throw new Error("Failed");
       const json = await res.json();
+      if (json.timezone) setDisplayTimezone(json.timezone);
       setData(json);
     } catch {
       setError(true);
@@ -220,14 +210,9 @@ export default function Dashboard() {
     },
   ];
 
-  // Next 7 days
-  const today = new Date();
-  const next7 = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() + i);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
+  // Next 7 days — clinic-local calendar days, not the browser's local timezone.
+  const todayZoned = startOfDay(new Date());
+  const next7 = Array.from({ length: 7 }, (_, i) => addDays(todayZoned, i));
 
   if (accessDenied) {
     return (
@@ -374,7 +359,7 @@ export default function Dashboard() {
                     {fmtWeekday(day)}
                   </div>
                   <div className={`text-base font-semibold ${isToday ? "text-primary" : ""}`}>
-                    {day.getDate()}
+                    {zonedParts(day).day}
                   </div>
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-1 mb-2">
@@ -395,7 +380,7 @@ export default function Dashboard() {
                       style={{ borderLeftColor: "#6366f1", borderLeftWidth: 2.5 }}
                     >
                       <div className="text-[10px] font-semibold text-foreground">
-                        {fmtTime(e.startTime)}
+                        {fmtTime(new Date(e.startTime))}
                       </div>
                       <div className="text-[11px] truncate">
                         {e.clientName.split(" ")[0] || "Client"}

@@ -5,6 +5,7 @@ import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import { requireApiPermission } from "@/lib/rbac/guard";
 import type { OpsLogEntry } from "@/types";
 import { getClinicTimezone } from "@/lib/clinic-config";
+import { dateInZone, addDays } from "@/lib/booking/dates";
 
 export const dynamic = "force-dynamic";
 
@@ -199,25 +200,19 @@ export async function GET() {
         .slice(0, 8);
     }
 
-    // Only upcoming events for the mini calendar
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const upcomingEvents = events.filter((e) => new Date(e.startTime) >= today);
+    // Only upcoming events for the mini calendar — bucketed by the CLINIC's calendar day, not
+    // the server process's local timezone (e.g. UTC on Vercel), so "today" here always matches
+    // what admin UI clients compute in the clinic's own configured timezone.
+    const todayStr = dateStr(0, tz);
+    const upcomingEvents = events.filter((e) => dateInZone(e.startTime, tz) >= todayStr);
 
     const totalCustomers = clientList.length;
     const activeCustomers = clientList.filter((c: any) => c["Status"] === "Active").length;
 
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
+    const currentYearMonth = todayStr.slice(0, 7); // "YYYY-MM" in the clinic's timezone
     const isThisMonth = (d: string | null) => {
-      if (!d) return false;
-      const date = new Date(d);
-      return (
-        !isNaN(date.getTime()) &&
-        date.getMonth() === currentMonth &&
-        date.getFullYear() === currentYear
-      );
+      if (!d || isNaN(new Date(d).getTime())) return false;
+      return dateInZone(d, tz).slice(0, 7) === currentYearMonth;
     };
 
     let messagesSentThisMonth = 0;
@@ -226,31 +221,34 @@ export async function GET() {
       if (isThisMonth(c["Last Reactivation Sent"])) messagesSentThisMonth++;
     });
 
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - ((now.getDay() + 6) % 7));
-    monday.setHours(0, 0, 0, 0);
-    const sundayEnd = new Date(monday.getTime() + 7 * 86400000 - 1);
-    const lastMonday = new Date(monday.getTime() - 7 * 86400000);
+    // Clinic-local day-of-week (0=Sun..6=Sat) for today's date string — the noon-UTC probe is
+    // timezone-neutral since a date string alone has no wall-clock time to misread.
+    const todayDow = new Date(`${todayStr}T12:00:00Z`).getUTCDay();
+    const mondayStr = addDays(todayStr, -((todayDow + 6) % 7));
+    const sundayStr = addDays(mondayStr, 6);
+    const lastMondayStr = addDays(mondayStr, -7);
+    const lastSundayStr = addDays(mondayStr, -1);
 
     const appointmentsThisWeek = events.filter((e) => {
-      const t = new Date(e.startTime).getTime();
-      return t >= monday.getTime() && t <= sundayEnd.getTime();
+      const d = dateInZone(e.startTime, tz);
+      return d >= mondayStr && d <= sundayStr;
     }).length;
 
     const appointmentsLastWeek = events.filter((e) => {
-      const t = new Date(e.startTime).getTime();
-      return t >= lastMonday.getTime() && t < monday.getTime();
+      const d = dateInZone(e.startTime, tz);
+      return d >= lastMondayStr && d <= lastSundayStr;
     }).length;
 
     // Filter events to only the next 7 days for the mini calendar
-    const calendarEvents7 = upcomingEvents.filter((e) => {
-      const t = new Date(e.startTime).getTime();
-      return t <= new Date(today.getTime() + 7 * 86400000).getTime();
-    });
+    const sevenDaysStr = addDays(todayStr, 7);
+    const calendarEvents7 = upcomingEvents.filter(
+      (e) => dateInZone(e.startTime, tz) <= sevenDaysStr,
+    );
 
     const activeRulesCount = ruleList.filter((r: any) => r.status === "active").length;
 
     return NextResponse.json({
+      timezone: tz,
       metrics: {
         totalCustomers,
         activeCustomers,
