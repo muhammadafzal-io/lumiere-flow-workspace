@@ -556,7 +556,13 @@ function CreateUserDialog({
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to create user");
-      toast.success("User created — invite email sent");
+      if (data.user?.emailSent) {
+        toast.success("User created — invite email sent");
+      } else {
+        toast.error(
+          `User created, but the invite email could not be sent${data.user?.emailError ? ` (${data.user.emailError})` : ""}. Use "Resend" from the user list once email delivery is fixed.`,
+        );
+      }
       onOpenChange(false);
       onCreated();
     } catch (err) {

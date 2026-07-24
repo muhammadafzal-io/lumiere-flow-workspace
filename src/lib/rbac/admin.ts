@@ -8,6 +8,7 @@ import "server-only";
 import { getSupabase } from "@/lib/supabase";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { invalidateUserPermissionsCache } from "@/lib/rbac/permissions";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 export interface PermissionRow {
   id: string;
@@ -36,6 +37,12 @@ export interface UserSummary {
   mustChangePassword: boolean;
   lastLoginAt: string | null;
   roles: { id: string; name: string }[];
+}
+
+export interface CreateUserResult extends UserSummary {
+  /** Whether the invite email actually left the server — the account is created either way. */
+  emailSent: boolean;
+  emailError?: string;
 }
 
 /** The `rbac` module can never be granted to anything but the Super Admin system role. */
@@ -232,7 +239,7 @@ export async function createUser(params: {
   tempPassword: string;
   roleIds: string[];
   invitedBy: string | null;
-}): Promise<UserSummary> {
+}): Promise<CreateUserResult> {
   const sb = getSupabase();
 
   const { data: created, error: authErr } = await sb.auth.admin.createUser({
@@ -265,29 +272,45 @@ export async function createUser(params: {
     if (roleErr) throw new Error(roleErr.message);
   }
 
-  await sendRetentionEmail({
-    to: params.email,
-    subject: "Your Lumière staff account",
-    flowType: "general",
-    text: [
-      `Hi ${params.name},`,
-      ``,
-      `An account has been created for you on the Lumière admin dashboard.`,
-      ``,
-      `Email: ${params.email}`,
-      `Temporary password: ${params.tempPassword}`,
-      ``,
-      `Sign in and you'll be asked to set your own password before doing anything else.`,
-      `— The Lumière Team`,
-    ].join("\n"),
-  }).catch((err) => {
-    console.error("[rbac] invite email failed:", err);
-  });
+  const { clinicName } = await getClinicConfig();
+  let emailSent = false;
+  let emailError: string | undefined;
+  try {
+    const outcome = await sendRetentionEmail({
+      to: params.email,
+      subject: `Your ${clinicName} staff account`,
+      flowType: "general",
+      logMeta: {
+        category: "general",
+        triggerType: "system",
+        clientId: created.user.id,
+        clientName: params.name,
+      },
+      text: [
+        `Hi ${params.name},`,
+        ``,
+        `An account has been created for you on the ${clinicName} admin dashboard.`,
+        ``,
+        `Email: ${params.email}`,
+        `Temporary password: ${params.tempPassword}`,
+        ``,
+        `Sign in and you'll be asked to set your own password before doing anything else.`,
+        `— The ${clinicName} Team`,
+      ].join("\n"),
+    });
+    emailSent = outcome.sent;
+    emailError = outcome.sent ? undefined : outcome.error;
+  } catch (err) {
+    emailError = err instanceof Error ? err.message : String(err);
+  }
+  if (!emailSent) {
+    console.error(`[rbac] invite email to ${params.email} was not sent:`, emailError);
+  }
 
   const users = await listUsers();
   const user = users.find((u) => u.id === created.user.id);
   if (!user) throw new Error("User created but could not be reloaded");
-  return user;
+  return { ...user, emailSent, emailError };
 }
 
 export async function updateUserRoles(userId: string, roleIds: string[]): Promise<void> {
@@ -331,22 +354,32 @@ export async function resendCredentials(
   const { error } = await sb.from("Users").update({ MustChangePassword: true }).eq("id", userId);
   if (error) throw new Error(error.message);
 
-  await sendRetentionEmail({
+  const { clinicName } = await getClinicConfig();
+  const outcome = await sendRetentionEmail({
     to: email,
-    subject: "Your Lumière staff account — new temporary password",
+    subject: `Your ${clinicName} staff account — new temporary password`,
     flowType: "general",
+    logMeta: {
+      category: "general",
+      triggerType: "manual",
+      clientId: userId,
+      clientName: name,
+    },
     text: [
       `Hi ${name},`,
       ``,
-      `Your Lumière admin dashboard password has been reset.`,
+      `Your ${clinicName} admin dashboard password has been reset.`,
       ``,
       `Email: ${email}`,
       `Temporary password: ${tempPassword}`,
       ``,
       `Sign in and you'll be asked to set your own password before doing anything else.`,
-      `— The Lumière Team`,
+      `— The ${clinicName} Team`,
     ].join("\n"),
   });
+  if (!outcome.sent) {
+    throw new Error(outcome.error ?? "Email delivery failed");
+  }
 
   invalidateUserPermissionsCache(userId);
 }
