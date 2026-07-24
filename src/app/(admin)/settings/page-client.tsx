@@ -627,7 +627,7 @@ function PractitionerDialog({
           <DialogTitle>{editing ? "Edit team member" : "Add team member"}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4 py-2 overflow-y-auto pr-4 flex-1">
+        <div className="space-y-4 py-2 overflow-y-auto pl-1 pr-4 flex-1">
           {/* Name */}
           <div>
             <Label>Name *</Label>
@@ -1223,7 +1223,7 @@ function RoomsTab({ rooms, onSaved }: { rooms: RoomItem[]; onSaved: (rooms: Room
           <DialogHeader>
             <DialogTitle>{active ? "Edit room" : "Add room"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2 overflow-y-auto pr-1 flex-1">
+          <div className="space-y-4 py-2 overflow-y-auto pl-1 pr-1 flex-1">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>Name</Label>
@@ -1453,7 +1453,7 @@ function EquipmentTab({
           <DialogHeader>
             <DialogTitle>{active ? "Edit equipment" : "Add equipment"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2 overflow-y-auto pr-1 flex-1">
+          <div className="space-y-4 py-2 overflow-y-auto pl-1 pr-1 flex-1">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>Name</Label>
@@ -1739,7 +1739,7 @@ function ServicesTab({
           <DialogHeader>
             <DialogTitle>{active ? "Edit service" : "Add service"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2 overflow-y-auto pr-1 flex-1">
+          <div className="space-y-4 py-2 overflow-y-auto pl-1 pr-1 flex-1">
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
                 <Label>Name</Label>
