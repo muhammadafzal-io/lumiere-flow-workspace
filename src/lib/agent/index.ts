@@ -109,6 +109,7 @@ async function deliverCompletionLink(opts: {
 }): Promise<{ url: string; sentVia: "email" | "sms" | "chat_reply" | "none"; note?: string }> {
   const client = await lookupClient({ phone: opts.phone }).catch(() => null);
   const email = client?.email;
+  const { clinicName } = await getClinicConfig();
 
   const sentVia: "email" | "sms" | "chat_reply" | "none" = email
     ? "email"
@@ -136,10 +137,10 @@ async function deliverCompletionLink(opts: {
   if (sentVia === "email") {
     void sendRetentionEmail({
       to: email!,
-      subject: "Finish setting up your Lumière appointment",
+      subject: `Finish setting up your ${clinicName} appointment`,
       flowType: "booking",
       text: [
-        `Hi${opts.clientName ? ` ${opts.clientName}` : ""}, thanks for booking with Lumière!`,
+        `Hi${opts.clientName ? ` ${opts.clientName}` : ""}, thanks for booking with ${clinicName}!`,
         ``,
         `Please complete a few final details for your appointment${opts.treatment ? ` (${opts.treatment})` : ""} using the secure link below.`,
       ].join("\n"),
@@ -151,7 +152,7 @@ async function deliverCompletionLink(opts: {
   if (sentVia === "sms") {
     void sendSms({
       to: opts.phone,
-      body: `Lumière Med Spa: finish setting up your appointment here: ${url}`,
+      body: `${clinicName}: finish setting up your appointment here: ${url}`,
     })
       .then((sms) => {
         if (!sms.sent) recordFailure(new Error(sms.error ?? "unknown SMS failure"));
@@ -187,7 +188,7 @@ export async function executeTool(
 
   return runWithFlowLogger(flow, async () => {
     flow?.step(`agent:${toolName}:start`, { input: summarizeForFlowLog(input) });
-    const { timezone: tz } = await getClinicConfig();
+    const { timezone: tz, clinicName } = await getClinicConfig();
 
     switch (toolName) {
       case "get_practitioners": {
@@ -740,7 +741,7 @@ export async function executeTool(
                 clientName: cancelled.clientName,
               },
               text: [
-                `Hi ${cancelled.clientName}, your appointment at Lumière has been cancelled.`,
+                `Hi ${cancelled.clientName}, your appointment at ${clinicName} has been cancelled.`,
                 ``,
                 `Treatment: ${cancelled.treatment}`,
                 `Original Date: ${displayTime}`,
@@ -748,7 +749,7 @@ export async function executeTool(
                 `We'd love to rebook you at a time that works better. Reply here or visit us ${businessHoursLabel}.`,
                 widgetLinkLine(),
                 ``,
-                `— The Lumière Team`,
+                `— The ${clinicName} Team`,
               ].join("\n"),
               cta: {
                 label: "Book a New Appointment",
@@ -878,7 +879,7 @@ export async function executeTool(
                 clientName: rescheduled.clientName,
               },
               text: [
-                `Hi ${rescheduled.clientName}, your Lumière appointment has been rescheduled.`,
+                `Hi ${rescheduled.clientName}, your ${clinicName} appointment has been rescheduled.`,
                 ``,
                 `Treatment: ${rescheduled.treatment}`,
                 rescheduled.oldStartTime ? `Old Date: ${fmtTime(rescheduled.oldStartTime)}` : "",
@@ -889,7 +890,7 @@ export async function executeTool(
                 widgetLinkLine(),
                 ``,
                 `See you soon!`,
-                `— The Lumière Team`,
+                `— The ${clinicName} Team`,
               ]
                 .filter(Boolean)
                 .join("\n"),

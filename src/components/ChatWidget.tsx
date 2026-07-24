@@ -20,13 +20,23 @@ function getSessionId(): string {
   return sessionId;
 }
 
-const WELCOME_MESSAGE: Message = {
-  role: "assistant",
-  text: `Hi! I'm Lumière's virtual assistant. 💛\n\nI can help you with:\n• Services & pricing\n• Booking an appointment\n• Prep & aftercare info\n• Anything else about the spa\n\nWhat can I help you with today?`,
-};
+function welcomeMessage(clinicName: string): Message {
+  return {
+    role: "assistant",
+    text: `Hi! I'm ${clinicName}'s virtual assistant. 💛\n\nI can help you with:\n• Services & pricing\n• Booking an appointment\n• Prep & aftercare info\n• Anything else about the spa\n\nWhat can I help you with today?`,
+  };
+}
 
-export default function ChatWidget() {
-  const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE]);
+interface ChatWidgetProps {
+  clinicName?: string;
+  location?: string;
+}
+
+export default function ChatWidget({
+  clinicName = "Lumière Med Spa",
+  location = "Austin, TX",
+}: ChatWidgetProps) {
+  const [messages, setMessages] = useState<Message[]>([welcomeMessage(clinicName)]);
   const [agentHistory, setAgentHistory] = useState<ConversationMessages>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -98,6 +108,7 @@ export default function ChatWidget() {
       {voiceActive && (
         <VoiceCall
           sessionId={sessionId}
+          clinicName={clinicName}
           onClose={(completionLinks) => {
             setVoiceActive(false);
             if (completionLinks && completionLinks.length > 0) {
@@ -117,8 +128,8 @@ export default function ChatWidget() {
           <span className="font-serif font-bold text-white text-sm">L</span>
         </div>
         <div>
-          <p className="text-white font-semibold text-sm leading-tight">Lumière Med Spa</p>
-          <p className="text-lumiere-rose text-xs">AI Front Desk • Austin, TX</p>
+          <p className="text-white font-semibold text-sm leading-tight">{clinicName}</p>
+          <p className="text-lumiere-rose text-xs">AI Front Desk • {location}</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
@@ -159,7 +170,7 @@ export default function ChatWidget() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Message Lumière..."
+              placeholder={`Message ${clinicName}...`}
               className="flex-1 resize-none bg-lumiere-cream rounded-xl px-4 py-2.5 text-sm text-lumiere-navy placeholder-lumiere-muted focus:outline-none focus:ring-2 focus:ring-lumiere-rose transition-all max-h-32 overflow-y-auto"
               style={{ minHeight: "40px" }}
             />
@@ -168,7 +179,7 @@ export default function ChatWidget() {
               disabled={loading || voiceActive}
               className="w-10 h-10 rounded-xl bg-lumiere-rose flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label="Start voice call"
-              title="Talk to Lumière"
+              title={`Talk to ${clinicName}`}
             >
               <svg
                 className="w-4 h-4 text-white"

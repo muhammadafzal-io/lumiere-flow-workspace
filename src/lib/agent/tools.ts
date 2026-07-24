@@ -6,7 +6,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "get_practitioners",
       description:
-        "Get the list of active practitioners at Lumière. Call this after the client states their treatment so you can offer a practitioner preference. Returns name, specialty, and bio for each active practitioner.",
+        "Get the list of active practitioners at the clinic. Call this after the client states their treatment so you can offer a practitioner preference. Returns name, specialty, and bio for each active practitioner.",
       parameters: {
         type: "object",
         properties: {
@@ -44,7 +44,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "check_availability",
       description:
-        "Check available appointment slots in the Lumière Google Calendar for a given date, considering both room and practitioner availability. Returns available time slots and which rooms/practitioners are free. ALWAYS call this before suggesting any time to a client.",
+        "Check available appointment slots in the clinic's Google Calendar for a given date, considering both room and practitioner availability. Returns available time slots and which rooms/practitioners are free. ALWAYS call this before suggesting any time to a client.",
       parameters: {
         type: "object",
         properties: {
@@ -129,7 +129,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "book_appointment",
       description:
-        "Create a confirmed appointment in the Lumière Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Requires phone and treatment always — whether full name, email, and birthday must also be collected before calling this depends on the channel: follow the system prompt's booking-flow instructions for the exact requirement.",
+        "Create a confirmed appointment in the clinic's Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Requires phone and treatment always — whether full name, email, and birthday must also be collected before calling this depends on the channel: follow the system prompt's booking-flow instructions for the exact requirement.",
       parameters: {
         type: "object",
         properties: {
@@ -509,7 +509,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "escalate_to_human",
       description:
-        "Post an escalation alert in the Lumière #lumiere-escalations Slack channel so a human team member can follow up. REQUIRED: full name, phone, and email must be collected first — the system blocks escalation without them.",
+        "Post an escalation alert in the clinic's #lumiere-escalations Slack channel so a human team member can follow up. REQUIRED: full name, phone, and email must be collected first — the system blocks escalation without them.",
       parameters: {
         type: "object",
         properties: {

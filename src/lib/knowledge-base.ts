@@ -11,10 +11,14 @@
 
 import { WIDGET_URL } from "@/lib/client-channels";
 
-export function buildKnowledgeBase(address: string, businessHours: string): string {
+export function buildKnowledgeBase(
+  clinicName: string,
+  address: string,
+  businessHours: string,
+): string {
   return `
-## About Lumière Med Spa & Wellness
-Lumière is a boutique aesthetic clinic in Austin, Texas, founded in 2021 by Dr. Sofia Marchetti.
+## About ${clinicName}
+${clinicName} is a boutique aesthetic clinic in Austin, Texas, founded in 2021 by Dr. Sofia Marchetti.
 Address: ${address}
 Phone: (512) 555-0192  |  Email: hello@lumierespa.com
 Online chat & booking: ${WIDGET_URL}
@@ -113,8 +117,9 @@ Parking: Free surface lot directly behind the building (enter from Lamar Blvd).
 `;
 }
 
-/** @deprecated Use buildKnowledgeBase(address, businessHours) */
+/** @deprecated Use buildKnowledgeBase(clinicName, address, businessHours) */
 export const KNOWLEDGE_BASE = buildKnowledgeBase(
+  "Lumière Med Spa",
   "2847 South Lamar Blvd, Suite 120, Austin, TX 78704",
   "Mon–Sat 9:00 AM – 7:00 PM",
 );

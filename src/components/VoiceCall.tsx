@@ -43,6 +43,7 @@ interface TranscriptLine {
 
 interface VoiceCallProps {
   sessionId: string;
+  clinicName?: string;
   /** Any booking-completion links collected during the call are passed back here so the host
    * widget can keep them visible (e.g. as a persistent chat message) after the voice UI unmounts —
    * without this, a link shown only in the live transcript vanishes the moment the call auto-closes. */
@@ -88,7 +89,11 @@ const DISCONNECTED_GRACE_MS = 2500;
 /** How long a reconnect must stay stable before the attempt counter resets (FIX #R2) */
 const RECONNECT_STABLE_MS = 3000;
 
-export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
+export default function VoiceCall({
+  sessionId,
+  clinicName = "Lumière Med Spa",
+  onClose,
+}: VoiceCallProps) {
   const [status, setStatus] = useState<CallStatus>("connecting");
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [liveText, setLiveText] = useState<string>("");
@@ -351,8 +356,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                 JSON.stringify({
                   type: "response.create",
                   response: {
-                    instructions:
-                      'Deliver the opening greeting now. Say word for word: "Welcome to Lumière Med Spa and Wellness! I\'m Lumière, your AI voice concierge. How may I assist you today?"',
+                    instructions: `Deliver the opening greeting now. Say word for word: "Welcome to ${clinicName}! I'm your AI voice concierge. How may I assist you today?"`,
                   },
                 }),
               );
@@ -1095,7 +1099,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <p className="text-white font-semibold text-sm leading-tight">Lumière Voice</p>
+          <p className="text-white font-semibold text-sm leading-tight">{clinicName} Voice</p>
           <p
             className="text-xs mt-0.5 truncate"
             style={{
@@ -1214,7 +1218,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
             </div>
           </div>
           <div className="text-center">
-            <p className="text-white/80 text-sm font-medium">Connecting to Lumière</p>
+            <p className="text-white/80 text-sm font-medium">Connecting to {clinicName}</p>
             <p className="text-white/35 text-xs mt-1">Your voice session is being prepared</p>
           </div>
           <div className="flex gap-1.5">
@@ -1383,11 +1387,11 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
             ) : (
               <p className="text-xs tracking-wide" style={{ color: "rgba(255,255,255,0.3)" }}>
                 {aiSpeaking
-                  ? "Lumière is responding..."
+                  ? `${clinicName} is responding...`
                   : userSpeaking
                     ? "Listening..."
                     : status === "active"
-                      ? "Speak to Lumière"
+                      ? `Speak to ${clinicName}`
                       : ""}
               </p>
             )}
@@ -1424,7 +1428,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                     className="text-[10px] px-1 tracking-wide"
                     style={{ color: "rgba(255,255,255,0.28)" }}
                   >
-                    {line.role === "user" ? "You" : "Lumière"}
+                    {line.role === "user" ? "You" : clinicName}
                   </span>
                   <div
                     className="max-w-[83%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed"
@@ -1465,7 +1469,7 @@ export default function VoiceCall({ sessionId, onClose }: VoiceCallProps) {
                   className="text-[10px] px-1 tracking-wide"
                   style={{ color: "rgba(255,255,255,0.28)" }}
                 >
-                  Lumière
+                  {clinicName}
                 </span>
                 <div
                   className="max-w-[83%] rounded-2xl px-3.5 py-2.5 text-xs leading-relaxed italic"
