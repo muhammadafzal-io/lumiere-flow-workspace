@@ -12,6 +12,7 @@ export interface CurrentUser {
 
 interface CurrentUserContextType {
   user: CurrentUser | null;
+  clinicName: string | null;
   loading: boolean;
   /** 401 = not signed in, 200-ish = loaded (whether or not a user record exists) */
   unauthenticated: boolean;
@@ -22,6 +23,7 @@ const CurrentUserContext = createContext<CurrentUserContextType | undefined>(und
 
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
+  const [clinicName, setClinicName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [unauthenticated, setUnauthenticated] = useState(false);
 
@@ -41,6 +43,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
       }
       const data = await res.json();
       setUser(data.user ?? null);
+      setClinicName(data.clinicName ?? null);
     } catch {
       setUser(null);
     } finally {
@@ -53,7 +56,9 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
   }, [load]);
 
   return (
-    <CurrentUserContext.Provider value={{ user, loading, unauthenticated, refetch: load }}>
+    <CurrentUserContext.Provider
+      value={{ user, clinicName, loading, unauthenticated, refetch: load }}
+    >
       {children}
     </CurrentUserContext.Provider>
   );

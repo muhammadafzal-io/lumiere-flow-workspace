@@ -611,7 +611,17 @@ function PractitionerDialog({
       if (!res.ok) throw new Error();
       const data = await res.json();
       onSaved(data.practitioner);
-      toast.success(editing ? "Practitioner updated" : "Practitioner added");
+      if (editing) {
+        toast.success("Practitioner updated");
+      } else if (!form.email.trim()) {
+        toast.success("Practitioner added");
+      } else if (data.emailSent) {
+        toast.success("Practitioner added — welcome email sent");
+      } else {
+        toast.error(
+          `Practitioner added, but the welcome email could not be sent${data.emailError ? ` (${data.emailError})` : ""}.`,
+        );
+      }
       onClose();
     } catch {
       toast.error("Failed to save practitioner");

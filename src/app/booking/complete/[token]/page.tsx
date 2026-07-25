@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
 import { getCompletionLink, PENDING_NAME_PLACEHOLDER } from "@/lib/booking/completion-link";
 import { CompleteBookingForm } from "@/components/booking/CompleteBookingForm";
-import { getClinicTimezone } from "@/lib/clinic-config";
+import { getClinicConfig, getClinicTimezone } from "@/lib/clinic-config";
 
-export const metadata: Metadata = {
-  title: "Finish your booking — Lumière Med Spa",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const clinic = await getClinicConfig();
+  return { title: `Finish your booking — ${clinic.clinicName}` };
+}
 
 export const dynamic = "force-dynamic";
 

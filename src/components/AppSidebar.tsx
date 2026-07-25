@@ -27,6 +27,7 @@ import {
 import { ClientChannelsSidebar } from "@/components/ClientChannelsPanel";
 import { useAuth } from "@/lib/auth-context";
 import { canAccessPage } from "@/lib/permissions";
+import { useCurrentUser } from "@/lib/current-user-context";
 
 const items = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -43,6 +44,8 @@ const items = [
 export function AppSidebar() {
   const path = usePathname();
   const { userRole } = useAuth();
+  const { clinicName } = useCurrentUser();
+  const displayName = clinicName ?? "Lumière";
   const isActive = (url: string) => (url === "/" ? path === "/" : path.startsWith(url));
 
   const visibleItems = items.filter((item) => canAccessPage(userRole, item.url));
@@ -52,10 +55,10 @@ export function AppSidebar() {
       <SidebarHeader className="px-4 py-5">
         <Link href="/" className="flex items-center gap-2">
           <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
-            L
+            {displayName.trim().charAt(0).toUpperCase() || "L"}
           </div>
           <span className="text-base font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
-            Lumière
+            {displayName}
           </span>
         </Link>
       </SidebarHeader>

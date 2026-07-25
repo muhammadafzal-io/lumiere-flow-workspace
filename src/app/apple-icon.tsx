@@ -1,9 +1,13 @@
 import { ImageResponse } from "next/og";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 export const size = { width: 180, height: 180 };
 export const contentType = "image/png";
+export const dynamic = "force-dynamic";
 
-export default function AppleIcon() {
+export default async function AppleIcon() {
+  const { clinicName } = await getClinicConfig();
+  const initial = clinicName.trim().charAt(0).toUpperCase() || "L";
   return new ImageResponse(
     <div
       style={{
@@ -19,7 +23,7 @@ export default function AppleIcon() {
         fontFamily: "system-ui, sans-serif",
       }}
     >
-      L
+      {initial}
     </div>,
     { ...size },
   );

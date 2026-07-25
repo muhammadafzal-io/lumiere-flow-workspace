@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserId } from "@/lib/rbac/guard";
 import { getSupabase } from "@/lib/supabase";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,8 @@ export async function GET() {
     return NextResponse.json({ error: "User record not found" }, { status: 404 });
   }
 
+  const { clinicName } = await getClinicConfig();
+
   return NextResponse.json({
     user: {
       id: data.id,
@@ -32,5 +35,6 @@ export async function GET() {
       mustChangePassword: data.MustChangePassword,
       status: data.Status,
     },
+    clinicName,
   });
 }

@@ -866,6 +866,7 @@ export default function VoiceCall({
     },
     [
       sessionId,
+      clinicName,
       fetchWithTimeout,
       stop,
       clearProcessing,

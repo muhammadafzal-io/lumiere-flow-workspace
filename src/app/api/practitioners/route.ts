@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
+import { sendRetentionEmail } from "@/lib/integrations/email";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 export const dynamic = "force-dynamic";
 
@@ -61,7 +63,50 @@ export async function POST(req: Request) {
       .single();
 
     if (error) throw new Error(error.message);
-    return NextResponse.json({ practitioner: mapRow(data) });
+
+    let emailSent = false;
+    let emailError: string | undefined;
+    const recipientEmail = (email ?? "").trim();
+    if (recipientEmail) {
+      try {
+        const { clinicName } = await getClinicConfig();
+        const outcome = await sendRetentionEmail({
+          to: recipientEmail,
+          subject: `You've been added to the ${clinicName} team`,
+          flowType: "general",
+          logMeta: {
+            category: "general",
+            triggerType: "system",
+            clientId: data.id,
+            clientName: name,
+          },
+          text: [
+            `Hi ${name},`,
+            ``,
+            `You've been added as a team member at ${clinicName}.`,
+            role ? `Role: ${role}` : "",
+            specialty ? `Specialty: ${specialty}` : "",
+            ``,
+            `If you have any questions, reach out to the clinic's admin team.`,
+            `— The ${clinicName} Team`,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        });
+        emailSent = outcome.sent;
+        emailError = outcome.sent ? undefined : outcome.error;
+      } catch (err) {
+        emailError = err instanceof Error ? err.message : String(err);
+      }
+      if (!emailSent) {
+        console.error(
+          `[practitioners] welcome email to ${recipientEmail} was not sent:`,
+          emailError,
+        );
+      }
+    }
+
+    return NextResponse.json({ practitioner: mapRow(data), emailSent, emailError });
   } catch (error) {
     console.error("POST /api/practitioners error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
