@@ -7,8 +7,11 @@
 import "server-only";
 import { getSupabase } from "@/lib/supabase";
 import { sendRetentionEmail } from "@/lib/integrations/email";
+import { sendWhatsAppNotification } from "@/lib/integrations/whatsapp-send";
+import { whatsappTemplates } from "@/lib/messaging/whatsapp-templates";
 import { invalidateUserPermissionsCache } from "@/lib/rbac/permissions";
 import { getClinicConfig } from "@/lib/clinic-config";
+import { Console } from "console";
 
 export interface PermissionRow {
   id: string;
@@ -33,6 +36,7 @@ export interface UserSummary {
   id: string;
   name: string;
   email: string;
+  phone: string | null;
   status: string;
   mustChangePassword: boolean;
   lastLoginAt: string | null;
@@ -43,6 +47,9 @@ export interface CreateUserResult extends UserSummary {
   /** Whether the invite email actually left the server — the account is created either way. */
   emailSent: boolean;
   emailError?: string;
+  /** Whether the invite WhatsApp message actually left the server — only attempted if a phone was given. */
+  whatsappSent: boolean;
+  whatsappError?: string;
 }
 
 /** The `rbac` module can never be granted to anything but the Super Admin system role. */
@@ -208,7 +215,7 @@ export async function listUsers(): Promise<UserSummary[]> {
   const sb = getSupabase();
   const { data: users, error } = await sb
     .from("Users")
-    .select("id,Name,Email,Status,MustChangePassword,LastLoginAt")
+    .select("id,Name,Email,Phone,Status,MustChangePassword,LastLoginAt")
     .order("Name");
   if (error) throw new Error(`listUsers: ${error.message}`);
 
@@ -226,6 +233,7 @@ export async function listUsers(): Promise<UserSummary[]> {
     id: u.id,
     name: u.Name,
     email: u.Email,
+    phone: u.Phone ?? null,
     status: u.Status,
     mustChangePassword: u.MustChangePassword,
     lastLoginAt: u.LastLoginAt,
@@ -236,6 +244,7 @@ export async function listUsers(): Promise<UserSummary[]> {
 export async function createUser(params: {
   name: string;
   email: string;
+  phone?: string;
   tempPassword: string;
   roleIds: string[];
   invitedBy: string | null;
@@ -255,6 +264,7 @@ export async function createUser(params: {
     id: created.user.id,
     Name: params.name,
     Email: params.email,
+    Phone: params.phone?.trim() || null,
     Status: "Active",
     MustChangePassword: true,
     InvitedAt: new Date().toISOString(),
@@ -307,11 +317,36 @@ export async function createUser(params: {
     console.error(`[rbac] invite email to ${params.email} was not sent:`, emailError);
   }
 
+  // WhatsApp is independent of email — only attempted if a phone was given, never blocks or is
+  // blocked by the email result. Deliberately doesn't include the temp password (unlike email) —
+  // just points them to check email for login details.
+  let whatsappSent = false;
+  let whatsappError: string | undefined;
+  const invitePhone = params.phone?.trim();
+  if (invitePhone) {
+    const outcome = await sendWhatsAppNotification({
+      to: invitePhone,
+      text: whatsappTemplates.teamInvite({ name: params.name, clinicName }),
+      logMeta: {
+        category: "general",
+        triggerType: "system",
+        clientId: created.user.id,
+        clientName: params.name,
+      },
+    });
+    whatsappSent = outcome.sent;
+    whatsappError = outcome.sent ? undefined : outcome.error;
+    if (!whatsappSent) {
+      console.error(`[rbac] invite whatsapp to ${invitePhone} was not sent:`, whatsappError);
+    }
+  }
+
   const users = await listUsers();
   const user = users.find((u) => u.id === created.user.id);
   if (!user) throw new Error("User created but could not be reloaded");
-  return { ...user, emailSent, emailError };
+  return { ...user, emailSent, emailError, whatsappSent, whatsappError };
 }
+
 
 export async function updateUserRoles(userId: string, roleIds: string[]): Promise<void> {
   const sb = getSupabase();
@@ -323,6 +358,22 @@ export async function updateUserRoles(userId: string, roleIds: string[]): Promis
       .insert(roleIds.map((role_id) => ({ user_id: userId, role_id })));
     if (insErr) throw new Error(insErr.message);
   }
+  invalidateUserPermissionsCache(userId);
+}
+
+/** Permanently removes a user: role assignments, the Users row, and the Supabase Auth account. */
+export async function deleteUser(userId: string): Promise<void> {
+  const sb = getSupabase();
+
+  const { error: roleErr } = await sb.from("User_Roles").delete().eq("user_id", userId);
+  if (roleErr) throw new Error(roleErr.message);
+
+  const { error: rowErr } = await sb.from("Users").delete().eq("id", userId);
+  if (rowErr) throw new Error(rowErr.message);
+
+  const { error: authErr } = await sb.auth.admin.deleteUser(userId);
+  if (authErr) throw new Error(authErr.message);
+
   invalidateUserPermissionsCache(userId);
 }
 

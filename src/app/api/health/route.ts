@@ -48,6 +48,8 @@ export async function GET() {
     check("DISCORD_CHAT_CHANNEL_ID", "Discord channel for outbound retention messages"),
     check("WHATSAPP_ACCESS_TOKEN", "WhatsApp Cloud API token", true),
     check("WHATSAPP_PHONE_NUMBER_ID", "WhatsApp phone number ID", true),
+    check("WHATSAPP_APP_SECRET", "WhatsApp webhook signature secret", true),
+    check("WHATSAPP_WEBHOOK_VERIFY_TOKEN", "WhatsApp webhook verification token", true),
 
     checkJson("GOOGLE_SERVICE_ACCOUNT_JSON", "Google service account credentials"),
     check("GOOGLE_CALENDAR_ID", "Google Calendar ID for bookings"),

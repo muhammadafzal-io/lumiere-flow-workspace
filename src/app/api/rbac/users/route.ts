@@ -23,9 +23,10 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json();
-    const { name, email, tempPassword, roleIds } = body as {
+    const { name, email, phone, tempPassword, roleIds } = body as {
       name?: string;
       email?: string;
+      phone?: string;
       tempPassword?: string;
       roleIds?: string[];
     };
@@ -43,6 +44,7 @@ export async function POST(req: Request) {
     const user = await createUser({
       name: name.trim(),
       email: email.trim(),
+      phone: phone?.trim() || undefined,
       tempPassword,
       roleIds: roleIds ?? [],
       invitedBy,

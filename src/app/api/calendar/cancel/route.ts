@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
+import { sendWhatsAppNotification } from "@/lib/integrations/whatsapp-send";
+import { whatsappTemplates } from "@/lib/messaging/whatsapp-templates";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { invalidateEventsRangeCache } from "@/lib/integrations/google-calendar";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
@@ -70,7 +72,7 @@ export async function DELETE(req: NextRequest) {
 
     (async () => {
       try {
-        const { timezone } = await getClinicConfig();
+        const { timezone, clinicName } = await getClinicConfig();
         const description = event.description ?? "";
         const contact = parseField(description, "Contact");
         const clientName =
@@ -87,7 +89,6 @@ export async function DELETE(req: NextRequest) {
 
         const client = contact ? await lookupClient({ phone: contact }).catch(() => null) : null;
         const email = client?.email || emailInDesc;
-        if (!email) return;
 
         const displayTime = startTime
           ? new Date(startTime).toLocaleString("en-US", {
@@ -101,6 +102,29 @@ export async function DELETE(req: NextRequest) {
               timeZoneName: "short",
             })
           : "your scheduled time";
+
+        // Each channel is independent and best-effort — one failing (or simply not being on
+        // file) never blocks or hides the other.
+        if (contact) {
+          sendWhatsAppNotification({
+            to: contact,
+            text: whatsappTemplates.cancellation({
+              clientName,
+              clinicName,
+              treatment,
+              displayTime,
+            }),
+            logMeta: {
+              category: "cancellation",
+              triggerType: "system",
+              clientId: client?.id,
+              clientName,
+            },
+          }).catch((err) => console.error("[cancel] whatsapp cancellation failed:", err));
+        }
+
+        if (!email) return;
+
         const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
 
         await sendRetentionEmail({
@@ -114,7 +138,7 @@ export async function DELETE(req: NextRequest) {
             clientName,
           },
           text: [
-            `Hi ${clientName}, your appointment at Lumière has been cancelled.`,
+            `Hi ${clientName}, your appointment at ${clinicName} has been cancelled.`,
             ``,
             `Treatment: ${treatment}`,
             `Original Date: ${displayTime}`,
@@ -122,7 +146,7 @@ export async function DELETE(req: NextRequest) {
             `We'd love to rebook you at a time that works better. Reply to this email or visit us ${businessHoursLabel}.`,
             widgetLinkLine(),
             ``,
-            `— The Lumière Team`,
+            `— The ${clinicName} Team`,
           ].join("\n"),
           cta: {
             label: "Book a New Appointment",

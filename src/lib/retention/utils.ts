@@ -97,6 +97,26 @@ export async function trySend(
 
   const [primaryRes, discordRes, emailRes] = await Promise.allSettled(tasks);
 
+  // Log the primary channel's own outcome — previously only the parallel email send was
+  // recorded, so a WhatsApp/Discord send (the actual primary channel whenever
+  // MESSAGING_PROVIDER selects one) never showed up in the Email Log audit trail at all.
+  if (msg.emailLog) {
+    await logEmailSend({
+      ...msg.emailLog,
+      toEmail: msg.to,
+      subject,
+      messagePreview: preview,
+      provider: messaging.platform,
+      status: primaryRes.status === "fulfilled" ? "sent" : "failed",
+      failReason:
+        primaryRes.status === "rejected"
+          ? primaryRes.reason instanceof Error
+            ? primaryRes.reason.message
+            : String(primaryRes.reason)
+          : undefined,
+    }).catch((e) => console.error("[trySend] primary channel log failed:", e));
+  }
+
   if (primaryRes.status === "rejected") {
     throw primaryRes.reason instanceof Error
       ? primaryRes.reason

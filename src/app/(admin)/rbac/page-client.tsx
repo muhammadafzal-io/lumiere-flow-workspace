@@ -527,6 +527,7 @@ function CreateUserDialog({
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
   const [tempPassword, setTempPassword] = useState("");
   const [roleIds, setRoleIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
@@ -535,6 +536,7 @@ function CreateUserDialog({
     if (open) {
       setName("");
       setEmail("");
+      setPhone("");
       setTempPassword(randomTempPassword());
       setRoleIds(new Set());
     }
@@ -550,6 +552,7 @@ function CreateUserDialog({
         body: JSON.stringify({
           name: name.trim(),
           email: email.trim(),
+          phone: phone.trim() || undefined,
           tempPassword,
           roleIds: [...roleIds],
         }),
@@ -561,6 +564,11 @@ function CreateUserDialog({
       } else {
         toast.error(
           `User created, but the invite email could not be sent${data.user?.emailError ? ` (${data.user.emailError})` : ""}. Use "Resend" from the user list once email delivery is fixed.`,
+        );
+      }
+      if (phone.trim() && !data.user?.whatsappSent) {
+        toast.error(
+          `Invite WhatsApp message could not be sent${data.user?.whatsappError ? ` (${data.user.whatsappError})` : ""}.`,
         );
       }
       onOpenChange(false);
@@ -593,6 +601,16 @@ function CreateUserDialog({
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              className="mt-1.5"
+            />
+          </div>
+          <div>
+            <Label>Phone (optional)</Label>
+            <Input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="For a WhatsApp invite notification"
               className="mt-1.5"
             />
           </div>
@@ -698,6 +716,7 @@ function UsersTab({ roles }: { roles: RoleSummary[] }) {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingRolesFor, setEditingRolesFor] = useState<UserSummary | null>(null);
+  const [deletingUser, setDeletingUser] = useState<UserSummary | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -747,6 +766,20 @@ function UsersTab({ roles }: { roles: RoleSummary[] }) {
       toast.error(err instanceof Error ? err.message : "Failed to resend credentials");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const removeUser = async () => {
+    if (!deletingUser) return;
+    try {
+      const res = await fetch(`/api/rbac/users/${deletingUser.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to delete user");
+      toast.success("User deleted");
+      setDeletingUser(null);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete user");
     }
   };
 
@@ -845,6 +878,12 @@ function UsersTab({ roles }: { roles: RoleSummary[] }) {
                         >
                           {u.status === "Active" ? "Disable" : "Re-enable"}
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() => setDeletingUser(u)}
+                        >
+                          Delete
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>
@@ -867,6 +906,25 @@ function UsersTab({ roles }: { roles: RoleSummary[] }) {
         onOpenChange={(v) => !v && setEditingRolesFor(null)}
         onSaved={load}
       />
+      <Dialog open={!!deletingUser} onOpenChange={(v) => !v && setDeletingUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete user?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete {deletingUser?.name}'s account ({deletingUser?.email})
+              and remove their access. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingUser(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={removeUser}>
+              Delete user
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

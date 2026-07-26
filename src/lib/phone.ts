@@ -48,6 +48,23 @@ export function extractPhoneForLookup(raw: string): string {
   return trimmed;
 }
 
+/**
+ * Converts a locally-typed number (e.g. "03457066680") into the country-code format WhatsApp's
+ * Cloud API requires (no leading 0, no "+", prefixed with the country code) — same "assume this
+ * clinic's locale" approach extractPhoneForLookup already takes for US numbers with "+1", just
+ * for this clinic's Pakistan-based numbers. Without this, a number already allow-listed/verified
+ * in international format (e.g. "923457066680") gets silently rejected by Meta when a form saves
+ * it in local format instead — same phone, different string, and the WhatsApp API does no
+ * fuzzy-matching of its own.
+ */
+export function normalizeWhatsAppPhone(raw: string, defaultCountryCode = "92"): string {
+  const digits = phoneDigits(raw);
+  if (!digits) return digits;
+  if (digits.startsWith(defaultCountryCode)) return digits;
+  if (digits.startsWith("0")) return defaultCountryCode + digits.slice(1);
+  return defaultCountryCode + digits;
+}
+
 /** Collect unique phone strings to search (formats + digit variants). */
 export function phoneSearchVariants(...phones: Array<string | undefined>): string[] {
   const out = new Set<string>();

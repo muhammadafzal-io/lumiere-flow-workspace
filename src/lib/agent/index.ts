@@ -58,6 +58,8 @@ import {
 } from "@/lib/booking/completion-link";
 import { findOpenCompletionByPhone } from "@/lib/booking/completion-followups";
 import { sendSms } from "@/lib/integrations/sms";
+import { sendWhatsAppNotification, sendWhatsAppTemplate } from "@/lib/integrations/whatsapp-send";
+import { whatsappTemplates } from "@/lib/messaging/whatsapp-templates";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 import type { AgentResult } from "@/types";
 import {
@@ -80,12 +82,25 @@ function getOpenAI() {
 
 const MAX_TOOL_ROUNDS = 8;
 
+/** Tools that create/modify/cancel a booking — never allowed when platform === "whatsapp". */
+const WHATSAPP_BLOCKED_TOOLS = new Set([
+  "book_appointment",
+  "check_availability",
+  "find_earliest_availability",
+  "cancel_appointment",
+  "reschedule_appointment",
+  "check_reschedule_availability",
+]);
+
 const SMS_CONFIGURED = () =>
   !!(
     process.env.TWILIO_ACCOUNT_SID &&
     process.env.TWILIO_AUTH_TOKEN &&
     process.env.TWILIO_FROM_NUMBER
   );
+
+const WHATSAPP_CONFIGURED = () =>
+  !!(process.env.WHATSAPP_ACCESS_TOKEN && process.env.WHATSAPP_PHONE_NUMBER_ID);
 
 /**
  * Creates the booking-completion link and delivers it on the best available channel:
@@ -106,18 +121,24 @@ async function deliverCompletionLink(opts: {
   treatment?: string;
   platform: string;
   appointmentStartTime: string;
-}): Promise<{ url: string; sentVia: "email" | "sms" | "chat_reply" | "none"; note?: string }> {
+}): Promise<{
+  url: string;
+  sentVia: "email" | "whatsapp" | "sms" | "chat_reply" | "none";
+  note?: string;
+}> {
   const client = await lookupClient({ phone: opts.phone }).catch(() => null);
   const email = client?.email;
   const { clinicName } = await getClinicConfig();
 
-  const sentVia: "email" | "sms" | "chat_reply" | "none" = email
+  const sentVia: "email" | "whatsapp" | "sms" | "chat_reply" | "none" = email
     ? "email"
-    : opts.platform === "voice"
-      ? SMS_CONFIGURED()
-        ? "sms"
-        : "none"
-      : "chat_reply";
+    : WHATSAPP_CONFIGURED()
+      ? "whatsapp"
+      : opts.platform === "voice"
+        ? SMS_CONFIGURED()
+          ? "sms"
+          : "none"
+        : "chat_reply";
 
   const { url, token } = await createCompletionLink({
     eventId: opts.eventId,
@@ -146,6 +167,27 @@ async function deliverCompletionLink(opts: {
       ].join("\n"),
       cta: { label: "Complete My Booking", url },
     }).catch(recordFailure);
+    return { url, sentVia };
+  }
+
+  if (sentVia === "whatsapp") {
+    void sendWhatsAppNotification({
+      to: opts.phone,
+      text: whatsappTemplates.completionLink({
+        clientName: opts.clientName,
+        clinicName,
+        treatment: opts.treatment,
+        url,
+      }),
+      logMeta: {
+        category: "booking",
+        triggerType: "system",
+        sourceId: opts.eventId,
+        clientName: opts.clientName,
+      },
+    }).then((outcome) => {
+      if (!outcome.sent) recordFailure(new Error(outcome.error ?? "unknown WhatsApp failure"));
+    });
     return { url, sentVia };
   }
 
@@ -189,6 +231,21 @@ export async function executeTool(
   return runWithFlowLogger(flow, async () => {
     flow?.step(`agent:${toolName}:start`, { input: summarizeForFlowLog(input) });
     const { timezone: tz, clinicName } = await getClinicConfig();
+
+    // WhatsApp is a notification/communication channel only — booking, cancelling, and
+    // rescheduling must go through the chat widget, voice, or a booking link, never a WhatsApp
+    // reply. Unlike voice (whose equivalent gate lives in the HTTP route at
+    // src/app/api/voice/tool/route.ts, before executeTool is ever reached), WhatsApp has no
+    // separate tool-call route — it flows through this same in-process executeTool loop as
+    // chat/Discord, so the block has to live here instead.
+    if (context.platform === "whatsapp" && WHATSAPP_BLOCKED_TOOLS.has(toolName)) {
+      return {
+        result: {
+          error:
+            "Booking isn't available over WhatsApp. Let the client know they can book, cancel, or reschedule via the chat widget, a phone call, or a booking link — do not attempt it here.",
+        },
+      };
+    }
 
     switch (toolName) {
       case "get_practitioners": {
@@ -525,6 +582,70 @@ export async function executeTool(
             flow?.step("book:no email to send");
           }
 
+          // WhatsApp confirmation fires independently of email — each channel is best-effort
+          // and logged separately, so one failing never blocks or hides the other.
+          if (apptData.clientContact) {
+            const displayTime = new Date(apptData.startTime).toLocaleString("en-US", {
+              timeZone: tz,
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+              timeZoneName: "short",
+            });
+            const bookingTemplateName = process.env.WHATSAPP_BOOKING_TEMPLATE_NAME;
+            const whatsappSend = bookingTemplateName
+              ? sendWhatsAppTemplate({
+                  to: apptData.clientContact,
+                  templateName: bookingTemplateName,
+                  languageCode: process.env.WHATSAPP_BOOKING_TEMPLATE_LANG || "en",
+                  parameters: {
+                    customer_name: apptData.clientName,
+                    clinic_name: clinicName,
+                    treatment_name: apptData.treatment,
+                    appointment_time: displayTime,
+                    practitioner_name: apptData.practitionerName,
+                  },
+                  logPreview: whatsappTemplates.bookingConfirmation({
+                    clientName: apptData.clientName,
+                    clinicName,
+                    treatment: apptData.treatment,
+                    displayTime,
+                    practitionerName: apptData.practitionerName,
+                  }),
+                  logMeta: {
+                    category: "booking",
+                    triggerType: "system",
+                    clientId: clientRecord?.id,
+                    clientName: apptData.clientName,
+                  },
+                })
+              : sendWhatsAppNotification({
+                  to: apptData.clientContact,
+                  text: whatsappTemplates.bookingConfirmation({
+                    clientName: apptData.clientName,
+                    clinicName,
+                    treatment: apptData.treatment,
+                    displayTime,
+                    practitionerName: apptData.practitionerName,
+                  }),
+                  logMeta: {
+                    category: "booking",
+                    triggerType: "system",
+                    clientId: clientRecord?.id,
+                    clientName: apptData.clientName,
+                  },
+                });
+
+            whatsappSend
+              .then((outcome) => {
+                flow?.step("book:whatsapp confirmation", { sent: outcome.sent });
+              })
+              .catch((e) => console.error("[agent/book] whatsapp confirmation failed:", e));
+          }
+
           await logEvent(
             "booking",
             apptData.clientName,
@@ -713,21 +834,46 @@ export async function executeTool(
         let confirmationEmailSent = false;
         let emailSkippedReason: string | undefined;
 
+        const cancelDisplayTime = cancelled.startTime
+          ? new Date(cancelled.startTime).toLocaleString("en-US", {
+              timeZone: tz,
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+              timeZoneName: "short",
+            })
+          : "your scheduled time";
+
+        // WhatsApp fires independently of email — separate channel, separate log entry, one
+        // failing never blocks or hides the other.
+        const cancelPhone = cancelled.clientContact || phone;
+        if (cancelPhone) {
+          sendWhatsAppNotification({
+            to: cancelPhone,
+            text: whatsappTemplates.cancellation({
+              clientName: cancelled.clientName,
+              clinicName,
+              treatment: cancelled.treatment,
+              displayTime: cancelDisplayTime,
+            }),
+            logMeta: {
+              category: "cancellation",
+              triggerType: "system",
+              sourceId: eventId,
+              clientName: cancelled.clientName,
+            },
+          })
+            .then((outcome) => flow?.step("cancel:whatsapp result", { sent: outcome.sent }))
+            .catch((e) => console.error("[agent/cancel] whatsapp cancellation failed:", e));
+        }
+
         if (cancelEmail) {
           flow?.step("cancel:send email", { to: cancelEmail });
           const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
-          const displayTime = cancelled.startTime
-            ? new Date(cancelled.startTime).toLocaleString("en-US", {
-                timeZone: tz,
-                weekday: "long",
-                month: "long",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-                hour12: true,
-                timeZoneName: "short",
-              })
-            : "your scheduled time";
+          const displayTime = cancelDisplayTime;
 
           try {
             const outcome = await sendRetentionEmail({
@@ -852,20 +998,48 @@ export async function executeTool(
         let confirmationEmailSent = false;
         let emailSkippedReason: string | undefined;
 
+        const rescheduleFmtTime = (iso: string) =>
+          new Date(iso).toLocaleString("en-US", {
+            timeZone: tz,
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
+          });
+
+        // WhatsApp fires independently of email — separate channel, separate log entry, one
+        // failing never blocks or hides the other.
+        const reschedulePhone = rescheduled.clientContact || phone;
+        if (reschedulePhone) {
+          sendWhatsAppNotification({
+            to: reschedulePhone,
+            text: whatsappTemplates.reschedule({
+              clientName: rescheduled.clientName,
+              clinicName,
+              treatment: rescheduled.treatment,
+              oldDisplayTime: rescheduled.oldStartTime
+                ? rescheduleFmtTime(rescheduled.oldStartTime)
+                : undefined,
+              newDisplayTime: rescheduleFmtTime(rescheduled.newStartTime),
+            }),
+            logMeta: {
+              category: "reschedule",
+              triggerType: "system",
+              sourceId: eventId,
+              clientName: rescheduled.clientName,
+            },
+          })
+            .then((outcome) => flow?.step("reschedule:whatsapp result", { sent: outcome.sent }))
+            .catch((e) => console.error("[agent/reschedule] whatsapp reschedule failed:", e));
+        }
+
         if (rescheduleEmail) {
           flow?.step("reschedule:send email", { to: rescheduleEmail });
           const { address: clinicAddress } = await getClinicConfig();
           const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
-          const fmtTime = (iso: string) =>
-            new Date(iso).toLocaleString("en-US", {
-              timeZone: tz,
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-              hour: "numeric",
-              minute: "2-digit",
-              hour12: true,
-            });
+          const fmtTime = rescheduleFmtTime;
 
           try {
             const outcome = await sendRetentionEmail({
@@ -1242,7 +1416,7 @@ export async function runAgent(opts: {
   const { userMessage, history, platform, chatId } = opts;
 
   const messages: ChatCompletionMessageParam[] = [
-    { role: "system", content: await getSystemPrompt() },
+    { role: "system", content: await getSystemPrompt(platform) },
     ...history,
     { role: "user", content: userMessage },
   ];

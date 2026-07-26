@@ -46,7 +46,7 @@ export async function sendBookingConfirmationEmail(opts: {
       clientName: opts.clientName,
     },
     text: [
-      `Hi ${opts.clientName}, your appointment at Lumière is confirmed!`,
+      `Hi ${opts.clientName}, your appointment at ${clinic.clinicName} is confirmed!`,
       ``,
       `Treatment: ${opts.treatment}`,
       `Date & Time: ${displayTime}`,
@@ -58,7 +58,7 @@ export async function sendBookingConfirmationEmail(opts: {
       widgetLinkLine(),
       ``,
       `See you soon!`,
-      `— The Lumière Team`,
+      `— The ${clinic.clinicName} Team`,
     ]
       .filter((line) => line !== undefined)
       .join("\n"),

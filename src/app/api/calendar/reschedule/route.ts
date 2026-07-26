@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
+import { sendWhatsAppNotification } from "@/lib/integrations/whatsapp-send";
+import { whatsappTemplates } from "@/lib/messaging/whatsapp-templates";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { widgetLinkLine } from "@/lib/client-channels";
 import { getClinicConfig } from "@/lib/clinic-config";
@@ -80,7 +82,7 @@ export async function PATCH(req: NextRequest) {
   // Validated against the CLINIC's configured timezone and business-hours schedule, not the
   // server process's own local timezone — `Date.getDay()`/`getHours()` would silently use
   // whichever timezone Node happens to run in, which is not necessarily the clinic's.
-  const { timezone, address } = await getClinicConfig();
+  const { timezone, address, clinicName } = await getClinicConfig();
   const schedule = await getClinicBusinessHours();
   const newStartDate = new Date(newStartTime);
   const localDateStr = dateInZone(newStartDate, timezone);
@@ -156,7 +158,6 @@ export async function PATCH(req: NextRequest) {
           description.match(/Email:\s*([^\s\n]+@[^\s\n]+)/i)?.[1];
         const client = contact ? await lookupClient({ phone: contact }).catch(() => null) : null;
         const email = client?.email || emailInDesc;
-        if (!email) return;
 
         const fmtTime = (iso: string) =>
           new Date(iso).toLocaleString("en-US", {
@@ -169,6 +170,30 @@ export async function PATCH(req: NextRequest) {
             hour12: true,
             timeZoneName: "short",
           });
+
+        // Each channel is independent and best-effort — one failing (or simply not being on
+        // file) never blocks or hides the other.
+        if (contact) {
+          sendWhatsAppNotification({
+            to: contact,
+            text: whatsappTemplates.reschedule({
+              clientName,
+              clinicName,
+              treatment,
+              oldDisplayTime: oldStartTime ? fmtTime(oldStartTime) : undefined,
+              newDisplayTime: fmtTime(newStartTime),
+            }),
+            logMeta: {
+              category: "reschedule",
+              triggerType: "system",
+              clientId: client?.id,
+              clientName,
+            },
+          }).catch((err) => console.error("[reschedule] whatsapp reschedule failed:", err));
+        }
+
+        if (!email) return;
+
         const businessHoursLabel = describeClinicHours(schedule);
 
         await sendRetentionEmail({
@@ -182,7 +207,7 @@ export async function PATCH(req: NextRequest) {
             clientName,
           },
           text: [
-            `Hi ${clientName}, your Lumière appointment has been rescheduled.`,
+            `Hi ${clientName}, your ${clinicName} appointment has been rescheduled.`,
             ``,
             `Treatment: ${treatment}`,
             oldStartTime ? `Old Date: ${fmtTime(oldStartTime)}` : "",
@@ -193,7 +218,7 @@ export async function PATCH(req: NextRequest) {
             widgetLinkLine(),
             ``,
             `See you soon!`,
-            `— The Lumière Team`,
+            `— The ${clinicName} Team`,
           ]
             .filter(Boolean)
             .join("\n"),

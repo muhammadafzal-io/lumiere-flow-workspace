@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { sendRetentionEmail } from "@/lib/integrations/email";
+import { sendWhatsAppNotification } from "@/lib/integrations/whatsapp-send";
+import { whatsappTemplates } from "@/lib/messaging/whatsapp-templates";
 import { getClinicConfig } from "@/lib/clinic-config";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +14,7 @@ function mapRow(r: any) {
     id: r.id,
     name: r["Name"] ?? "",
     email: r["Email"] ?? "",
+    phone: r["Phone"] ?? "",
     role: r["Role"] ?? "",
     color: r["Color"] ?? "#6366f1",
     specialty: r["Specialty"] ?? "",
@@ -30,6 +33,7 @@ export async function POST(req: Request) {
     const {
       name,
       email,
+      phone,
       role,
       color,
       specialty,
@@ -48,6 +52,7 @@ export async function POST(req: Request) {
       .insert({
         Name: name,
         Email: email ?? "",
+        Phone: phone ?? "",
         Role: role ?? "",
         Color: color ?? "#6366f1",
         Specialty: specialty ?? "",
@@ -64,12 +69,13 @@ export async function POST(req: Request) {
 
     if (error) throw new Error(error.message);
 
+    const { clinicName } = await getClinicConfig();
+
     let emailSent = false;
     let emailError: string | undefined;
     const recipientEmail = (email ?? "").trim();
     if (recipientEmail) {
       try {
-        const { clinicName } = await getClinicConfig();
         const outcome = await sendRetentionEmail({
           to: recipientEmail,
           subject: `You've been added to the ${clinicName} team`,
@@ -106,7 +112,39 @@ export async function POST(req: Request) {
       }
     }
 
-    return NextResponse.json({ practitioner: mapRow(data), emailSent, emailError });
+    // WhatsApp is independent of email — only attempted if a phone was given, never blocks or
+    // is blocked by the email result.
+    let whatsappSent = false;
+    let whatsappError: string | undefined;
+    const recipientPhone = (phone ?? "").trim();
+    if (recipientPhone) {
+      const outcome = await sendWhatsAppNotification({
+        to: recipientPhone,
+        text: whatsappTemplates.practitionerWelcome({ name, clinicName, role, specialty }),
+        logMeta: {
+          category: "general",
+          triggerType: "system",
+          clientId: data.id,
+          clientName: name,
+        },
+      });
+      whatsappSent = outcome.sent;
+      whatsappError = outcome.sent ? undefined : outcome.error;
+      if (!whatsappSent) {
+        console.error(
+          `[practitioners] welcome whatsapp to ${recipientPhone} was not sent:`,
+          whatsappError,
+        );
+      }
+    }
+
+    return NextResponse.json({
+      practitioner: mapRow(data),
+      emailSent,
+      emailError,
+      whatsappSent,
+      whatsappError,
+    });
   } catch (error) {
     console.error("POST /api/practitioners error:", error);
     return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
@@ -120,6 +158,7 @@ export async function PATCH(req: Request) {
       id,
       name,
       email,
+      phone,
       role,
       color,
       specialty,
@@ -135,6 +174,7 @@ export async function PATCH(req: Request) {
     const fields: Record<string, any> = {};
     if (name !== undefined) fields["Name"] = name;
     if (email !== undefined) fields["Email"] = email;
+    if (phone !== undefined) fields["Phone"] = phone;
     if (role !== undefined) fields["Role"] = role;
     if (color !== undefined) fields["Color"] = color;
     if (specialty !== undefined) fields["Specialty"] = specialty;

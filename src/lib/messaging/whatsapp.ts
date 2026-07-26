@@ -18,8 +18,10 @@
  * the exact API surface so the WhatsApp implementation is a drop-in.
  */
 
+import * as crypto from "crypto";
 import type { MessagingProvider } from "./types";
 import type { InboundMessage, OutboundMessage } from "@/types";
+import { normalizeWhatsAppPhone } from "@/lib/phone";
 
 interface WAMessage {
   from: string;
@@ -43,6 +45,29 @@ interface WAWebhookPayload {
   entry: WAWebhookEntry[];
 }
 
+/**
+ * Verifies Meta's `X-Hub-Signature-256` header (HMAC-SHA256 of the raw body, keyed by the
+ * app's App Secret) — the WhatsApp Cloud API equivalent of Discord's Ed25519 signature check.
+ * Must run against the raw request body, before JSON.parse, same reason the Discord webhook
+ * route reads `req.text()` first.
+ */
+export function verifyWhatsAppSignature(
+  appSecret: string,
+  signatureHeader: string,
+  rawBody: string,
+): boolean {
+  try {
+    const expected = crypto.createHmac("sha256", appSecret).update(rawBody).digest("hex");
+    const provided = signatureHeader.replace(/^sha256=/, "");
+    const expectedBuf = Buffer.from(expected, "hex");
+    const providedBuf = Buffer.from(provided, "hex");
+    if (expectedBuf.length !== providedBuf.length) return false;
+    return crypto.timingSafeEqual(expectedBuf, providedBuf);
+  } catch {
+    return false;
+  }
+}
+
 export class WhatsAppProvider implements MessagingProvider {
   readonly platform = "whatsapp" as const;
 
@@ -57,7 +82,7 @@ export class WhatsAppProvider implements MessagingProvider {
     const body: Record<string, unknown> = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
-      to: msg.to,
+      to: normalizeWhatsAppPhone(msg.to),
       type: "text",
       text: { body: msg.text },
     };
@@ -92,6 +117,55 @@ export class WhatsAppProvider implements MessagingProvider {
     }
   }
 
+  /**
+   * Sends an approved Message Template — required for any business-initiated ("cold") message,
+   * since free-form text (`send()` above) only delivers within the 24h customer-service window
+   * opened by the recipient's last message. `parameters` uses Meta's named-variable format
+   * (`{{customer_name}}` style templates, not positional `{{1}}`), matching every template we've
+   * created in WhatsApp Manager going forward.
+   */
+  async sendTemplate(opts: {
+    to: string;
+    templateName: string;
+    languageCode: string;
+    parameters: Record<string, string>;
+  }): Promise<void> {
+    const body = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: normalizeWhatsAppPhone(opts.to),
+      type: "template",
+      template: {
+        name: opts.templateName,
+        language: { code: opts.languageCode },
+        components: [
+          {
+            type: "body",
+            parameters: Object.entries(opts.parameters).map(([parameter_name, text]) => ({
+              type: "text",
+              parameter_name,
+              text,
+            })),
+          },
+        ],
+      },
+    };
+
+    const res = await fetch(`https://graph.facebook.com/v19.0/${this.phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.accessToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`WhatsApp template send failed: ${err}`);
+    }
+  }
+
   parseInbound(payload: unknown): InboundMessage | null {
     const data = payload as WAWebhookPayload;
     if (data.object !== "whatsapp_business_account") return null;
@@ -107,12 +181,17 @@ export class WhatsAppProvider implements MessagingProvider {
           ? (message.interactive?.button_reply?.id ?? "")
           : "";
 
+    // Meta includes the sender's WhatsApp display name alongside the message, keyed by
+    // wa_id — match it to this specific message's sender rather than assuming index 0.
+    const contact = change?.value?.contacts?.find((c) => c.wa_id === message.from);
+
     return {
       id: message.id,
       from: message.from,
       chatId: message.from,
       text,
       platform: "whatsapp",
+      firstName: contact?.profile?.name,
       callbackData:
         message.type === "interactive" ? message.interactive?.button_reply?.id : undefined,
     };

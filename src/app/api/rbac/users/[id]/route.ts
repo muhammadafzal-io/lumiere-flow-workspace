@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { updateUserRoles, setUserStatus, listUsers } from "@/lib/rbac/admin";
+import { updateUserRoles, setUserStatus, deleteUser, listUsers } from "@/lib/rbac/admin";
 import { requireApiPermission } from "@/lib/rbac/guard";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,23 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
     console.error("PATCH /api/rbac/users/[id] error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to update user" },
+      { status: 400 },
+    );
+  }
+}
+
+export async function DELETE(_req: NextRequest, ctx: RouteCtx) {
+  const check = await requireApiPermission("rbac", "Manage");
+  if (!check.ok) return check.response;
+
+  try {
+    const { id } = await ctx.params;
+    await deleteUser(id);
+    return NextResponse.json({ success: true });
+  } catch (err) {
+    console.error("DELETE /api/rbac/users/[id] error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Failed to delete user" },
       { status: 400 },
     );
   }

@@ -25,7 +25,7 @@ export const TABLE = "BookingCompletions";
 /** Calendar-event placeholder when voice books without a name (name is now deferred to the completion form too). Never shown to the client — filtered back out to blank wherever it'd otherwise be displayed or pre-filled. */
 export const PENDING_NAME_PLACEHOLDER = "New Client (name pending)";
 
-export type DeliveryChannel = "email" | "sms" | "chat_reply" | "none";
+export type DeliveryChannel = "email" | "whatsapp" | "sms" | "chat_reply" | "none";
 
 export interface BookingCompletionRecord {
   token: string;

@@ -63,6 +63,7 @@ interface TeamMember {
   id: string;
   name: string;
   email: string;
+  phone?: string;
   role: string;
   color: string;
   specialty?: string;
@@ -535,6 +536,7 @@ function PractitionerDialog({
   const blank = {
     name: "",
     email: "",
+    phone: "",
     role: "",
     color: PRESET_COLORS[0],
     specialties: [] as string[],
@@ -553,6 +555,7 @@ function PractitionerDialog({
         ? {
             name: editing.name,
             email: editing.email,
+            phone: editing.phone ?? "",
             role: editing.role,
             color: editing.color,
             specialties: parseSpecialties(editing.specialty),
@@ -622,6 +625,11 @@ function PractitionerDialog({
           `Practitioner added, but the welcome email could not be sent${data.emailError ? ` (${data.emailError})` : ""}.`,
         );
       }
+      if (form.phone.trim() && !data.whatsappSent) {
+        toast.error(
+          `Welcome WhatsApp message could not be sent${data.whatsappError ? ` (${data.whatsappError})` : ""}.`,
+        );
+      }
       onClose();
     } catch {
       toast.error("Failed to save practitioner");
@@ -658,6 +666,18 @@ function PractitionerDialog({
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               className="mt-1.5"
               placeholder="name@clinic.com"
+            />
+          </div>
+
+          {/* Phone — optional, enables a WhatsApp welcome notification */}
+          <div>
+            <Label>Phone (optional)</Label>
+            <Input
+              type="tel"
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              className="mt-1.5"
+              placeholder="For a WhatsApp welcome notification"
             />
           </div>
 
