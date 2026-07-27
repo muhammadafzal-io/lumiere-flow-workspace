@@ -57,7 +57,6 @@ import {
   PENDING_NAME_PLACEHOLDER,
 } from "@/lib/booking/completion-link";
 import { findOpenCompletionByPhone } from "@/lib/booking/completion-followups";
-import { sendSms } from "@/lib/integrations/sms";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 import type { AgentResult } from "@/types";
 import {
@@ -80,30 +79,16 @@ function getOpenAI() {
 
 const MAX_TOOL_ROUNDS = 8;
 
-const SMS_CONFIGURED = () =>
-  !!(
-    process.env.TWILIO_ACCOUNT_SID &&
-    process.env.TWILIO_AUTH_TOKEN &&
-    process.env.TWILIO_FROM_NUMBER
-  );
-
 /**
  * Creates the booking-completion link and delivers it on the best available channel.
  *
- * Voice calls NEVER use email, even when the caller already has one on file from a past
- * visit — the caller is on the phone, not looking at their inbox, and VoiceCall.tsx already
- * renders the link directly in the call's own transcript as a guaranteed fallback (see the
- * "none" case below), so email would just be a redundant, easy-to-miss channel for that
- * platform. Chat/Discord keep the original email-first behavior — a completed profile
- * usually already means an email exists, and those are text channels where email is a
- * reliable, expected delivery method.
- *
- * The channel is decided synchronously (DB lookups + an env-var check only) so the model
- * always gets an accurate `sentVia` to relay to the client — but the actual network send
- * (the slow part: an email/SMS provider round-trip) is fired in the background, not awaited,
- * so it never adds latency to a live phone call. A background failure is recorded on the
- * `BookingCompletions` row (`markCompletionDeliveryError`) so it surfaces on the Pending
- * Bookings staff page instead of only a server log.
+ * Voice calls NEVER use email or SMS/WhatsApp, by product requirement — the link is only
+ * ever shown directly in the call's own live transcript (VoiceCall.tsx already renders it
+ * there whenever a tool response includes completion_link.url), since that's a channel the
+ * caller is already looking at, guaranteed, with no delivery provider needed. Chat/Discord
+ * keep the original email-first behavior — a completed profile usually already means an
+ * email exists, and those are text channels where email is a reliable, expected delivery
+ * method.
  */
 async function deliverCompletionLink(opts: {
   eventId: string;
@@ -112,19 +97,13 @@ async function deliverCompletionLink(opts: {
   treatment?: string;
   platform: string;
   appointmentStartTime: string;
-}): Promise<{ url: string; sentVia: "email" | "sms" | "chat_reply" | "none"; note?: string }> {
+}): Promise<{ url: string; sentVia: "email" | "chat_reply" | "none"; note?: string }> {
   const client = await lookupClient({ phone: opts.phone }).catch(() => null);
   const email = client?.email;
   const { clinicName } = await getClinicConfig();
 
-  const sentVia: "email" | "sms" | "chat_reply" | "none" =
-    opts.platform === "voice"
-      ? SMS_CONFIGURED()
-        ? "sms"
-        : "none"
-      : email
-        ? "email"
-        : "chat_reply";
+  const sentVia: "email" | "chat_reply" | "none" =
+    opts.platform === "voice" ? "none" : email ? "email" : "chat_reply";
 
   const { url, token } = await createCompletionLink({
     eventId: opts.eventId,
@@ -156,23 +135,11 @@ async function deliverCompletionLink(opts: {
     return { url, sentVia };
   }
 
-  if (sentVia === "sms") {
-    void sendSms({
-      to: opts.phone,
-      body: `${clinicName}: finish setting up your appointment here: ${url}`,
-    })
-      .then((sms) => {
-        if (!sms.sent) recordFailure(new Error(sms.error ?? "unknown SMS failure"));
-      })
-      .catch(recordFailure);
-    return { url, sentVia };
-  }
-
   if (sentVia === "none") {
     return {
       url,
       sentVia,
-      note: "SMS isn't configured, and voice calls never deliver this link by email — it's shown directly in the call's own chat window instead. Let the client know they can tap it there to finish their booking.",
+      note: "Voice calls never deliver this link by email, SMS, or WhatsApp — it's shown directly in the call's own chat window instead. Let the client know they can tap it there to finish their booking.",
     };
   }
 
@@ -505,8 +472,13 @@ export async function executeTool(
 
           const clientEmail = (input.client_email as string | undefined) || clientRecord?.email;
 
+          // Voice bookings are always Pending at creation (birthday can never be collected on
+          // this channel, so a voice booking is never "complete" here even for a returning
+          // client whose CRM record already has an email on file) — the real confirmation is
+          // sent later by completeBookingLink() once the registration form is submitted.
+          // Sending it here too would prematurely "confirm" a booking that's still Pending.
           let confirmationEmailSent = false;
-          if (clientEmail) {
+          if (!isVoice && clientEmail) {
             try {
               flow?.step("book:send confirmation email", { to: clientEmail });
               await sendBookingConfirmationEmail({

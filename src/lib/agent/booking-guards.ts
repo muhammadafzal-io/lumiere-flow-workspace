@@ -115,10 +115,9 @@ export async function validateBookAppointment(
   if (requireFullProfile) {
     if (!clientName) missing.push("client_name");
     else if (!isFullName(clientName)) missing.push("client_name (full first and last name)");
-  } else if (clientName && !isFullName(clientName)) {
-    // Not required, but if the caller volunteered something, it still has to look like a real name.
-    missing.push("client_name (full first and last name)");
   }
+  // Voice (!requireFullProfile): any non-empty name is accepted as-is — a casual first name
+  // is what's asked for on this channel, full legal name is collected later via the form.
   if (!String(input.treatment ?? "").trim()) missing.push("treatment");
   if (!String(input.client_contact ?? "").trim()) missing.push("client_contact (phone)");
   if (!String(input.date_time ?? "").trim()) missing.push("date_time");
@@ -157,11 +156,9 @@ export async function validateBookAppointment(
     ? `Collect full name, phone, email, and birthday BEFORE saying "Locking in your appointment now!"`
     : `Collect phone and treatment BEFORE booking — name, email, and birthday are collected afterward via the completion link.`;
   const error =
-    requireFullProfile && !clientName
-      ? `Cannot book: missing required fields: ${missing.join(", ")}. ${suffix}`
-      : clientName && !isFullName(clientName)
-        ? `${fullNameValidationError("client_name")} ${missing.length > 1 ? `Also missing: ${missing.filter((m) => !m.startsWith("client_name")).join(", ")}.` : ""}`
-        : `Cannot book: missing required fields: ${missing.join(", ")}. ${suffix}`;
+    requireFullProfile && clientName && !isFullName(clientName)
+      ? `${fullNameValidationError("client_name")} ${missing.length > 1 ? `Also missing: ${missing.filter((m) => !m.startsWith("client_name")).join(", ")}.` : ""}`
+      : `Cannot book: missing required fields: ${missing.join(", ")}. ${suffix}`;
   logFlowStep("book:validateBookAppointment:failed", { error, missing });
   return error;
 }

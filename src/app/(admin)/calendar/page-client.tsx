@@ -195,6 +195,7 @@ export default function CalendarPage() {
             notes: string;
             room: string;
             practitioner: string;
+            status?: "pending" | "confirmed";
           }) => {
             const matchedPrac = practitioners.find((p) => p.name === e.practitioner);
             const matchedCustomer = customers.find(
@@ -215,7 +216,7 @@ export default function CalendarPage() {
               end_time: e.endTime,
               practitioner_id: matchedPrac?.id ?? practitioners[0]?.id ?? "",
               room: e.room || "",
-              status: "confirmed" as const,
+              status: e.status === "pending" ? ("pending" as const) : ("confirmed" as const),
               source: "manual" as const,
               notes: e.notes ?? "",
               price: 0,

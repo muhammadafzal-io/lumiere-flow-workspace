@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import { listPendingCompletions } from "@/lib/booking/completion-followups";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -33,7 +34,20 @@ export async function GET(req: NextRequest) {
 
   try {
     const events = await getEventsByRange(from, to);
-    return NextResponse.json({ events });
+
+    // Voice bookings still waiting on their registration link show as "pending" here; everything
+    // else (including chat/Discord, which never creates a BookingCompletions row) is "confirmed".
+    const pendingEventIds = new Set(
+      (await listPendingCompletions().catch(() => []))
+        .filter((c) => c.status === "pending")
+        .map((c) => c.eventId),
+    );
+    const eventsWithStatus = events.map((e) => ({
+      ...e,
+      status: pendingEventIds.has(e.id) ? ("pending" as const) : ("confirmed" as const),
+    }));
+
+    return NextResponse.json({ events: eventsWithStatus });
   } catch (err) {
     console.error("[/api/calendar/events]", err);
     return NextResponse.json(

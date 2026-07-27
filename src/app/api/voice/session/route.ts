@@ -26,7 +26,7 @@ const REALTIME_TOOLS = [
     name: t.function.name,
     description:
       t.function.name === "book_appointment"
-        ? "Create a confirmed appointment in the clinic's Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Only phone, treatment, date_time, and duration_minutes are required — this schema has no client_email or birthday field on purpose; a secure completion link collects those afterward. Never ask the caller for their email or birthday, and never invent values for fields that don't exist here."
+        ? "Create a pending appointment in the clinic's Google Calendar with room and practitioner assignment; it's confirmed later once the caller finishes the completion link. Only call after the client has confirmed a specific slot from check_availability results. Only phone, treatment, date_time, and duration_minutes are required — client_name is a casual first name if the caller gave one (never their full legal name). This schema has no client_email or birthday field on purpose; a secure completion link collects those afterward. Never ask the caller for their email or birthday, and never invent values for fields that don't exist here."
         : (t.function.description ?? ""),
     parameters:
       t.function.name === "book_appointment"

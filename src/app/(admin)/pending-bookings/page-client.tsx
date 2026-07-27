@@ -98,8 +98,8 @@ export default function PendingBookingsPage() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Voice bookings still waiting on the customer to finish their email/birthday via the
-            completion link. Appointments here are confirmed on the calendar — this list is for
-            following up, not approving.
+            completion link. Appointments here show as Pending on the main Calendar until then —
+            this list is for following up, not approving.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchItems} disabled={loading}>

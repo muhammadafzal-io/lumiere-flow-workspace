@@ -136,7 +136,7 @@ export const TOOLS: ChatCompletionTool[] = [
           client_name: {
             type: "string",
             description:
-              "Client's full legal name — first and last (e.g. Sarah Johnson). Required for chat/Discord bookings (single first names rejected). Optional for voice calls — omit it unless the caller volunteers it; it's collected afterward via the completion link along with email and birthday.",
+              "Client's name. Required as a full legal name — first and last (e.g. Sarah Johnson) — for chat/Discord bookings (single first names rejected). For voice calls, a casual first name the caller gave is enough (never require or ask for their full legal name); omit entirely if they didn't give one. Full legal name is collected afterward via the completion link along with email and birthday.",
           },
           treatment: { type: "string", description: "Name of the treatment being booked" },
           date_time: {

@@ -45,6 +45,42 @@ describe("getPrematureBookBlockReason", () => {
     );
     expect(reason).toBeNull();
   });
+
+  it("allows the real minimal voice payload — treatment, phone, slot, casual first name, no email/birthday", () => {
+    const reason = getPrematureBookBlockReason(
+      {
+        client_name: "Ali",
+        treatment: "Laser Hair Removal",
+        client_contact: "+18999333444",
+        date_time: "2026-07-20T14:00:00.000Z",
+      },
+      [],
+    );
+    expect(reason).toBeNull();
+  });
+
+  it("allows a minimal voice payload with no name at all", () => {
+    const reason = getPrematureBookBlockReason(
+      {
+        treatment: "Botox",
+        client_contact: "+18999333444",
+        date_time: "2026-07-20T14:00:00.000Z",
+      },
+      [],
+    );
+    expect(reason).toBeNull();
+  });
+
+  it("blocks when phone is still missing", () => {
+    const reason = getPrematureBookBlockReason(
+      {
+        treatment: "Botox",
+        date_time: "2026-07-20T14:00:00.000Z",
+      },
+      [],
+    );
+    expect(reason).toContain("phone");
+  });
 });
 
 describe("enrichVoiceToolInput", () => {

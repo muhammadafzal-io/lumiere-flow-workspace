@@ -1,12 +1,6 @@
 import { isFullName } from "@/lib/agent/client-name";
-import { isValidBirthdayInput } from "@/lib/birthday";
-import { findVoiceConfirmedEmail, resolveVoiceBookingEmail } from "@/lib/voice/confirmed-email";
+import { resolveVoiceBookingEmail } from "@/lib/voice/confirmed-email";
 import { findVoicePhone } from "@/lib/voice/confirmed-phone";
-
-function hasValidBirthday(input: Record<string, unknown>): boolean {
-  const bday = input.birthday;
-  return typeof bday === "string" && isValidBirthdayInput(bday);
-}
 
 export interface VoiceSlotMemory {
   startTime: string;
@@ -176,24 +170,18 @@ export function enrichVoiceToolInput(
   }
 }
 
+/** Fields voice actually requires: treatment, phone, and a chosen slot. Name is asked for but never blocks; email/birthday are never collected on this channel. */
 export function missingVoiceBookingFields(
   input: Record<string, unknown>,
   transcript: TranscriptLine[],
 ): string[] {
   const missing: string[] = [];
-  const name =
-    String(input.client_name ?? "").trim() || extractNameFromTranscript(transcript) || "";
-  if (!name || !isFullName(name)) missing.push("full name (first and last)");
   if (!String(input.treatment ?? extractTreatmentFromTranscript(transcript) ?? "").trim()) {
     missing.push("treatment");
   }
   if (!String(input.client_contact ?? "").trim() && !findVoicePhone(transcript)) {
     missing.push("phone");
   }
-  if (!String(input.client_email ?? "").trim() && !findVoiceConfirmedEmail(transcript)) {
-    missing.push("email (spell back and confirm)");
-  }
-  if (!hasValidBirthday(input)) missing.push("birthday");
   if (!String(input.date_time ?? "").trim())
     missing.push("chosen slot (date_time from check_availability)");
   return missing;
@@ -221,16 +209,8 @@ export function getPrematureBookBlockReason(
   }
 
   const missing = missingVoiceBookingFields(input, transcript);
-  const critical = missing.filter(
-    (m) =>
-      m.includes("name") ||
-      m.includes("phone") ||
-      m.includes("email") ||
-      m.includes("birthday") ||
-      m.includes("slot"),
-  );
-  if (critical.length >= 3) {
-    return `book_appointment is too incomplete (${critical.join(", ")}). Finish collecting contact info and slot choice first — do not call book_appointment again until ready.`;
+  if (missing.length > 0) {
+    return `book_appointment is missing required fields (${missing.join(", ")}). Collect those before calling this tool again.`;
   }
   return null;
 }
