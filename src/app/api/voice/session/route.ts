@@ -3,12 +3,37 @@ import { getVoiceSystemPrompt } from "@/lib/agent/voice-system-prompt";
 import { TOOLS } from "@/lib/agent/tools";
 import { getOpenAIRealtimeApiKey, OPENAI_KEY_SETUP_HINT } from "@/lib/openai-config";
 
+/**
+ * book_appointment's shared schema (used by chat/Discord too) includes client_email and
+ * birthday as valid parameters, since chat/Discord bookings require them. For the realtime
+ * voice session specifically, those two fields are removed from the schema entirely rather
+ * than just described as optional in prose — a parameter's mere presence in a function
+ * signature is a much stronger invitation for a model to collect and fill it than a system
+ * prompt telling it not to. Live-call testing showed the voice model fabricating plausible-
+ * looking values for these fields despite explicit prose instructions not to; the only
+ * reliable fix is to make it structurally impossible for the tool call to carry them.
+ */
+function voiceOnlyBookAppointmentSchema(params: Record<string, unknown>): Record<string, unknown> {
+  const properties = { ...(params.properties as Record<string, unknown>) };
+  delete properties.client_email;
+  delete properties.birthday;
+  return { ...params, properties };
+}
+
 const REALTIME_TOOLS = [
   ...TOOLS.map((t) => ({
     type: "function" as const,
     name: t.function.name,
-    description: t.function.description ?? "",
-    parameters: t.function.parameters ?? { type: "object", properties: {} },
+    description:
+      t.function.name === "book_appointment"
+        ? "Create a confirmed appointment in the clinic's Google Calendar with room and practitioner assignment. Only call after the client has confirmed a specific slot from check_availability results. Only phone, treatment, date_time, and duration_minutes are required — this schema has no client_email or birthday field on purpose; a secure completion link collects those afterward. Never ask the caller for their email or birthday, and never invent values for fields that don't exist here."
+        : (t.function.description ?? ""),
+    parameters:
+      t.function.name === "book_appointment"
+        ? voiceOnlyBookAppointmentSchema(
+            t.function.parameters ?? { type: "object", properties: {} },
+          )
+        : (t.function.parameters ?? { type: "object", properties: {} }),
   })),
   {
     type: "function" as const,
