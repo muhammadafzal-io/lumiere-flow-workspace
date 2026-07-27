@@ -88,9 +88,15 @@ const SMS_CONFIGURED = () =>
   );
 
 /**
- * Creates the booking-completion link and delivers it on the best available channel:
- * email (if already on file) > SMS (voice calls only) > directly in the chat reply
- * (text-based channels with no email on file).
+ * Creates the booking-completion link and delivers it on the best available channel.
+ *
+ * Voice calls NEVER use email, even when the caller already has one on file from a past
+ * visit — the caller is on the phone, not looking at their inbox, and VoiceCall.tsx already
+ * renders the link directly in the call's own transcript as a guaranteed fallback (see the
+ * "none" case below), so email would just be a redundant, easy-to-miss channel for that
+ * platform. Chat/Discord keep the original email-first behavior — a completed profile
+ * usually already means an email exists, and those are text channels where email is a
+ * reliable, expected delivery method.
  *
  * The channel is decided synchronously (DB lookups + an env-var check only) so the model
  * always gets an accurate `sentVia` to relay to the client — but the actual network send
@@ -111,13 +117,14 @@ async function deliverCompletionLink(opts: {
   const email = client?.email;
   const { clinicName } = await getClinicConfig();
 
-  const sentVia: "email" | "sms" | "chat_reply" | "none" = email
-    ? "email"
-    : opts.platform === "voice"
+  const sentVia: "email" | "sms" | "chat_reply" | "none" =
+    opts.platform === "voice"
       ? SMS_CONFIGURED()
         ? "sms"
         : "none"
-      : "chat_reply";
+      : email
+        ? "email"
+        : "chat_reply";
 
   const { url, token } = await createCompletionLink({
     eventId: opts.eventId,
@@ -165,7 +172,7 @@ async function deliverCompletionLink(opts: {
     return {
       url,
       sentVia,
-      note: "No delivery channel available (no email on file, SMS not configured). Let the client know staff will follow up to collect their name, email, and birthday.",
+      note: "SMS isn't configured, and voice calls never deliver this link by email — it's shown directly in the call's own chat window instead. Let the client know they can tap it there to finish their booking.",
     };
   }
 
