@@ -698,6 +698,7 @@ function UsersTab({ roles }: { roles: RoleSummary[] }) {
   const [loading, setLoading] = useState(true);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingRolesFor, setEditingRolesFor] = useState<UserSummary | null>(null);
+  const [deletingUser, setDeletingUser] = useState<UserSummary | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -747,6 +748,20 @@ function UsersTab({ roles }: { roles: RoleSummary[] }) {
       toast.error(err instanceof Error ? err.message : "Failed to resend credentials");
     } finally {
       setBusyId(null);
+    }
+  };
+
+  const removeUser = async () => {
+    if (!deletingUser) return;
+    try {
+      const res = await fetch(`/api/rbac/users/${deletingUser.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to delete user");
+      toast.success("User deleted");
+      setDeletingUser(null);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete user");
     }
   };
 
@@ -845,6 +860,12 @@ function UsersTab({ roles }: { roles: RoleSummary[] }) {
                         >
                           {u.status === "Active" ? "Disable" : "Re-enable"}
                         </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="text-destructive"
+                          onClick={() => setDeletingUser(u)}
+                        >
+                          Delete
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </td>
@@ -867,6 +888,25 @@ function UsersTab({ roles }: { roles: RoleSummary[] }) {
         onOpenChange={(v) => !v && setEditingRolesFor(null)}
         onSaved={load}
       />
+      <Dialog open={!!deletingUser} onOpenChange={(v) => !v && setDeletingUser(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete user?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete {deletingUser?.name}'s account ({deletingUser?.email})
+              and remove their access. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeletingUser(null)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={removeUser}>
+              Delete user
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

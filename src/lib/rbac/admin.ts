@@ -326,6 +326,27 @@ export async function updateUserRoles(userId: string, roleIds: string[]): Promis
   invalidateUserPermissionsCache(userId);
 }
 
+/**
+ * Permanently removes a user: the Supabase Auth account, then role assignments and the Users
+ * row. Auth goes first deliberately — if it fails (even a transient error), the Users row stays
+ * in place so the account remains visible and re-deletable, instead of disappearing from the UI
+ * while the login itself silently survives as an unreachable orphan.
+ */
+export async function deleteUser(userId: string): Promise<void> {
+  const sb = getSupabase();
+
+  const { error: authErr } = await sb.auth.admin.deleteUser(userId);
+  if (authErr) throw new Error(authErr.message);
+
+  const { error: roleErr } = await sb.from("User_Roles").delete().eq("user_id", userId);
+  if (roleErr) throw new Error(roleErr.message);
+
+  const { error: rowErr } = await sb.from("Users").delete().eq("id", userId);
+  if (rowErr) throw new Error(rowErr.message);
+
+  invalidateUserPermissionsCache(userId);
+}
+
 export async function setUserStatus(userId: string, status: "Active" | "Disabled"): Promise<void> {
   const sb = getSupabase();
   const { error } = await sb.from("Users").update({ Status: status }).eq("id", userId);
