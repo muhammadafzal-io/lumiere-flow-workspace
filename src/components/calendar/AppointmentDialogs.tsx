@@ -59,6 +59,7 @@ import {
   zonedParts,
   zonedDateTimeToUtc,
 } from "@/lib/calendar-utils";
+import { useCurrentUser } from "@/lib/current-user-context";
 
 function statusPill(s: AppointmentStatus) {
   const map: Record<AppointmentStatus, string> = {
@@ -1081,6 +1082,8 @@ export function NewAppointmentModal({
   practitioners: Practitioner[];
   defaultStart: Date | null;
 }) {
+  const { can } = useCurrentUser();
+  const canCreateCustomer = can("customers", "Create");
   const [customerId, setCustomerId] = useState<string>("");
   const [treatment, setTreatment] = useState<Treatment>("HydraFacial");
   const [date, setDate] = useState<string>(() => {
@@ -1409,15 +1412,17 @@ export function NewAppointmentModal({
                 >
                   Existing client
                 </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={clientMode === "new" ? "default" : "outline"}
-                  className="h-8"
-                  onClick={() => switchClientMode("new")}
-                >
-                  New client
-                </Button>
+                {canCreateCustomer && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={clientMode === "new" ? "default" : "outline"}
+                    className="h-8"
+                    onClick={() => switchClientMode("new")}
+                  >
+                    New client
+                  </Button>
+                )}
               </div>
 
               {clientMode === "new" ? (
@@ -1478,14 +1483,20 @@ export function NewAppointmentModal({
                     ))}
                     {filteredCust.length === 0 && (
                       <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-                        No matches — try{" "}
-                        <button
-                          type="button"
-                          className="text-primary underline"
-                          onClick={() => switchClientMode("new")}
-                        >
-                          New client
-                        </button>
+                        No matches
+                        {canCreateCustomer && (
+                          <>
+                            {" "}
+                            — try{" "}
+                            <button
+                              type="button"
+                              className="text-primary underline"
+                              onClick={() => switchClientMode("new")}
+                            >
+                              New client
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>

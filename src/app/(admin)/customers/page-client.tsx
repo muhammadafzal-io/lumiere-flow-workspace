@@ -32,6 +32,7 @@ import type { Customer } from "@/lib/types";
 import { birthdayToInputValue, formatBirthdayDisplay } from "@/lib/birthday";
 import { toast } from "sonner";
 import { AccessGate } from "@/components/rbac/AccessGate";
+import { useCurrentUser } from "@/lib/current-user-context";
 
 function statusPill(s: string) {
   const map: Record<string, string> = {
@@ -135,6 +136,8 @@ function CustomerSheet({
   onClose: () => void;
   onUpdated: (updated: Customer) => void;
 }) {
+  const { can } = useCurrentUser();
+  const canUpdate = can("customers", "Update");
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState<EditForm>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -197,7 +200,7 @@ function CustomerSheet({
                   customer.name
                 )}
               </SheetTitle>
-              {!editMode && (
+              {!editMode && canUpdate && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -410,6 +413,9 @@ function CustomerSheet({
 }
 
 export default function CustomersPage() {
+  const { can } = useCurrentUser();
+  const canCreate = can("customers", "Create");
+  const canDelete = can("customers", "Delete");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
@@ -561,15 +567,17 @@ export default function CustomersPage() {
             <Download className="h-4 w-4 mr-1.5" />
             Export CSV
           </Button>
-          <Button
-            onClick={() => {
-              setForm(EMPTY_FORM);
-              setAddOpen(true);
-            }}
-          >
-            <Plus className="h-4 w-4 mr-1.5" />
-            Add customer
-          </Button>
+          {canCreate && (
+            <Button
+              onClick={() => {
+                setForm(EMPTY_FORM);
+                setAddOpen(true);
+              }}
+            >
+              <Plus className="h-4 w-4 mr-1.5" />
+              Add customer
+            </Button>
+          )}
         </div>
       </div>
 
@@ -676,15 +684,17 @@ export default function CustomersPage() {
                           <DropdownMenuItem onClick={() => setSelected(c)}>
                             View profile
                           </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setConfirmCustomer(c);
-                            }}
-                            className="text-destructive"
-                          >
-                            Delete
-                          </DropdownMenuItem>
+                          {canDelete && (
+                            <DropdownMenuItem
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setConfirmCustomer(c);
+                              }}
+                              className="text-destructive"
+                            >
+                              Delete
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </td>
