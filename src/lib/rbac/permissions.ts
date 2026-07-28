@@ -9,15 +9,12 @@
  * hidden hierarchy to reason about.
  */
 import { getSupabase } from "@/lib/supabase";
+import { hasPermissionKey, permissionKey, type PermissionAction } from "@/lib/rbac/shared";
 
-export type PermissionAction = "View" | "Create" | "Update" | "Delete" | "Manage";
+export type { PermissionAction };
 
 const CACHE_TTL_MS = 30_000;
 const cache = new Map<string, { value: Set<string>; expiresAt: number }>();
-
-function permissionKey(module: string, action: string): string {
-  return `${module}:${action}`;
-}
 
 /** All "Module:Action" permissions a user holds, across every role assigned to them. */
 export async function getUserPermissions(userId: string): Promise<Set<string>> {
@@ -69,5 +66,5 @@ export async function userHasPermission(
   action: PermissionAction,
 ): Promise<boolean> {
   const perms = await getUserPermissions(userId);
-  return perms.has(permissionKey(module, action));
+  return hasPermissionKey(perms, module, action);
 }

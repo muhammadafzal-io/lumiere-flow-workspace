@@ -3,17 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
-  Zap,
-  Users,
-  ScrollText,
-  Mail,
-  Settings as SettingsIcon,
-  Calendar as CalendarIcon,
-  Clock,
-  ShieldCheck,
-} from "lucide-react";
-import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
@@ -25,30 +14,16 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { ClientChannelsSidebar } from "@/components/ClientChannelsPanel";
-import { useAuth } from "@/lib/auth-context";
-import { canAccessPage } from "@/lib/permissions";
 import { useCurrentUser } from "@/lib/current-user-context";
-
-const items = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Rules & Campaigns", url: "/rules", icon: Zap },
-  { title: "Calendar", url: "/calendar", icon: CalendarIcon },
-  { title: "Pending Bookings", url: "/pending-bookings", icon: Clock },
-  { title: "Customers", url: "/customers", icon: Users },
-  { title: "Activity Log", url: "/activity", icon: ScrollText },
-  { title: "Email Log", url: "/email-logs", icon: Mail },
-  { title: "Settings", url: "/settings", icon: SettingsIcon },
-  { title: "RBAC Management", url: "/rbac", icon: ShieldCheck },
-];
+import { NAV_ITEMS } from "@/lib/nav-items";
 
 export function AppSidebar() {
   const path = usePathname();
-  const { userRole } = useAuth();
-  const { clinicName } = useCurrentUser();
+  const { clinicName, can } = useCurrentUser();
   const displayName = clinicName ?? "Lumière";
   const isActive = (url: string) => (url === "/" ? path === "/" : path.startsWith(url));
 
-  const visibleItems = items.filter((item) => canAccessPage(userRole, item.url));
+  const visibleItems = NAV_ITEMS.filter((item) => can(item.module));
 
   return (
     <Sidebar collapsible="icon">

@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, useCallback, useEffect, useState, type ReactNode } from "react";
+import { hasPermissionKey, type PermissionAction } from "@/lib/rbac/shared";
 
 export interface CurrentUser {
   id: string;
@@ -16,6 +17,10 @@ interface CurrentUserContextType {
   loading: boolean;
   /** 401 = not signed in, 200-ish = loaded (whether or not a user record exists) */
   unauthenticated: boolean;
+  /** True if the signed-in user holds `module:action` (action defaults to "View" — the
+   * action every page's own initial data fetch actually requires). Same DB-sourced
+   * permission set and predicate (`hasPermissionKey`) the API guard evaluates. */
+  can: (module: string, action?: PermissionAction) => boolean;
   refetch: () => void;
 }
 
@@ -24,6 +29,7 @@ const CurrentUserContext = createContext<CurrentUserContextType | undefined>(und
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [clinicName, setClinicName] = useState<string | null>(null);
+  const [permissions, setPermissions] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [unauthenticated, setUnauthenticated] = useState(false);
 
@@ -34,18 +40,22 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
       if (res.status === 401) {
         setUnauthenticated(true);
         setUser(null);
+        setPermissions(new Set());
         return;
       }
       setUnauthenticated(false);
       if (!res.ok) {
         setUser(null);
+        setPermissions(new Set());
         return;
       }
       const data = await res.json();
       setUser(data.user ?? null);
       setClinicName(data.clinicName ?? null);
+      setPermissions(new Set<string>(data.permissions ?? []));
     } catch {
       setUser(null);
+      setPermissions(new Set());
     } finally {
       setLoading(false);
     }
@@ -55,9 +65,15 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
     void load();
   }, [load]);
 
+  const can = useCallback(
+    (module: string, action: PermissionAction = "View") =>
+      hasPermissionKey(permissions, module, action),
+    [permissions],
+  );
+
   return (
     <CurrentUserContext.Provider
-      value={{ user, clinicName, loading, unauthenticated, refetch: load }}
+      value={{ user, clinicName, loading, unauthenticated, can, refetch: load }}
     >
       {children}
     </CurrentUserContext.Provider>

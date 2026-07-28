@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserId } from "@/lib/rbac/guard";
+import { getUserPermissions } from "@/lib/rbac/permissions";
 import { getSupabase } from "@/lib/supabase";
 import { getClinicConfig } from "@/lib/clinic-config";
 
@@ -26,6 +27,7 @@ export async function GET() {
   }
 
   const { clinicName } = await getClinicConfig();
+  const permissions = await getUserPermissions(userId);
 
   return NextResponse.json({
     user: {
@@ -36,5 +38,6 @@ export async function GET() {
       status: data.Status,
     },
     clinicName,
+    permissions: [...permissions],
   });
 }

@@ -14,6 +14,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { AccessGate } from "@/components/rbac/AccessGate";
+import { useCurrentUser } from "@/lib/current-user-context";
 
 interface ValidateResult {
   valid: boolean;
@@ -45,6 +47,7 @@ interface RedemptionRecord {
 }
 
 export default function CheckoutClient() {
+  const { loading: userLoading, unauthenticated, can } = useCurrentUser();
   const [code, setCode] = useState("");
   const [phone, setPhone] = useState("");
   const [validating, setValidating] = useState(false);
@@ -53,6 +56,10 @@ export default function CheckoutClient() {
   const [redeemResult, setRedeemResult] = useState<RedeemResult | null>(null);
   const [history, setHistory] = useState<RedemptionRecord[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  if (userLoading) return null;
+  if (unauthenticated) return <AccessGate status={401} />;
+  if (!can("credits")) return <AccessGate status={403} />;
 
   async function handleValidate() {
     const trimmed = code.trim().toUpperCase();
