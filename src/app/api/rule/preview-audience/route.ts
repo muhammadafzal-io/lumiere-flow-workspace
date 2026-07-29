@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildRuleAudience } from "@/lib/rules/audience";
+import { defaultRuleAudienceFilters } from "@/lib/rules/audience-config";
 import type { Channel, Rule, TriggerType } from "@/lib/types";
 import { requireApiPermission } from "@/lib/rbac/guard";
 
@@ -35,7 +36,13 @@ export async function POST(req: Request) {
       revenue: 0,
     } satisfies Rule;
 
-    const extraFilters = channel === "Email" ? { has_email: true as const } : {};
+    // Must match the run page's default filter state exactly — buildRuleAudience merges these
+    // extraFilters over any audience_filters stored on the rule (e.g. from an AI-parsed
+    // description), and the run page always sends a fully-populated filter set (even at
+    // defaults), which fully overrides them. Replicate that here, or a stale/conflicting stored
+    // audience_filters silently leaks through in the preview but not on the run page, producing a
+    // different (often much lower) count than what will actually be sent.
+    const extraFilters = { ...defaultRuleAudienceFilters(), status: [], treatment: [] };
 
     const { total, eligible, rows } = await buildRuleAudience(rule, extraFilters);
 
