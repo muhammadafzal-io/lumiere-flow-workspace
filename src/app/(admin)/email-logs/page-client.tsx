@@ -282,7 +282,9 @@ export default function EmailLogsPage() {
                     className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
                     onClick={() => setSelected(e)}
                   >
-                    <td className="px-3 py-2 text-xs whitespace-nowrap">{fmtTime(e.createdAt, tz)}</td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">
+                      {fmtTime(e.createdAt, tz)}
+                    </td>
                     <td className="px-3 py-2">
                       <span className={categoryClass(e.category)}>{e.category}</span>
                     </td>
