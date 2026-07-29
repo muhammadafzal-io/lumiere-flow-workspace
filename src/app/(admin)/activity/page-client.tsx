@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { AccessGate } from "@/components/rbac/AccessGate";
+import { useCurrentUser } from "@/lib/current-user-context";
 import type { OpsLogEntry } from "@/types";
 
 type LogRow = OpsLogEntry & { id: string };
@@ -55,11 +56,11 @@ function eventBadge(t: string) {
   return `inline-flex px-2 py-0.5 text-[11px] font-medium rounded-md border capitalize ${map[t] ?? "bg-muted text-muted-foreground border-border"}`;
 }
 
-function fmtTimestamp(raw: string): string {
+function fmtTimestamp(raw: string, timeZone: string): string {
   const d = new Date(raw);
   if (!isNaN(d.getTime())) {
     return d.toLocaleString("en-US", {
-      timeZone: "America/Chicago",
+      timeZone,
       month: "short",
       day: "numeric",
       hour: "numeric",
@@ -81,6 +82,8 @@ function platformBadge(p: string) {
 }
 
 export default function ActivityPage() {
+  const { timezone } = useCurrentUser();
+  const tz = timezone ?? "America/Chicago";
   const [entries, setEntries] = useState<LogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -267,7 +270,7 @@ export default function ActivityPage() {
                   filtered.map((a) => (
                     <tr key={a.id} className="hover:bg-muted/40 transition-colors">
                       <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap text-xs">
-                        {fmtTimestamp(a.timestamp)}
+                        {fmtTimestamp(a.timestamp, tz)}
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="font-medium">{a.clientName || "—"}</div>

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Clock } from "lucide-react";
 import { AccessGate } from "@/components/rbac/AccessGate";
+import { useCurrentUser } from "@/lib/current-user-context";
 
 interface PendingBookingItem {
   token: string;
@@ -19,11 +20,11 @@ interface PendingBookingItem {
   deliveryError: string | null;
 }
 
-function fmtTime(raw: string) {
+function fmtTime(raw: string, timeZone: string) {
   const d = new Date(raw);
   if (isNaN(d.getTime())) return raw;
   return d.toLocaleString("en-US", {
-    timeZone: "America/Chicago",
+    timeZone,
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -44,6 +45,8 @@ function statusClass(status: "pending" | "reminded" | "expired") {
 }
 
 export default function PendingBookingsPage() {
+  const { timezone } = useCurrentUser();
+  const tz = timezone ?? "America/Chicago";
   const [items, setItems] = useState<PendingBookingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -161,7 +164,7 @@ export default function PendingBookingsPage() {
                   return (
                     <tr key={item.token} className="border-b last:border-0 hover:bg-muted/30">
                       <td className="px-3 py-2 text-xs whitespace-nowrap">
-                        {fmtTime(item.createdAt)}
+                        {fmtTime(item.createdAt, tz)}
                       </td>
                       <td className="px-3 py-2 text-xs max-w-[140px] truncate">
                         {item.clientName ?? "—"}
@@ -181,7 +184,7 @@ export default function PendingBookingsPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2 text-xs whitespace-nowrap">
-                        {fmtTime(item.expiresAt)}
+                        {fmtTime(item.expiresAt, tz)}
                       </td>
                       <td className="px-3 py-2 text-xs text-destructive max-w-[220px] truncate">
                         {item.deliveryError ?? "—"}

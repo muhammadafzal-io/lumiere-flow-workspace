@@ -26,7 +26,7 @@ export async function GET() {
     return NextResponse.json({ error: "User record not found" }, { status: 404 });
   }
 
-  const { clinicName } = await getClinicConfig();
+  const { clinicName, timezone } = await getClinicConfig();
   const permissions = await getUserPermissions(userId);
 
   return NextResponse.json({
@@ -38,6 +38,7 @@ export async function GET() {
       status: data.Status,
     },
     clinicName,
+    timezone,
     permissions: [...permissions],
   });
 }

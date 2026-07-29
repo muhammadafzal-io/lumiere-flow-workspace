@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { RefreshCw, Mail } from "lucide-react";
 import { AccessGate } from "@/components/rbac/AccessGate";
+import { useCurrentUser } from "@/lib/current-user-context";
 import type { EmailSendLogEntry, EmailSendCategory } from "@/lib/integrations/email-send-log-types";
 
 const CATEGORIES = [
@@ -31,11 +32,11 @@ const CATEGORIES = [
   "general",
 ] as const;
 
-function fmtTime(raw: string) {
+function fmtTime(raw: string, timeZone: string) {
   const d = new Date(raw);
   if (isNaN(d.getTime())) return raw;
   return d.toLocaleString("en-US", {
-    timeZone: "America/Chicago",
+    timeZone,
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -68,6 +69,8 @@ function categoryClass(category: string) {
 }
 
 export default function EmailLogsPage() {
+  const { timezone } = useCurrentUser();
+  const tz = timezone ?? "America/Chicago";
   const searchParams = useSearchParams();
   const initialCategories = useMemo(() => {
     const raw = searchParams.get("categories");
@@ -279,7 +282,7 @@ export default function EmailLogsPage() {
                     className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
                     onClick={() => setSelected(e)}
                   >
-                    <td className="px-3 py-2 text-xs whitespace-nowrap">{fmtTime(e.createdAt)}</td>
+                    <td className="px-3 py-2 text-xs whitespace-nowrap">{fmtTime(e.createdAt, tz)}</td>
                     <td className="px-3 py-2">
                       <span className={categoryClass(e.category)}>{e.category}</span>
                     </td>
@@ -314,7 +317,7 @@ export default function EmailLogsPage() {
           {selected && (
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
               <dt className="text-muted-foreground">Time</dt>
-              <dd>{fmtTime(selected.createdAt)}</dd>
+              <dd>{fmtTime(selected.createdAt, tz)}</dd>
               <dt className="text-muted-foreground">Category</dt>
               <dd className="capitalize">{selected.category}</dd>
               <dt className="text-muted-foreground">Trigger</dt>

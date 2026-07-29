@@ -14,6 +14,9 @@ export interface CurrentUser {
 interface CurrentUserContextType {
   user: CurrentUser | null;
   clinicName: string | null;
+  /** Clinic's configured IANA timezone (e.g. "America/Chicago") — use this, not a
+   * hardcoded zone, when formatting any timestamp for display. Null until loaded. */
+  timezone: string | null;
   loading: boolean;
   /** 401 = not signed in, 200-ish = loaded (whether or not a user record exists) */
   unauthenticated: boolean;
@@ -29,6 +32,7 @@ const CurrentUserContext = createContext<CurrentUserContextType | undefined>(und
 export function CurrentUserProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [clinicName, setClinicName] = useState<string | null>(null);
+  const [timezone, setTimezone] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [unauthenticated, setUnauthenticated] = useState(false);
@@ -52,6 +56,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
       const data = await res.json();
       setUser(data.user ?? null);
       setClinicName(data.clinicName ?? null);
+      setTimezone(data.timezone ?? null);
       setPermissions(new Set<string>(data.permissions ?? []));
     } catch {
       setUser(null);
@@ -73,7 +78,7 @@ export function CurrentUserProvider({ children }: { children: ReactNode }) {
 
   return (
     <CurrentUserContext.Provider
-      value={{ user, clinicName, loading, unauthenticated, can, refetch: load }}
+      value={{ user, clinicName, timezone, loading, unauthenticated, can, refetch: load }}
     >
       {children}
     </CurrentUserContext.Provider>
