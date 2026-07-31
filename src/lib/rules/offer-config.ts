@@ -7,6 +7,10 @@ export interface RuleOfferConfig {
   code: string;
   type: RuleOfferType;
   amount: number;
+  /** When true, `code` is admin-controlled and used as-is for every recipient — including on
+   * Birthday rules, which otherwise auto-generate a unique code per customer. Defaults to false
+   * so existing rules keep their current trigger-type default behavior unchanged. */
+  allowCustomPromoCode: boolean;
 }
 
 export function parseRuleOffer(rule: Pick<Rule, "offer_code" | "trigger_config">): RuleOfferConfig {
@@ -17,6 +21,7 @@ export function parseRuleOffer(rule: Pick<Rule, "offer_code" | "trigger_config">
     code: rule.offer_code?.trim() ?? "",
     type,
     amount: Number.isFinite(amount) && amount > 0 ? amount : type === "discount" ? 20 : 50,
+    allowCustomPromoCode: cfg.allow_custom_promo_code === true,
   };
 }
 
@@ -24,6 +29,7 @@ export function offerConfigToTriggerFields(offer: RuleOfferConfig): Record<strin
   return {
     offer_type: offer.type,
     offer_amount: offer.amount,
+    allow_custom_promo_code: offer.allowCustomPromoCode,
   };
 }
 

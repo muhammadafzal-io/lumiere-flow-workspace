@@ -13,6 +13,22 @@ describe("rule offer config", () => {
     expect(o.amount).toBe(30);
   });
 
+  it("parseRuleOffer defaults allowCustomPromoCode to false for backward compatibility", () => {
+    const o = parseRuleOffer({
+      offer_code: "SPRING30",
+      trigger_config: { offer_type: "discount", offer_amount: 30 },
+    });
+    expect(o.allowCustomPromoCode).toBe(false);
+  });
+
+  it("parseRuleOffer reads allow_custom_promo_code when set", () => {
+    const o = parseRuleOffer({
+      offer_code: "SUMMER50",
+      trigger_config: { allow_custom_promo_code: true },
+    });
+    expect(o.allowCustomPromoCode).toBe(true);
+  });
+
   it("formatOfferSummary", () => {
     expect(formatOfferSummary("credit", 50)).toBe("$50 credit");
     expect(formatOfferSummary("discount", 20)).toBe("20% off");

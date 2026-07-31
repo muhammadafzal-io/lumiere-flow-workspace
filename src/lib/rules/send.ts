@@ -31,7 +31,12 @@ export async function sendRuleEmails(
 ): Promise<RetentionResult> {
   const messaging = getMessagingProvider();
   const triggerType = opts?.trigger ?? "manual";
+  const offer = parseRuleOffer(rule);
   const isBirthdayRule = rule.trigger_type === "Birthday";
+  // Birthday rules normally auto-generate a unique redeemable code per customer. When the admin
+  // has opted into "Allow Custom Promo Code", skip that and send the same admin-defined
+  // rule.offer_code to everyone instead, exactly like every other rule type.
+  const useBirthdayAutoCode = isBirthdayRule && !offer.allowCustomPromoCode;
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
 
   for (const r of recipients) {
@@ -63,7 +68,7 @@ export async function sendRuleEmails(
     let birthdayRawCode: string | undefined;
     let birthdayToken: string | undefined;
 
-    if (isBirthdayRule) {
+    if (useBirthdayAutoCode) {
       const client = await getClientById(r.id);
       if (client?.birthdayCreditSent) {
         await logEmailSend({
@@ -92,7 +97,6 @@ export async function sendRuleEmails(
       birthdayToken = displayBirthdayCode(birthdayRawCode);
     }
 
-    const offer = parseRuleOffer(rule);
     const text = personalizeRuleMessage(rule.message_template, {
       name: r.name,
       offerCode: rule.offer_code,
@@ -142,14 +146,14 @@ export async function sendRuleEmails(
         continue;
       }
 
-      if (isBirthdayRule && birthdayRawCode && r.id) {
+      if (useBirthdayAutoCode && birthdayRawCode && r.id) {
         await updateClientField(r.id, {
           "Credit Codes": birthdayRawCode,
           "Birthday Credit Sent": true,
         });
       }
 
-      const logMessage = isBirthdayRule
+      const logMessage = useBirthdayAutoCode
         ? `Birthday rule "${rule.name}" email sent. Code: ${birthdayToken}. Valid ${BIRTHDAY_CREDIT_VALID_DAYS} days ($${BIRTHDAY_CREDIT_AMOUNT} credit).`
         : `Rule "${rule.name}" email sent.${rule.offer_code ? ` Code: ${rule.offer_code}` : ""}`;
 
@@ -158,7 +162,7 @@ export async function sendRuleEmails(
         email: r.email,
         platform,
         status: "success",
-        ...(isBirthdayRule && birthdayToken ? { creditCode: birthdayToken } : {}),
+        ...(useBirthdayAutoCode && birthdayToken ? { creditCode: birthdayToken } : {}),
       });
 
       result.sent++;
@@ -168,7 +172,7 @@ export async function sendRuleEmails(
         status: "sent",
         emailAddress: r.email,
         emailSent: true,
-        messagePreview: isBirthdayRule
+        messagePreview: useBirthdayAutoCode
           ? `Code: ${birthdayToken} — $${BIRTHDAY_CREDIT_AMOUNT} birthday credit`
           : text.slice(0, 80),
       });
