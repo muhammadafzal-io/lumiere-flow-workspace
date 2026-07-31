@@ -1,5 +1,4 @@
 import type { TriggerType, Channel } from "./types";
-import { DEFAULT_BIRTHDAY_RULE_TEMPLATE } from "./credits/birthday-code";
 
 export interface ParsedRule {
   name: string;
@@ -141,7 +140,7 @@ export function generateCopy(t: TriggerType, cfg: Record<string, any>, offer?: s
     case "Custom":
       return `Hi {first_name}, we have a special offer just for you.${offer ? " Use code {credit_code}." : ""} Book your next visit today.`;
     case "Birthday":
-      return DEFAULT_BIRTHDAY_RULE_TEMPLATE;
+      return `Hi {first_name}, happy early birthday from all of us at Lumière! Enjoy {offer_summary} on your next visit.${offer ? " Use this code in our chatbot when you book: {credit_code}." : ""} We can't wait to celebrate with you.`;
     case "Inactivity":
       return `We miss you, {first_name}. It's been a while — come back for any treatment${offer ? ` with ${offer.match(/\d+/)?.[0]}% off using {credit_code}` : ""}. Tap to book.`;
     case "Treatment-based":

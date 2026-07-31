@@ -36,15 +36,8 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import type {
-  Appointment,
-  Practitioner,
-  Customer,
-  Treatment,
-  AppointmentStatus,
-} from "@/lib/types";
+import type { Appointment, Practitioner, Customer, AppointmentStatus } from "@/lib/types";
 import type { AvailableSlot } from "@/types";
-import { TREATMENT_DURATIONS, TREATMENT_PRICES } from "@/lib/treatments";
 import {
   birthdayToInputValue,
   isValidBirthdayInput,
@@ -1100,14 +1093,14 @@ export function CancelModal({
 
 // ----------------- New appointment modal -----------------
 
-const TREATMENTS_LIST: Treatment[] = [
-  "Botox",
-  "HydraFacial",
-  "Laser",
-  "Microneedling",
-  "IV Drip",
-  "Filler",
-];
+interface ServiceOption {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  status: string;
+}
+
+const DEFAULT_TREATMENT_DURATION = 60;
 
 export function NewAppointmentModal({
   open,
@@ -1127,13 +1120,14 @@ export function NewAppointmentModal({
   const { can } = useCurrentUser();
   const canCreateCustomer = can("customers", "Create");
   const [customerId, setCustomerId] = useState<string>("");
-  const [treatment, setTreatment] = useState<Treatment>("HydraFacial");
+  const [treatment, setTreatment] = useState<string>("");
+  const [services, setServices] = useState<ServiceOption[]>([]);
   const [date, setDate] = useState<string>(() => {
     const p = zonedParts(defaultStart || new Date());
     return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
   });
   const [practitionerId, setPractitionerId] = useState<string>(practitioners[0]?.id || "");
-  const [room, setRoom] = useState<string>("Room 1");
+  const [room, setRoom] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [notify, setNotify] = useState(true);
   const [search, setSearch] = useState("");
@@ -1148,36 +1142,64 @@ export function NewAppointmentModal({
   const [birthday, setBirthday] = useState("");
   const [clientMode, setClientMode] = useState<"existing" | "new">("existing");
   const [modalPractitioners, setModalPractitioners] = useState<Practitioner[]>([]);
-  const [clinicRooms, setClinicRooms] = useState<string[]>(["Room 1", "Room 2"]);
+  const [clinicRooms, setClinicRooms] = useState<string[]>([]);
   const [loadingMeta, setLoadingMeta] = useState(false);
 
   const cust = customers.find((c) => c.id === customerId);
 
-  // Load practitioners & rooms when modal opens (dashboard loads these async)
+  // Load practitioners, rooms & services when modal opens (dashboard loads these async)
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     setLoadingMeta(true);
-    fetch("/api/settings")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (cancelled || !data) return;
-        if (Array.isArray(data.rooms) && data.rooms.length > 0) {
-          setClinicRooms(data.rooms);
+    Promise.all([
+      fetch("/api/settings").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/settings/services").then((r) => (r.ok ? r.json() : null)),
+    ])
+      .then(([data, servicesData]) => {
+        if (cancelled) return;
+        if (data) {
+          if (Array.isArray(data.rooms) && data.rooms.length > 0) {
+            setClinicRooms(data.rooms);
+          }
+          if (Array.isArray(data.team)) {
+            setModalPractitioners(
+              data.team
+                .filter((p: { status?: string }) => p.status !== "Inactive" && p.status !== "Away")
+                .map(
+                  (p: {
+                    id: string;
+                    name: string;
+                    role?: string;
+                    color?: string;
+                    qualifications?: string[];
+                  }): Practitioner => ({
+                    id: p.id,
+                    name: p.name,
+                    role: p.role ?? "",
+                    color: p.color ?? "#6366f1",
+                    avatar_initial: p.name?.charAt(0)?.toUpperCase() ?? "?",
+                    qualifications: p.qualifications ?? [],
+                  }),
+                ),
+            );
+          }
         }
-        if (Array.isArray(data.team)) {
-          setModalPractitioners(
-            data.team
-              .filter((p: { status?: string }) => p.status !== "Inactive" && p.status !== "Away")
-              .map(
-                (p: { id: string; name: string; role?: string; color?: string }): Practitioner => ({
-                  id: p.id,
-                  name: p.name,
-                  role: p.role ?? "",
-                  color: p.color ?? "#6366f1",
-                  avatar_initial: p.name?.charAt(0)?.toUpperCase() ?? "?",
-                }),
-              ),
+        if (Array.isArray(servicesData?.services)) {
+          setServices(
+            servicesData.services.map(
+              (s: {
+                id: string;
+                name: string;
+                durationMinutes?: number;
+                status?: string;
+              }): ServiceOption => ({
+                id: s.id,
+                name: s.name,
+                durationMinutes: s.durationMinutes ?? DEFAULT_TREATMENT_DURATION,
+                status: s.status ?? "Active",
+              }),
+            ),
           );
         }
       })
@@ -1200,6 +1222,31 @@ export function NewAppointmentModal({
       prev && practitionerList.some((p) => p.id === prev) ? prev : practitionerList[0].id,
     );
   }, [open, practitionerList]);
+
+  const prac = practitionerList.find((p) => p.id === practitionerId);
+
+  // Only services this practitioner is qualified for — a practitioner with no qualifications
+  // configured yet has none bookable, matching the Settings page's own "never book them for a
+  // service they aren't qualified for" guarantee rather than silently allowing everything.
+  const qualifiedServices = useMemo(() => {
+    const active = services.filter((s) => s.status !== "Inactive");
+    if (!prac) return active;
+    return active.filter((s) => prac.qualifications.includes(s.id));
+  }, [services, prac]);
+
+  // Keep the selected treatment valid for the current practitioner — reset to their first
+  // qualified service whenever the practitioner changes or their qualified list changes.
+  useEffect(() => {
+    if (qualifiedServices.length === 0) {
+      setTreatment("");
+      return;
+    }
+    if (!qualifiedServices.some((s) => s.name === treatment)) {
+      setTreatment(qualifiedServices[0].name);
+    }
+  }, [qualifiedServices, treatment]);
+
+  const selectedService = qualifiedServices.find((s) => s.name === treatment);
 
   useEffect(() => {
     if (clientMode !== "existing" || !cust) return;
@@ -1237,8 +1284,7 @@ export function NewAppointmentModal({
 
     setLoadingSlots(true);
     setSelectedSlotStart("");
-    const prac = practitionerList.find((p) => p.id === practitionerId);
-    const dur = TREATMENT_DURATIONS[treatment];
+    const dur = selectedService?.durationMinutes ?? DEFAULT_TREATMENT_DURATION;
 
     const params = new URLSearchParams({
       date,
@@ -1254,22 +1300,21 @@ export function NewAppointmentModal({
         if (slots.length > 0) {
           const first = slots[0];
           setSelectedSlotStart(first.startTime);
-          setRoom(first.availableRooms?.[0] ?? clinicRooms[0] ?? "Room 1");
+          setRoom(first.availableRooms?.[0] ?? clinicRooms[0] ?? "");
         } else {
-          setRoom(clinicRooms[0] ?? "Room 1");
+          setRoom(clinicRooms[0] ?? "");
         }
       })
       .catch(() => {
         setAvailableSlots([]);
-        setRoom(clinicRooms[0] ?? "Room 1");
+        setRoom(clinicRooms[0] ?? "");
       })
       .finally(() => setLoadingSlots(false));
-  }, [date, treatment, practitionerId, practitionerList, clinicRooms]);
+  }, [date, treatment, practitionerId, prac, selectedService, clinicRooms]);
   const filteredCust = search
     ? customers.filter((c) => c.name.toLowerCase().includes(search.toLowerCase())).slice(0, 6)
     : customers.slice(0, 6);
 
-  const prac = practitionerList.find((p) => p.id === practitionerId);
   const selectedSlot = availableSlots.find((s) => s.startTime === selectedSlotStart);
   const slotRooms = selectedSlot?.availableRooms ?? [];
   const roomOptions = selectedSlot && slotRooms.length > 0 ? slotRooms : clinicRooms;
@@ -1290,6 +1335,10 @@ export function NewAppointmentModal({
     }
     if (!practitionerId) {
       toast.error("Please select a practitioner");
+      return;
+    }
+    if (!treatment) {
+      toast.error("Select a treatment this practitioner is qualified for");
       return;
     }
     if (!clientPhone.trim()) {
@@ -1313,7 +1362,7 @@ export function NewAppointmentModal({
       return;
     }
 
-    const dur = TREATMENT_DURATIONS[treatment];
+    const dur = selectedService?.durationMinutes ?? DEFAULT_TREATMENT_DURATION;
     const start = new Date(selectedSlot.startTime);
     const end = new Date(selectedSlot.endTime);
 
@@ -1387,7 +1436,9 @@ export function NewAppointmentModal({
         status: "confirmed",
         source: "manual",
         notes,
-        price: TREATMENT_PRICES[treatment],
+        // Services carry no price field today — real synced appointments (fetched fresh from
+        // Google Calendar) already always show $0 here too, so this isn't a new regression.
+        price: 0,
         created_at: new Date().toISOString(),
         created_by: "Admin",
         reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
@@ -1581,18 +1632,35 @@ export function NewAppointmentModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs text-muted-foreground mb-1.5 block">Treatment</Label>
-                <Select value={treatment} onValueChange={(v) => setTreatment(v as Treatment)}>
+                <Select
+                  value={treatment || undefined}
+                  onValueChange={setTreatment}
+                  disabled={loadingMeta || qualifiedServices.length === 0}
+                >
                   <SelectTrigger className="h-9">
-                    <SelectValue />
+                    <SelectValue
+                      placeholder={
+                        loadingMeta
+                          ? "Loading services…"
+                          : qualifiedServices.length === 0
+                            ? "Practitioner has no qualified services"
+                            : "Select treatment"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
-                    {TREATMENTS_LIST.map((t) => (
-                      <SelectItem key={t} value={t}>
-                        {t} · {TREATMENT_DURATIONS[t]} min
+                    {qualifiedServices.map((s) => (
+                      <SelectItem key={s.id} value={s.name}>
+                        {s.name} · {s.durationMinutes} min
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {!loadingMeta && qualifiedServices.length === 0 && prac && (
+                  <p className="text-xs text-destructive mt-1">
+                    {prac.name} has no qualified services configured in Settings → Team.
+                  </p>
+                )}
               </div>
               <div>
                 <Label className="text-xs text-muted-foreground mb-1.5 block">Practitioner</Label>

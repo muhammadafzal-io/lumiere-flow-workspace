@@ -16,18 +16,10 @@ function parseAppointments(raw: string | null): string[] {
 
 function parseTreatments(raw: string | null): Treatment[] {
   if (!raw) return [];
-  const valid: Treatment[] = [
-    "Botox",
-    "HydraFacial",
-    "Laser",
-    "Microneedling",
-    "IV Drip",
-    "Filler",
-  ];
   return raw
     .split(/[;,]/)
     .map((s) => s.trim())
-    .filter((t): t is Treatment => valid.includes(t as Treatment));
+    .filter(Boolean);
 }
 
 function mapRow(row: any): Customer {
@@ -41,7 +33,7 @@ function mapRow(row: any): Customer {
       if (!dateMatch) return null;
       const date = new Date(dateMatch[0]);
       if (isNaN(date.getTime())) return null;
-      return { date: date.toISOString(), treatment: treatments[0] ?? "HydraFacial", spend: 0 };
+      return { date: date.toISOString(), treatment: treatments[0] ?? "", spend: 0 };
     })
     .filter(Boolean) as Customer["visits"];
 

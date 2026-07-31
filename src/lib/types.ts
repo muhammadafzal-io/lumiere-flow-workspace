@@ -1,5 +1,8 @@
 export type Status = "Active" | "Dormant" | "VIP" | "New";
-export type Treatment = "Botox" | "HydraFacial" | "Laser" | "Microneedling" | "IV Drip" | "Filler";
+/** A treatment/service name — sourced from the clinic's admin-configurable Services table, not
+ * a fixed list. Kept as a named alias (rather than inlining `string`) so call sites documenting
+ * "this holds a treatment name" stay self-explanatory. */
+export type Treatment = string;
 export type Channel = "Discord" | "WhatsApp" | "Email";
 
 /** Channels offered when creating or editing a rule in the admin UI. */
@@ -87,6 +90,8 @@ export interface Practitioner {
   role: string;
   color: string;
   avatar_initial: string;
+  /** Service IDs (from the Services table) this practitioner is qualified to perform. */
+  qualifications: string[];
 }
 export interface AiTranscriptMsg {
   from: "ai" | "client";

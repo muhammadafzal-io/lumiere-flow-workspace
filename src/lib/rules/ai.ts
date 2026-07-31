@@ -67,20 +67,26 @@ Convert plain English into JSON ONLY (no markdown):
 {
   "name": "short title",
   "trigger_type": ${VALID_TRIGGERS.map((t) => `"${t}"`).join(" | ")},
-  "trigger_config": { ... },
+  "trigger_config": { ..., "offer_type": "credit" | "discount", "offer_amount": number },
   "audience_filters": { optional extra filters },
   "channel": "Email" | "Discord" | "WhatsApp",
-  "message_template": "warm email with {first_name}; use {birthday_token} for Birthday rules or {credit_code} for static offer codes",
-  "offer_code": "CREDIT50 or SAVE20 or null (omit for Birthday — tokens are auto-generated)"
+  "message_template": "warm email with {first_name}; use {credit_code} when an offer_code is set, or {offer_summary}/{offer_amount} for the dollar or percent value",
+  "offer_code": "CREDIT50 or SAVE20 or null — same field and meaning for every trigger type, including Birthday"
 }
 
-trigger_config:
+trigger_config always includes offer_type/offer_amount when the description mentions a dollar or
+percent offer (any trigger type, including Birthday):
+- "offer_type": "credit" for a dollar amount, "discount" for a percent.
+- "offer_amount": the plain number only — e.g. "$100" → offer_type "credit", offer_amount 100.
+  "20% off" → offer_type "discount", offer_amount 20. Omit both only if no offer is mentioned.
+Plus, per trigger_type:
 - Visit count: { "min_visits": number }
 - Inactivity: { "days": number }
 - Birthday: { "days_before": number }
 - Treatment-based: { "treatment": "Any"|"Botox"|..., "days_after": number, "exact_calendar_day": boolean }
   When exact_calendar_day is true, audience is built from completed Google Calendar appointments on that clinic day.
   Use exact_calendar_day: true with days_after: 1 for "had treatment yesterday". days_after: 0 = today.
+  "Clients who had/took Botox" with no specific timing → treatment: "Botox", leave timing at defaults (any past Botox client).
 - Date-based: { "date": "YYYY-MM-DD" }
 - No-show recovery: { "hours_after": number }
 - Custom: {}
@@ -96,9 +102,9 @@ audience_filters (optional refinements):
 }
 
 Defaults: marketing/loyalty offers → Visit count + Email channel.
-Message: professional, warm, under 120 words.
-For Birthday triggers: always include {birthday_token} (unique $50 chatbot code per client). Do not set offer_code.
-For other triggers: include {credit_code} when offer_code is set.`;
+Message: professional, warm, under 120 words. Include {credit_code} in the message when offer_code
+is set, and {offer_summary} or {offer_amount} to state the dollar/percent value — do not hardcode
+the number as literal text.`;
 
 /** Parse full rule definition from natural language */
 export async function parseRuleWithAI(input: string): Promise<ParsedRule> {
@@ -185,7 +191,7 @@ export async function generateRuleMessageWithAI(opts: {
       {
         role: "system",
         content: `Write a marketing email body for Lumière Med Spa.
-Use {first_name}. For Birthday rules use {birthday_token} (auto-generated $50 chatbot code). For other rules use {credit_code} when an offer code applies.
+Use {first_name}. Use {credit_code} when an offer code applies, and {offer_summary} or {offer_amount} for the dollar or percent value — same for every trigger type, including Birthday.
 Warm, professional, no emojis, under 120 words. Return ONLY the message text.`,
       },
       {

@@ -7,12 +7,6 @@ import { getClientById, updateClientField } from "@/lib/integrations/airtable";
 import { getMessagingProvider } from "@/lib/messaging";
 import { trySend } from "@/lib/retention/utils";
 import { sanitizeEmailSubject } from "@/lib/integrations/email";
-import {
-  BIRTHDAY_CREDIT_AMOUNT,
-  BIRTHDAY_CREDIT_VALID_DAYS,
-  displayBirthdayCode,
-  generateBirthdayCreditCode,
-} from "@/lib/credits/birthday-code";
 import { personalizeRuleMessage } from "@/lib/rules/personalize";
 import { parseRuleOffer } from "@/lib/rules/offer-config";
 import type { Rule } from "@/lib/types";
@@ -33,10 +27,6 @@ export async function sendRuleEmails(
   const triggerType = opts?.trigger ?? "manual";
   const offer = parseRuleOffer(rule);
   const isBirthdayRule = rule.trigger_type === "Birthday";
-  // Birthday rules normally auto-generate a unique redeemable code per customer. When the admin
-  // has opted into "Allow Custom Promo Code", skip that and send the same admin-defined
-  // rule.offer_code to everyone instead, exactly like every other rule type.
-  const useBirthdayAutoCode = isBirthdayRule && !offer.allowCustomPromoCode;
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
 
   for (const r of recipients) {
@@ -65,10 +55,10 @@ export async function sendRuleEmails(
       continue;
     }
 
-    let birthdayRawCode: string | undefined;
-    let birthdayToken: string | undefined;
-
-    if (useBirthdayAutoCode) {
+    if (isBirthdayRule) {
+      // Independent of offer/coupon config — just guards against re-emailing the same client's
+      // birthday greeting every time this rule runs within its trigger window (e.g. "7 days
+      // before birthday" would otherwise match on 7 consecutive daily runs).
       const client = await getClientById(r.id);
       if (client?.birthdayCreditSent) {
         await logEmailSend({
@@ -81,20 +71,17 @@ export async function sendRuleEmails(
           toEmail: r.email,
           subject: emailSubject,
           status: "skipped",
-          failReason: "birthday credit already sent",
+          failReason: "birthday email already sent",
         });
         result.skipped++;
         result.details.push({
           clientId: r.id,
           clientName: r.name,
           status: "skipped",
-          reason: "birthday credit already sent this year",
+          reason: "birthday email already sent this year",
         });
         continue;
       }
-
-      birthdayRawCode = generateBirthdayCreditCode(r.name);
-      birthdayToken = displayBirthdayCode(birthdayRawCode);
     }
 
     const text = personalizeRuleMessage(rule.message_template, {
@@ -103,7 +90,6 @@ export async function sendRuleEmails(
       offerType: offer.type,
       offerAmount: offer.amount,
       lastTreatment: r.treatment,
-      birthdayToken,
     });
     const contact = r.phone || r.email;
 
@@ -146,23 +132,17 @@ export async function sendRuleEmails(
         continue;
       }
 
-      if (useBirthdayAutoCode && birthdayRawCode && r.id) {
-        await updateClientField(r.id, {
-          "Credit Codes": birthdayRawCode,
-          "Birthday Credit Sent": true,
-        });
+      if (isBirthdayRule && r.id) {
+        await updateClientField(r.id, { "Birthday Credit Sent": true });
       }
 
-      const logMessage = useBirthdayAutoCode
-        ? `Birthday rule "${rule.name}" email sent. Code: ${birthdayToken}. Valid ${BIRTHDAY_CREDIT_VALID_DAYS} days ($${BIRTHDAY_CREDIT_AMOUNT} credit).`
-        : `Rule "${rule.name}" email sent.${rule.offer_code ? ` Code: ${rule.offer_code}` : ""}`;
+      const logMessage = `Rule "${rule.name}" email sent.${rule.offer_code ? ` Code: ${rule.offer_code}` : ""}`;
 
       await logEvent("inquiry", r.name, logMessage, {
         clientId: r.id,
         email: r.email,
         platform,
         status: "success",
-        ...(useBirthdayAutoCode && birthdayToken ? { creditCode: birthdayToken } : {}),
       });
 
       result.sent++;
@@ -172,9 +152,7 @@ export async function sendRuleEmails(
         status: "sent",
         emailAddress: r.email,
         emailSent: true,
-        messagePreview: useBirthdayAutoCode
-          ? `Code: ${birthdayToken} — $${BIRTHDAY_CREDIT_AMOUNT} birthday credit`
-          : text.slice(0, 80),
+        messagePreview: text.slice(0, 80),
       });
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);

@@ -17,9 +17,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Switch } from "@/components/ui/switch";
 import { Sparkles, Loader2, Wand2, RefreshCw } from "lucide-react";
 import { generateCopy } from "@/lib/ai-parse";
-import { DEFAULT_BIRTHDAY_RULE_TEMPLATE } from "@/lib/credits/birthday-code";
 import { formatLastVisit } from "@/lib/customers/last-visit";
-import type { Rule, TriggerType, Channel, Treatment, CampaignRewardType } from "@/lib/types";
+import type { Rule, TriggerType, Channel, CampaignRewardType } from "@/lib/types";
 import { RULE_CHANNELS, normalizeRuleChannel } from "@/lib/types";
 import type { RuleAudienceRow } from "@/lib/rules/audience-config";
 import { toast } from "sonner";
@@ -32,14 +31,6 @@ const TRIGGER_TYPES: TriggerType[] = [
   "Date-based",
   "No-show recovery",
   "Custom",
-];
-const TREATMENTS: Treatment[] = [
-  "Botox",
-  "HydraFacial",
-  "Laser",
-  "Microneedling",
-  "IV Drip",
-  "Filler",
 ];
 
 const EXAMPLES = [
@@ -77,13 +68,18 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
   const [previewRows, setPreviewRows] = useState<RuleAudienceRow[]>([]);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
+  const [serviceNames, setServiceNames] = useState<string[]>([]);
+
   // Textarea ref for inserting template tags at cursor
   const msgRef = useRef<HTMLTextAreaElement>(null);
 
-  const templateTags =
-    triggerType === "Birthday"
-      ? ["{first_name}", "{birthday_token}", "{credit_code}"]
-      : ["{first_name}", "{last_treatment}", "{credit_code}", "{offer_amount}", "{offer_summary}"];
+  const templateTags = [
+    "{first_name}",
+    "{last_treatment}",
+    "{credit_code}",
+    "{offer_amount}",
+    "{offer_summary}",
+  ];
 
   const insertTag = (tag: string) => {
     const el = msgRef.current;
@@ -107,6 +103,18 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
         .then((r) => r.json())
         .then((d) => setAiReady(!!d.configured))
         .catch(() => setAiReady(false));
+      fetch("/api/settings/services")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => {
+          const list = Array.isArray(d?.services) ? d.services : [];
+          setServiceNames(
+            list
+              .filter((s: { status?: string }) => s.status !== "Inactive")
+              .map((s: { name: string }) => s.name)
+              .filter(Boolean),
+          );
+        })
+        .catch(() => setServiceNames([]));
     }
   }, [open]);
 
@@ -363,12 +371,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
                   const next = v as TriggerType;
                   setTriggerType(next);
                   setCfg(defaultCfg(next));
-                  setMessage(
-                    next === "Birthday"
-                      ? DEFAULT_BIRTHDAY_RULE_TEMPLATE
-                      : generateCopy(next, defaultCfg(next), offer),
-                  );
-                  if (next === "Birthday") setOffer("");
+                  setMessage(generateCopy(next, defaultCfg(next), offer));
                   setAllowCustomPromoCode(false);
                 }}
               >
@@ -384,7 +387,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
                 </SelectContent>
               </Select>
             </div>
-            <TriggerDetails t={triggerType} cfg={cfg} setCfg={setCfg} />
+            <TriggerDetails t={triggerType} cfg={cfg} setCfg={setCfg} serviceNames={serviceNames} />
           </div>
 
           <div>
@@ -441,9 +444,7 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
                 </button>
               ))}
               <span className="text-[11px] text-muted-foreground self-center ml-1">
-                {triggerType === "Birthday"
-                  ? "{birthday_token} is auto-generated per client for chatbot redemption"
-                  : "click to insert"}
+                click to insert
               </span>
             </div>
           </div>
@@ -455,9 +456,8 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
                   Allow Custom Promo Code
                 </Label>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  {triggerType === "Birthday"
-                    ? "On: every recipient gets the single code below instead of a unique auto-generated code. Off: keep the default unique-per-client birthday code."
-                    : "On: edit the promo code below. Off: the saved code is locked and sent as-is."}
+                  On: edit the promo code, offer type, and amount below. Off: the saved offer is
+                  locked and sent as-is.
                 </p>
               </div>
               <Switch
@@ -467,78 +467,54 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
               />
             </div>
 
-            {triggerType === "Birthday" && !allowCustomPromoCode ? (
-              <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-                Each recipient gets a unique{" "}
-                <span className="font-mono text-foreground">{`{birthday_token}`}</span> (e.g.
-                BDAY-JD-X7K2) saved to their profile. Clients enter it in the chatbot to redeem $ 50
-                off — include{" "}
-                <span className="font-mono text-foreground">{`{birthday_token}`}</span> in your
-                message above.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <Label>
-                      Promo code{" "}
-                      {triggerType !== "Birthday" && (
-                        <span className="text-muted-foreground font-normal">(optional)</span>
-                      )}
-                    </Label>
-                    <Input
-                      value={offer}
-                      onChange={(e) => setOffer(e.target.value.toUpperCase())}
-                      disabled={!allowCustomPromoCode}
-                      className="mt-1.5 font-mono disabled:opacity-60"
-                      placeholder={triggerType === "Birthday" ? "e.g., SUMMER50" : "e.g., SPRING30"}
-                    />
-                  </div>
-                  {triggerType !== "Birthday" && (
-                    <>
-                      <div>
-                        <Label>Offer type</Label>
-                        <Select
-                          value={offerType}
-                          onValueChange={(v) => setOfferType(v as CampaignRewardType)}
-                        >
-                          <SelectTrigger className="mt-1.5">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="credit">Credit ($)</SelectItem>
-                            <SelectItem value="discount">Discount (%)</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div>
-                        <Label>{offerType === "credit" ? "Amount ($)" : "Discount (%)"}</Label>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={offerType === "discount" ? 100 : 10000}
-                          value={offerAmount}
-                          onChange={(e) => setOfferAmount(Math.max(1, Number(e.target.value) || 1))}
-                          className="mt-1.5"
-                        />
-                      </div>
-                    </>
-                  )}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <Label>
+                    Promo code <span className="text-muted-foreground font-normal">(optional)</span>
+                  </Label>
+                  <Input
+                    value={offer}
+                    onChange={(e) => setOffer(e.target.value.toUpperCase())}
+                    disabled={!allowCustomPromoCode}
+                    className="mt-1.5 font-mono disabled:opacity-60"
+                    placeholder="e.g., SPRING30"
+                  />
                 </div>
-                {triggerType !== "Birthday" ? (
-                  <p className="text-xs text-muted-foreground">
-                    Use {`{offer_amount}`} or {`{offer_summary}`} in your message for the dollar or
-                    percent value.
-                  </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    This code is sent to every recipient instead of a unique per-client code.
-                    Reference it with <span className="font-mono">{`{credit_code}`}</span> or{" "}
-                    <span className="font-mono">{`{birthday_token}`}</span> in your message above.
-                  </p>
-                )}
+                <div>
+                  <Label>Offer type</Label>
+                  <Select
+                    value={offerType}
+                    onValueChange={(v) => setOfferType(v as CampaignRewardType)}
+                    disabled={!allowCustomPromoCode}
+                  >
+                    <SelectTrigger className="mt-1.5 disabled:opacity-60">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="credit">Credit ($)</SelectItem>
+                      <SelectItem value="discount">Discount (%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>{offerType === "credit" ? "Amount ($)" : "Discount (%)"}</Label>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={offerType === "discount" ? 100 : 10000}
+                    value={offerAmount}
+                    onChange={(e) => setOfferAmount(Math.max(1, Number(e.target.value) || 1))}
+                    disabled={!allowCustomPromoCode}
+                    className="mt-1.5 disabled:opacity-60"
+                  />
+                </div>
               </div>
-            )}
+              <p className="text-xs text-muted-foreground">
+                Use {`{offer_amount}`} or {`{offer_summary}`} in your message for the dollar or
+                percent value.
+              </p>
+            </div>
           </div>
 
           <div className="rounded-lg border bg-secondary/40 p-4">
@@ -630,10 +606,12 @@ function TriggerDetails({
   t,
   cfg,
   setCfg,
+  serviceNames,
 }: {
   t: TriggerType;
   cfg: Record<string, any>;
   setCfg: (c: Record<string, any>) => void;
+  serviceNames: string[];
 }) {
   if (t === "Inactivity")
     return (
@@ -681,9 +659,9 @@ function TriggerDetails({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="Any">Any</SelectItem>
-                {TREATMENTS.map((t) => (
-                  <SelectItem key={t} value={t}>
-                    {t}
+                {serviceNames.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
                   </SelectItem>
                 ))}
               </SelectContent>

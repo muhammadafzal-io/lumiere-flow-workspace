@@ -100,7 +100,7 @@ export async function GET() {
       timeOff: r["TimeOff"] ?? null,
     }));
 
-    const rooms = roomRows.length > 0 ? roomRows.map((r: any) => r.Name) : ["Room 1", "Room 2"];
+    const rooms = roomRows.map((r: any) => r.Name);
 
     return NextResponse.json({
       clinic,
