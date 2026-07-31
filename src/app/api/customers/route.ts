@@ -59,6 +59,7 @@ function mapRow(row: any): Customer {
     notes: row["Notes"] ?? "",
     visits,
     payments: [],
+    appointments: row["Appointments"] ?? "",
   };
 }
 

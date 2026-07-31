@@ -70,9 +70,6 @@ function SkeletonRows() {
             <div className="h-3 rounded bg-muted w-8 ml-auto" />
           </td>
           <td className="px-4 py-3">
-            <div className="h-3 rounded bg-muted w-12 ml-auto" />
-          </td>
-          <td className="px-4 py-3">
             <div className="h-3 rounded bg-muted w-20" />
           </td>
           <td className="px-4 py-3">
@@ -103,9 +100,10 @@ interface EditForm {
   status: string;
   notes: string;
   treatmentInterest: string;
+  appointments: string;
 }
 
-const EMPTY_FORM: AddCustomerForm = {
+const EMPTY_FORM: EditForm = {
   name: "",
   phone: "",
   email: "",
@@ -113,6 +111,7 @@ const EMPTY_FORM: AddCustomerForm = {
   status: "Active",
   notes: "",
   treatmentInterest: "",
+  appointments: "",
 };
 
 function customerToEditForm(c: Customer): EditForm {
@@ -124,6 +123,7 @@ function customerToEditForm(c: Customer): EditForm {
     status: c.status,
     notes: c.notes ?? "",
     treatmentInterest: c.treatments.join(", "),
+    appointments: c.appointments ?? "",
   };
 }
 
@@ -292,15 +292,7 @@ function CustomerSheet({
             )}
 
             {/* ── Stats ── */}
-            <div className="grid grid-cols-3 gap-3 mt-5">
-              <div className="rounded-md border p-3">
-                <div className="text-[11px] text-muted-foreground">Lifetime value</div>
-                <div className="text-base font-semibold mt-0.5">
-                  {customer.lifetime_value > 0
-                    ? `$${customer.lifetime_value.toLocaleString()}`
-                    : "—"}
-                </div>
-              </div>
+            <div className="grid grid-cols-2 gap-3 mt-5">
               <div className="rounded-md border p-3">
                 <div className="text-[11px] text-muted-foreground">Visits</div>
                 <div className="text-base font-semibold mt-0.5">{customer.total_visits || "—"}</div>
@@ -336,12 +328,25 @@ function CustomerSheet({
             <Tabs defaultValue="visits" className="mt-5">
               <TabsList>
                 <TabsTrigger value="visits">Visits</TabsTrigger>
-                <TabsTrigger value="payments">Payments</TabsTrigger>
                 <TabsTrigger value="notes">Notes</TabsTrigger>
               </TabsList>
 
               <TabsContent value="visits" className="mt-3">
-                {customer.visits.length > 0 ? (
+                {editMode ? (
+                  <div>
+                    <Textarea
+                      value={form.appointments}
+                      onChange={field("appointments")}
+                      placeholder="2026-01-05 Botox; 2026-03-10 HydraFacial"
+                      rows={4}
+                      className="text-sm font-mono"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1.5">
+                      Semicolon-separated visits, each starting with a date (YYYY-MM-DD). Drives
+                      this customer&apos;s visit count, last visit, and this list.
+                    </p>
+                  </div>
+                ) : customer.visits.length > 0 ? (
                   <div className="rounded-md border divide-y text-sm">
                     {customer.visits.slice(0, 12).map((v, i) => (
                       <div key={i} className="px-3 py-2 flex justify-between">
@@ -354,24 +359,6 @@ function CustomerSheet({
                 ) : (
                   <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
                     No visit history available.
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="payments" className="mt-3">
-                {customer.payments.length > 0 ? (
-                  <div className="rounded-md border divide-y text-sm">
-                    {customer.payments.slice(0, 12).map((p, i) => (
-                      <div key={i} className="px-3 py-2 flex justify-between">
-                        <span>{new Date(p.date).toLocaleDateString()}</span>
-                        <span className="text-muted-foreground">{p.method}</span>
-                        <span className="font-medium">${p.amount}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
-                    No payment history available.
                   </div>
                 )}
               </TabsContent>
@@ -468,16 +455,8 @@ export default function CustomersPage() {
 
   const exportCsv = () => {
     const rows = [
-      ["Name", "Phone", "Email", "Last visit", "Total visits", "LTV", "Status"],
-      ...filtered.map((c) => [
-        c.name,
-        c.phone,
-        c.email,
-        c.last_visit,
-        c.total_visits,
-        c.lifetime_value,
-        c.status,
-      ]),
+      ["Name", "Phone", "Email", "Last visit", "Total visits", "Status"],
+      ...filtered.map((c) => [c.name, c.phone, c.email, c.last_visit, c.total_visits, c.status]),
     ];
     const csv = rows
       .map((r) => r.map((x) => `"${String(x).replace(/"/g, '""')}"`).join(","))
@@ -630,7 +609,6 @@ export default function CustomersPage() {
                 <th className="text-left font-medium px-4 py-2.5">Email</th>
                 <th className="text-left font-medium px-4 py-2.5">Last visit</th>
                 <th className="text-right font-medium px-4 py-2.5">Visits</th>
-                <th className="text-right font-medium px-4 py-2.5">LTV</th>
                 <th className="text-left font-medium px-4 py-2.5">Treatment</th>
                 <th className="text-left font-medium px-4 py-2.5">Status</th>
                 <th className="w-8"></th>
@@ -641,7 +619,7 @@ export default function CustomersPage() {
                 <SkeletonRows />
               ) : filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="text-center py-12 text-sm text-muted-foreground">
+                  <td colSpan={9} className="text-center py-12 text-sm text-muted-foreground">
                     No customers match your filters.
                   </td>
                 </tr>
@@ -666,9 +644,6 @@ export default function CustomersPage() {
                       {c.last_visit ? new Date(c.last_visit).toLocaleDateString() : "—"}
                     </td>
                     <td className="px-4 py-2.5 text-right">{c.total_visits}</td>
-                    <td className="px-4 py-2.5 text-right font-medium">
-                      {c.lifetime_value > 0 ? `$${c.lifetime_value.toLocaleString()}` : "—"}
-                    </td>
                     <td className="px-4 py-2.5 text-muted-foreground">{c.treatments[0] || "—"}</td>
                     <td className="px-4 py-2.5">
                       <span className={statusPill(c.status)}>{c.status}</span>

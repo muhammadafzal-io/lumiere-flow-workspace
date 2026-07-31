@@ -47,6 +47,7 @@ function customerFromEvent(
       notes: "",
       visits: [],
       payments: [],
+      appointments: client.appointments ?? "",
     };
   }
 
@@ -64,6 +65,7 @@ function customerFromEvent(
     notes: "",
     visits: [],
     payments: [],
+    appointments: "",
   };
 }
 

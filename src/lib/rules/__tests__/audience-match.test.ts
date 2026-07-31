@@ -26,6 +26,7 @@ function customer(partial: Partial<Customer> & Pick<Customer, "id" | "name">): C
     notes: "",
     visits: [],
     payments: [],
+    appointments: "",
     ...partial,
   };
 }

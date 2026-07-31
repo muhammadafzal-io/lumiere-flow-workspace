@@ -40,6 +40,7 @@ function mapCustomer(row: Record<string, unknown>): Customer {
     notes: String(row["Notes"] ?? ""),
     visits: [],
     payments: [],
+    appointments: apptRaw,
   };
 }
 

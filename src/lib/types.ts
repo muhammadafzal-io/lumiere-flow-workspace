@@ -49,6 +49,9 @@ export interface Customer {
   notes: string;
   visits: Visit[];
   payments: Payment[];
+  /** Raw "Appointments" field this client's visits/total_visits/last_visit are parsed from —
+   * semicolon-separated entries starting with a date, e.g. "2026-01-05 Botox; 2026-03-10 HydraFacial". */
+  appointments: string;
 }
 export interface Rule {
   id: string;
