@@ -473,6 +473,7 @@ export default function CalendarPage() {
           setSelectedAptId(null);
           setCancelAptId(a.id);
         }}
+        onCompleted={() => void loadCalendarMeta()}
       />
       <RescheduleModal
         appointment={reschedApt}

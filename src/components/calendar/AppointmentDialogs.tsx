@@ -51,6 +51,7 @@ import {
   normalizeBirthdayForStorage,
 } from "@/lib/birthday";
 import { store } from "@/lib/store";
+import { splitAppointmentField } from "@/lib/customers/visit-count";
 import {
   getDisplayTimezone,
   fmtTimeRange,
@@ -106,6 +107,7 @@ export function AppointmentSlideOver({
   onClose,
   onReschedule,
   onCancel,
+  onCompleted,
 }: {
   appointment: Appointment | null;
   customer: Customer | null;
@@ -113,8 +115,10 @@ export function AppointmentSlideOver({
   onClose: () => void;
   onReschedule: (a: Appointment) => void;
   onCancel: (a: Appointment) => void;
+  onCompleted?: () => void;
 }) {
   const open = !!appointment;
+  const [completing, setCompleting] = useState(false);
   if (!appointment)
     return (
       <Sheet open={false} onOpenChange={onClose}>
@@ -127,10 +131,44 @@ export function AppointmentSlideOver({
   const prac = practitionerById(practitioners, a.practitioner_id);
   const isPast = end.getTime() < Date.now();
 
-  const markComplete = () => {
-    store.upsertAppointment({ ...a, status: "completed" });
-    toast.success("Appointment marked complete");
-    onClose();
+  const markComplete = async () => {
+    if (!customer) {
+      toast.error("Can't mark complete — this appointment isn't linked to a client record");
+      return;
+    }
+    const dateStr = start.toISOString().slice(0, 10);
+    const entry = `${dateStr} ${a.treatment}`;
+
+    // The calendar has no persisted "completed" status (Google Calendar doesn't track one), so
+    // this button never disappears after use — reopening the same appointment, even in the same
+    // session, still offers it. Guard against re-clicking re-appending the same visit.
+    const alreadyRecorded = splitAppointmentField(customer.appointments).some(
+      (seg) => seg.trim() === entry,
+    );
+    if (alreadyRecorded) {
+      toast.success("Already marked complete — no duplicate added");
+      onClose();
+      return;
+    }
+
+    const appointments = customer.appointments ? `${customer.appointments}; ${entry}` : entry;
+
+    setCompleting(true);
+    try {
+      const res = await fetch("/api/customers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recordId: customer.id, appointments }),
+      });
+      if (!res.ok) throw new Error();
+      toast.success("Appointment marked complete — added to client's visit history");
+      onCompleted?.();
+      onClose();
+    } catch {
+      toast.error("Failed to mark complete");
+    } finally {
+      setCompleting(false);
+    }
   };
 
   return (
@@ -397,8 +435,12 @@ export function AppointmentSlideOver({
             </>
           )}
           {isPast && a.status !== "completed" && a.status !== "cancelled" && (
-            <Button size="sm" onClick={markComplete}>
-              <CheckCheck className="h-3.5 w-3.5 mr-1" />
+            <Button size="sm" onClick={markComplete} disabled={completing}>
+              {completing ? (
+                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+              ) : (
+                <CheckCheck className="h-3.5 w-3.5 mr-1" />
+              )}
               Mark complete
             </Button>
           )}
