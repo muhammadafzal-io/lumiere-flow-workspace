@@ -274,9 +274,6 @@ export function AppointmentSlideOver({
                     </div>
                   </div>
                 </div>
-                <a href={`/customers`} className="block mt-3 text-xs text-primary hover:underline">
-                  View full profile →
-                </a>
               </div>
             </section>
           ) : a.clientName ? (
@@ -317,12 +314,6 @@ export function AppointmentSlideOver({
                     <div className="font-semibold mt-0.5">—</div>
                   </div>
                 </div>
-                <a
-                  href={`/customers?search=${encodeURIComponent(a.clientName)}`}
-                  className="block mt-3 text-xs text-primary hover:underline"
-                >
-                  View full profile →
-                </a>
               </div>
             </section>
           ) : null}
