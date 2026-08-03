@@ -198,6 +198,7 @@ function parseDesc(description: string): {
   contact: string;
   email: string;
   notes: string;
+  completedAt: string;
 } {
   const lines = description.split("\n");
   const find = (prefix: string) =>
@@ -220,6 +221,7 @@ function parseDesc(description: string): {
     contact: find("Contact:"),
     email: find("Email:") || emailInNotes,
     notes: rawNotes,
+    completedAt: find("Completed:"),
   };
 }
 
@@ -594,7 +596,9 @@ export async function getEventsByRange(
 
   const events = (res.data.items ?? []).filter(isCalendarEventWithStartTime).map((e) => {
     const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
-    const { room, practitioner, contact, email, notes } = parseDesc(e.description ?? "");
+    const { room, practitioner, contact, email, notes, completedAt } = parseDesc(
+      e.description ?? "",
+    );
     return {
       id: e.id!,
       treatment,
@@ -606,6 +610,7 @@ export async function getEventsByRange(
       notes,
       room: room ?? "",
       practitioner: practitioner ?? "",
+      completedAt: completedAt || undefined,
     };
   });
 
@@ -747,6 +752,30 @@ export async function updateCalendarBookingEmail(eventId: string, email: string)
     eventId,
     requestBody: {
       description: setDescriptionEmail(event.description ?? "", email),
+    },
+  });
+  invalidateEventsRangeCache();
+}
+
+/** Marks a booking complete by stamping a "Completed:" line onto the event itself, so the
+ * status survives reload/reopen instead of resetting every time (Google Calendar has no native
+ * "completed" concept, and this app keeps no separate DB row per appointment). Idempotent —
+ * re-marking an already-completed event keeps its original timestamp. */
+export async function markCalendarEventCompleted(eventId: string): Promise<void> {
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+  const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
+  const { completedAt } = parseDesc(event.description ?? "");
+  if (completedAt) return;
+  await calendar.events.patch({
+    calendarId: calId,
+    eventId,
+    requestBody: {
+      description: setDescriptionField(
+        event.description ?? "",
+        "Completed:",
+        new Date().toISOString(),
+      ),
     },
   });
   invalidateEventsRangeCache();

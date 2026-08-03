@@ -148,12 +148,19 @@ export function AppointmentSlideOver({
 
     setCompleting(true);
     try {
-      const res = await fetch("/api/customers", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId: customer.id, appointments }),
-      });
-      if (!res.ok) throw new Error();
+      const [customerRes, calendarRes] = await Promise.all([
+        fetch("/api/customers", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ recordId: customer.id, appointments }),
+        }),
+        fetch("/api/calendar/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ eventId: a.id }),
+        }),
+      ]);
+      if (!customerRes.ok || !calendarRes.ok) throw new Error();
       toast.success("Appointment marked complete — added to client's visit history");
       onCompleted?.();
       onClose();

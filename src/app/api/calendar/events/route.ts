@@ -44,7 +44,11 @@ export async function GET(req: NextRequest) {
     );
     const eventsWithStatus = events.map((e) => ({
       ...e,
-      status: pendingEventIds.has(e.id) ? ("pending" as const) : ("confirmed" as const),
+      status: e.completedAt
+        ? ("completed" as const)
+        : pendingEventIds.has(e.id)
+          ? ("pending" as const)
+          : ("confirmed" as const),
     }));
 
     return NextResponse.json({ events: eventsWithStatus });

@@ -195,7 +195,7 @@ export default function CalendarPage() {
             notes: string;
             room: string;
             practitioner: string;
-            status?: "pending" | "confirmed";
+            status?: "pending" | "confirmed" | "completed";
           }) => {
             const matchedPrac = practitioners.find((p) => p.name === e.practitioner);
             const matchedCustomer = customers.find(
@@ -216,7 +216,12 @@ export default function CalendarPage() {
               end_time: e.endTime,
               practitioner_id: matchedPrac?.id ?? practitioners[0]?.id ?? "",
               room: e.room || "",
-              status: e.status === "pending" ? ("pending" as const) : ("confirmed" as const),
+              status:
+                e.status === "pending"
+                  ? ("pending" as const)
+                  : e.status === "completed"
+                    ? ("completed" as const)
+                    : ("confirmed" as const),
               source: "manual" as const,
               notes: e.notes ?? "",
               price: 0,
@@ -473,7 +478,10 @@ export default function CalendarPage() {
           setSelectedAptId(null);
           setCancelAptId(a.id);
         }}
-        onCompleted={() => void loadCalendarMeta()}
+        onCompleted={() => {
+          void loadCalendarMeta();
+          triggerSync();
+        }}
       />
       <RescheduleModal
         appointment={reschedApt}
@@ -843,7 +851,9 @@ function DraggableAppointment({
       ? "bg-success"
       : a.status === "pending"
         ? "bg-warning"
-        : "bg-destructive";
+        : a.status === "completed"
+          ? "bg-muted-foreground"
+          : "bg-destructive";
   const veryCompact = h < 34; // 30-min slot — time only
   const compact = !veryCompact && h < 58; // 45-min slot — one-line summary
 

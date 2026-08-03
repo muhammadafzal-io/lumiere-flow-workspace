@@ -52,6 +52,8 @@ export interface CalendarEvent {
   notes: string;
   room: string;
   practitioner: string;
+  /** ISO timestamp when staff marked this appointment complete, persisted on the event itself. */
+  completedAt?: string;
 }
 
 export interface InboundMessage {
