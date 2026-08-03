@@ -1290,6 +1290,7 @@ export function NewAppointmentModal({
       date,
       duration: String(dur),
       ...(prac?.name && { practitioners: prac.name }),
+      ...(treatment && { treatment }),
     });
 
     fetch(`/api/calendar/slots?${params}`)

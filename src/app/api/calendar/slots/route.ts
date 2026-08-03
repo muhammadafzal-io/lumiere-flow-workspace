@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAvailableSlots } from "@/lib/integrations/google-calendar";
+import { checkAvailability } from "@/lib/services/booking-service";
 import { SLOT_BUFFER_MINUTES } from "@/lib/booking/constants";
 import { requireApiPermission } from "@/lib/rbac/guard";
 
@@ -10,7 +11,8 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const date = searchParams.get("date");
   const duration = Number(searchParams.get("duration") ?? "60");
-  // Optional comma-separated lists: ?rooms=Room+1,Room+2&practitioners=Dr.+Sofia,Maya+Patel
+  const treatment = searchParams.get("treatment");
+  // Optional comma-separated lists: ?rooms=Room+One,Room+Two&practitioners=Dr.+Sofia,Maya+Patel
   const roomsParam = searchParams.get("rooms");
   const practitionersParam = searchParams.get("practitioners");
   const equipmentsParam = searchParams.get("equipments");
@@ -49,6 +51,27 @@ export async function GET(req: NextRequest) {
     : undefined;
 
   try {
+    // When a treatment is given, resolve it through the same Service-recipe engine the AI
+    // booking flow already uses (@/lib/services/booking-service) — real qualified practitioners,
+    // real allowed rooms, real equipment requirements, real per-resource cleanup buffers. Without
+    // this, the admin "New appointment" modal was falling back to a hardcoded room list that
+    // didn't correspond to any real room, silently breaking every booking that hit it.
+    if (treatment) {
+      const result = await checkAvailability({
+        date,
+        durationMinutes: duration,
+        treatment,
+        practitionerName: practitioners?.[0],
+        room: rooms?.[0],
+        equipment: equipments,
+      });
+      return NextResponse.json({
+        slots: result.slots,
+        bufferMinutes: SLOT_BUFFER_MINUTES,
+        bookingWindowNote: result.bookingWindowNote,
+      });
+    }
+
     const slots = await getAvailableSlots(date, duration, rooms, practitioners, equipments);
     return NextResponse.json({ slots, bufferMinutes: SLOT_BUFFER_MINUTES });
   } catch (err) {

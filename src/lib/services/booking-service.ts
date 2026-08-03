@@ -7,6 +7,7 @@ import {
   getAvailableSlots,
   bookAdminAppointment,
   getEventsByRange,
+  hasPriorAppointment,
 } from "@/lib/integrations/google-calendar";
 import type { AvailableSlot } from "@/types";
 import {
@@ -47,11 +48,13 @@ export interface BookingRequest {
   /** YYYY-MM-DD clinic date when date_time may be wrong but spoken time is correct */
   bookingDate?: string;
   /**
-   * "bot" bookings are blocked when the matched Service has OnlineBookable = false (PRD §6) —
-   * "a person must handle it." Admin/portal bookings (the default) are never blocked by this
-   * flag since a person is already the one booking.
+   * "bot" bookings are blocked when the matched Service has OnlineBookable = false, or when it
+   * RequiresConsultation and the client has no prior appointment (PRD §6) — "a person must
+   * handle it." "admin" bookings are never blocked by either flag since a person is already the
+   * one booking. Required (not defaulted) so a caller can't accidentally get admin-level
+   * enforcement by simply forgetting to pass it.
    */
-  source?: "admin" | "bot";
+  source: "admin" | "bot";
   /**
    * Manual override (PRD §9): a front-desk person can force a booking that breaks a rule
    * (unqualified practitioner, wrong room, or a real scheduling conflict). Without this flag,
@@ -521,6 +524,18 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
         `${recipe.service.name} requires staff to book — please contact the clinic directly.`,
       );
     }
+    // PRD §6: "the client must have had a consultation before this service can be booked" — v1
+    // is a simple yes/no on whether they've been seen before at all (no time window, no
+    // per-service tracking). Same as OnlineBookable, this only blocks the bot — front-desk staff
+    // booking directly already know their client's history and can judge for themselves.
+    if (recipe.service.requiresConsultation && request.source === "bot") {
+      const hadConsultation = await hasPriorAppointment(request.clientContact);
+      if (!hadConsultation) {
+        throw new Error(
+          `${recipe.service.name} requires a prior consultation — please schedule a consultation visit first.`,
+        );
+      }
+    }
     const windowError = checkServiceBookingWindow(recipe.service, request.startTime, timezone);
     if (windowError) {
       throw new Error(windowError);
@@ -537,9 +552,18 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
       );
     }
     if (!recipe.roomCandidates.some((r) => r.name === request.room)) {
-      policyWarnings.push(
-        `${request.room} does not satisfy ${recipe.service.name}'s room/equipment requirement.`,
+      const isRightRoomType = recipe.roomCandidatesBeforeEquipmentBinding.some(
+        (r) => r.name === request.room,
       );
+      if (isRightRoomType) {
+        // Right room type/on the allowed list, but excluded specifically because it doesn't
+        // have the installed equipment this service requires (PRD §4/§9) — name the rooms that do.
+        policyWarnings.push(
+          `${request.room} does not have the equipment ${recipe.service.name} requires. Use: ${recipe.roomCandidates.map((r) => r.name).join(", ") || "none available"}.`,
+        );
+      } else {
+        policyWarnings.push(`${request.room} is not an allowed room for ${recipe.service.name}.`);
+      }
     }
   }
 
@@ -606,7 +630,15 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     throw new BookingWarningsError(policyWarnings);
   }
 
-  const cleanup = recipe ? resolveBookingCleanup(recipe, request.room, request.equipment) : {};
+  // Neither the admin UI nor the AI agent ever pick a specific equipment item themselves — they
+  // just pick a service, and the recipe's equipment requirement (if any) is what actually gates
+  // slot availability above. Reserve whichever item `checkAvailability` already determined was
+  // free for this exact slot (one per requirement group), so a booking with an equipment
+  // requirement actually locks a real unit instead of only having gated whether the slot showed
+  // up as free. An explicit `request.equipment` (if a caller ever does specify one) still wins.
+  const resolvedEquipment = request.equipment ?? requestedSlot?.availableEquipment;
+
+  const cleanup = recipe ? resolveBookingCleanup(recipe, request.room, resolvedEquipment) : {};
 
   // Use the matched slot's exact grid-aligned times when one was found, rather than the AI's
   // possibly slightly-off computed time — this is what actually gets booked and confirmed back.
@@ -623,7 +655,7 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     treatment: request.treatment,
     room: request.room,
     practitionerName: request.practitionerName,
-    equipment: request.equipment,
+    equipment: resolvedEquipment,
     notes:
       policyWarnings.length > 0
         ? [request.notes, `Override: ${policyWarnings.join(" ")}`].filter(Boolean).join(" | ")
@@ -641,6 +673,7 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     endTime: bookingEndTime,
     practitionerName: request.practitionerName,
     room: request.room,
+    equipment: resolvedEquipment,
   };
 }
 

@@ -7,6 +7,9 @@ import {
   hoursForWeekday,
   WEEKDAY_BY_UTC_DAY,
 } from "@/lib/booking/clinic-hours";
+import { phonesMatch } from "@/lib/phone";
+import { addCalendarDays } from "@/lib/booking/dates";
+import { getSupabase } from "@/lib/supabase";
 
 /**
  * Resource-specific scheduling data resolved from a Service's recipe (Rooms/Equipment/
@@ -30,18 +33,14 @@ function resourceExtraBusyConflict(
   return !!extraBusy?.some((b) => intervalsOverlap(start, end, b.start, b.end));
 }
 
-function getDefaultRooms(): string[] {
-  const roomsEnv = process.env.CLINIC_ROOMS;
-  if (roomsEnv) {
-    return roomsEnv
-      .split(",")
-      .map((r) => r.trim())
-      .filter(Boolean);
-  }
-  return ["Room 1", "Room 2"];
+/** Real active room names from Settings > Rooms — the fallback used whenever a caller doesn't
+ * pass an explicit room list. Previously hardcoded to a fake ["Room 1", "Room 2"] placeholder
+ * that didn't correspond to any real room, silently breaking every booking that hit it. */
+async function getActiveRoomNames(): Promise<string[]> {
+  const sb = getSupabase();
+  const { data } = await sb.from("Rooms").select("Name").eq("Status", "Active").order("Name");
+  return (data ?? []).map((r) => String(r["Name"] ?? "")).filter(Boolean);
 }
-
-const DEFAULT_ROOMS = getDefaultRooms();
 
 const EVENTS_RANGE_CACHE_MS = 45_000;
 const eventsRangeCache = new Map<string, { at: number; events: CalendarEvent[] }>();
@@ -227,7 +226,8 @@ function parseDesc(description: string): {
 export async function getAvailableSlots(
   date: string,
   durationMinutes = 60,
-  rooms: string[] = DEFAULT_ROOMS,
+  /** Omit to use every real active room from Settings > Rooms. */
+  rooms?: string[],
   practitionerNames: string[] = [],
   equipmentNames: string[] = [],
   context?: ResourceAvailabilityContext,
@@ -237,6 +237,7 @@ export async function getAvailableSlots(
   timezone?: string,
 ): Promise<AvailableSlot[]> {
   const tz = timezone ?? (await getClinicTimezone());
+  const roomList = rooms ?? (await getActiveRoomNames());
 
   if (date < todayInZone(tz)) return [];
 
@@ -328,7 +329,7 @@ export async function getAvailableSlots(
 
     const freeRooms = hasGlobalEvent
       ? []
-      : rooms.filter((r) => {
+      : roomList.filter((r) => {
           const calendarBusy = busyEvents.some(
             (e) =>
               e.room === r && intervalsConflict(cursor, slotEnd, e.start, e.end, roomBuffer(r)),
@@ -610,6 +611,38 @@ export async function getEventsByRange(
 
   eventsRangeCache.set(cacheKey, { at: Date.now(), events });
   return events;
+}
+
+/** Past (up to 365 days back) calendar events matching this phone number, most recent first. */
+async function getPastAppointmentsForContact(phone: string | undefined): Promise<CalendarEvent[]> {
+  if (!phone?.trim()) return [];
+  const tz = await getClinicTimezone();
+  const today = todayInZone(tz);
+  const from = addCalendarDays(today, -365);
+  const events = await getEventsByRange(from, today, tz);
+
+  return events
+    .filter((e) => e.clientContact && phonesMatch(e.clientContact, phone))
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+}
+
+/** Returning-customer default (PRD §8): when a client states no practitioner preference, the
+ * bot should default to whoever last treated them. Looks back over the last 365 days of the
+ * clinic calendar for the most recent past appointment matching this phone number and returns
+ * the practitioner name recorded on it, if any. */
+export async function findLastPractitionerForContact(
+  phone: string | undefined,
+): Promise<string | undefined> {
+  const past = await getPastAppointmentsForContact(phone);
+  return past.find((e) => e.practitioner)?.practitioner || undefined;
+}
+
+/** Has this phone number ever had a past appointment on the clinic calendar? Used to enforce a
+ * Service's "requires prior consultation" flag (PRD §6) — v1 is a simple yes/no on whether the
+ * client has been seen before at all, not tracked per-service or with a time window. */
+export async function hasPriorAppointment(phone: string | undefined): Promise<boolean> {
+  const past = await getPastAppointmentsForContact(phone);
+  return past.length > 0;
 }
 
 /** Cancel (delete) a calendar event by ID. Returns the event data before deletion. */

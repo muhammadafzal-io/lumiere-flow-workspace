@@ -97,6 +97,7 @@ export async function POST(req: NextRequest) {
           : undefined,
       notes: typeof notes === "string" ? notes : undefined,
       force: force === true,
+      source: "admin",
     });
 
     let emailSent = false;

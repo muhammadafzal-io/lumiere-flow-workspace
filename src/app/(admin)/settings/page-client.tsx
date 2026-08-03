@@ -1488,27 +1488,33 @@ function EquipmentTab({
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label>Home room</Label>
-                <Select
-                  onValueChange={(value) =>
-                    setForm((f) => ({ ...f, homeRoom: value === "none" ? null : value }))
-                  }
-                  value={form.homeRoom ?? "none"}
-                >
-                  <SelectTrigger className="w-full h-9 mt-1.5">
-                    <SelectValue placeholder="None" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">None</SelectItem>
-                    {rooms.map((room) => (
-                      <SelectItem key={room} value={room}>
-                        {room}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {form.type === "Installed" && (
+                <div>
+                  <Label>Home room</Label>
+                  <p className="text-xs text-muted-foreground mb-1.5">
+                    Installed equipment is fixed in one room — a service that needs it automatically
+                    needs this room too.
+                  </p>
+                  <Select
+                    onValueChange={(value) =>
+                      setForm((f) => ({ ...f, homeRoom: value === "none" ? null : value }))
+                    }
+                    value={form.homeRoom ?? "none"}
+                  >
+                    <SelectTrigger className="w-full h-9">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">None</SelectItem>
+                      {rooms.map((room) => (
+                        <SelectItem key={room} value={room}>
+                          {room}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
                 <Label>Cleanup minutes</Label>
                 <Input
@@ -1519,6 +1525,12 @@ function EquipmentTab({
                   }
                   className="mt-1.5"
                 />
+                {form.type === "Mobile" && (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Use disposable attachments? Set this to 0 — there's nothing to clean, so it's
+                    free to move to the next room right away.
+                  </p>
+                )}
               </div>
               <div>
                 <Label>Status</Label>

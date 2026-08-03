@@ -369,7 +369,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "lookup_client",
       description:
-        "Look up an existing client record in Airtable by platform user ID or phone number. Returns client details including last visit and treatment history.",
+        "Look up an existing client record in Airtable by platform user ID or phone number. Returns client details including last visit and treatment history, plus lastPractitioner (the practitioner from their most recent past appointment, if any) — use lastPractitioner as the default practitioner preference when the client doesn't state one this turn.",
       parameters: {
         type: "object",
         properties: {

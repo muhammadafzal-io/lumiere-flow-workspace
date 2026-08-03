@@ -90,6 +90,11 @@ export interface ResolvedRecipe {
   /** Flattened union of every candidate across all equipment groups. */
   equipmentCandidates: EquipmentRow[];
   qualifiedPractitioners: PractitionerRow[];
+  /** Room names required by this service's own room rule (type/specific list), before the
+   * installed-equipment-binding filter narrows it further — lets callers distinguish "wrong room
+   * type" from "right type, but missing this service's required installed equipment" when
+   * building a warning message. Same as roomCandidates when no installed equipment is required. */
+  roomCandidatesBeforeEquipmentBinding: RoomRow[];
 }
 
 function mapRoomRow(r: any): RoomRow {
@@ -211,7 +216,8 @@ export async function resolveServiceRecipe(
   const roomRule: RoomRequirementRule | null = roomReq
     ? (roomReq.rule as RoomRequirementRule)
     : null;
-  let roomCandidates = resolveRoomCandidates(roomRule, rooms);
+  const roomCandidatesBeforeEquipmentBinding = resolveRoomCandidates(roomRule, rooms);
+  let roomCandidates = roomCandidatesBeforeEquipmentBinding;
 
   const equipmentReqs = requirements.filter((r: any) => r.kind === "equipment");
   const equipmentGroups: EquipmentRow[][] = equipmentReqs.map((r: any) => {
@@ -244,6 +250,7 @@ export async function resolveServiceRecipe(
     equipmentGroups,
     equipmentCandidates: equipmentGroups.flat(),
     qualifiedPractitioners,
+    roomCandidatesBeforeEquipmentBinding,
   };
 }
 

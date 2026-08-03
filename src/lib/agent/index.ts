@@ -16,6 +16,7 @@ import {
   cancelCalendarEvent,
   rescheduleCalendarEvent,
   getCalendarBookingDetails,
+  findLastPractitionerForContact,
 } from "@/lib/integrations/google-calendar";
 import {
   lookupClient,
@@ -1095,7 +1096,11 @@ export async function executeTool(
           telegramId: input.telegram_id as string | undefined,
           phone: input.phone as string | undefined,
         });
-        return { result: client };
+        if (!client) return { result: client };
+        const lastPractitioner = await findLastPractitionerForContact(client.phone).catch(
+          () => undefined,
+        );
+        return { result: lastPractitioner ? { ...client, lastPractitioner } : client };
       }
 
       case "upsert_client": {
