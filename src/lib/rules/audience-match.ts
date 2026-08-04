@@ -136,7 +136,8 @@ export function treatmentTriggerLabel(cfg: Record<string, unknown>): string {
     if (days === 1) return `${treatment} · visit yesterday (calendar)`;
     return `${treatment} · visit ${days} calendar days ago (calendar)`;
   }
-  return `${cfg.days_after ?? "?"} days after ${treatment}`;
+  const minDays = Number(cfg.days_after ?? 14);
+  return `${minDays} days after ${treatment}`;
 }
 
 export function daysSince(iso: string): number {

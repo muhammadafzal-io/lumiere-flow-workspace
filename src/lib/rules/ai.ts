@@ -84,9 +84,28 @@ Plus, per trigger_type:
 - Inactivity: { "days": number }
 - Birthday: { "days_before": number }
 - Treatment-based: { "treatment": "Any"|"Botox"|..., "days_after": number, "exact_calendar_day": boolean }
+  "treatment" is REQUIRED for every Treatment-based rule — never omit it, and never leave it out of
+  trigger_config even when the description also has an audience_filters.treatment. If no treatment
+  is named at all, use "Any"; do not use "Any" when a specific treatment was actually named.
   When exact_calendar_day is true, audience is built from completed Google Calendar appointments on that clinic day.
   Use exact_calendar_day: true with days_after: 1 for "had treatment yesterday". days_after: 0 = today.
   "Clients who had/took Botox" with no specific timing → treatment: "Botox", leave timing at defaults (any past Botox client).
+
+  TWO-TREATMENT CASE: when the description names a prerequisite/history treatment ("who had/have
+  done X") AND a separate booking/trigger treatment ("if/when they book Y", "after booking Y"), you
+  MUST set BOTH — trigger_config.treatment to Y (it's what fires the send) AND
+  audience_filters.treatment to [X] (the prerequisite). Never emit one without the other for this
+  case. Full worked example — input: "clients who had Botox, promo if they book microneedling" must
+  produce exactly this shape (abbreviated to the relevant fields):
+  {
+    "trigger_type": "Treatment-based",
+    "trigger_config": { "treatment": "Microneedling", "offer_type": "credit", "offer_amount": 2000 },
+    "audience_filters": { "treatment": ["Botox"] }
+  }
+  Re-check before returning: if trigger_type is "Treatment-based" and audience_filters.treatment is
+  set, trigger_config.treatment must ALSO be a real (non-"Any") treatment name — if you're about to
+  return it empty or "Any" while audience_filters.treatment is set, that is the bug above; go back
+  and re-read the description for the booking/trigger treatment.
 - Date-based: { "date": "YYYY-MM-DD" }
 - No-show recovery: { "hours_after": number }
 - Custom: {}
@@ -107,14 +126,18 @@ is set, and {offer_summary} or {offer_amount} to state the dollar/percent value 
 the number as literal text.`;
 
 /** Parse full rule definition from natural language */
-export async function parseRuleWithAI(input: string): Promise<ParsedRule> {
+export async function parseRuleWithAI(input: string, serviceNames?: string[]): Promise<ParsedRule> {
   const openai = getOpenAI();
+  const catalogNote = serviceNames?.length
+    ? `\n\nThe clinic's actual treatment names, copied verbatim from its service catalog, are: ${serviceNames.map((n) => `"${n}"`).join(", ")}. Whenever the description names a treatment (in "treatment", "audience_filters.treatment", or anywhere else), you MUST replace it with the exact matching string from this list — copy the list's spelling/casing/wording character-for-character even if it looks unusual, abbreviated, or misspelled compared to the user's wording (the catalog is the clinic's real data and is never "corrected"). E.g. user says "microneedling" and the list has "Microneedling Pro" → use "Microneedling Pro". User says "hydrafacial" and the list has "Hydrafecials" → use "Hydrafecials" exactly, do not fix the spelling. Only fall back to the user's own wording if nothing in the list is a reasonable match.`
+    : "";
+
   const response = await openai.chat.completions.create({
     model: "gpt-4o-mini",
     temperature: 0.2,
     response_format: { type: "json_object" },
     messages: [
-      { role: "system", content: RULE_SYSTEM },
+      { role: "system", content: RULE_SYSTEM + catalogNote },
       { role: "user", content: input.trim() },
     ],
   });

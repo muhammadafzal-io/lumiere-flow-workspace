@@ -252,7 +252,6 @@ export default function RuleAudiencePage() {
               {rule.trigger_type === "Treatment-based"
                 ? treatmentTriggerLabel(rule.trigger_config ?? {})
                 : triggerSummary(rule)}
-              {rule.offer_code ? ` · Code ${rule.offer_code}` : ""}
               {formatOfferSummaryFromRule(rule) ? ` · ${formatOfferSummaryFromRule(rule)}` : ""}
             </p>
             <div className="flex gap-2 mt-2 flex-wrap">

@@ -21,7 +21,12 @@ export default async function WidgetPage() {
   return (
     <div className="w-full h-screen flex items-center justify-center bg-transparent">
       <div className="w-full h-full max-w-md mx-auto shadow-2xl rounded-2xl overflow-hidden">
-        <ChatWidget clinicName={clinic.clinicName} location={clinic.location} />
+        <ChatWidget
+          clinicName={clinic.clinicName}
+          location={clinic.location}
+          businessHours={clinic.businessHours}
+          address={clinic.address}
+        />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import { activeServicesThatWouldLoseAllRooms } from "@/lib/booking/recipe";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +45,13 @@ export async function POST(req: Request) {
     if (!Name || typeof Name !== "string") {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
+    if (typeof CleanupMinutes === "number" && CleanupMinutes < 0) {
+      return NextResponse.json({ error: "Cleanup minutes cannot be negative" }, { status: 400 });
+    }
+    const { data: existing } = await sb.from(TABLE).select("id").ilike("Name", Name.trim());
+    if (existing && existing.length > 0) {
+      return NextResponse.json({ error: `A room named "${Name}" already exists` }, { status: 409 });
+    }
     const { data, error } = await sb
       .from(TABLE)
       .insert({
@@ -73,6 +81,38 @@ export async function PATCH(req: Request) {
     const { id } = body;
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
 
+    if (typeof body.CleanupMinutes === "number" && body.CleanupMinutes < 0) {
+      return NextResponse.json({ error: "Cleanup minutes cannot be negative" }, { status: 400 });
+    }
+
+    if (typeof body.Name === "string" && body.Name.trim()) {
+      const { data: existing } = await sb
+        .from(TABLE)
+        .select("id")
+        .ilike("Name", body.Name.trim())
+        .neq("id", id);
+      if (existing && existing.length > 0) {
+        return NextResponse.json(
+          { error: `A room named "${body.Name}" already exists` },
+          { status: 409 },
+        );
+      }
+    }
+
+    if (body.Status === "Inactive" && !body.force) {
+      const affected = await activeServicesThatWouldLoseAllRooms(id);
+      if (affected.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Deactivating this room would leave ${affected.join(", ")} with no room to use — every other allowed room is already inactive or not eligible.`,
+            affectedServices: affected,
+            code: "WOULD_BREAK_ACTIVE_SERVICE",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const fields: Record<string, any> = {};
     if (body.Name !== undefined) fields["Name"] = body.Name;
     if (body.Type !== undefined) fields["Type"] = body.Type;
@@ -97,7 +137,23 @@ export async function DELETE(req: Request) {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const force = searchParams.get("force") === "true";
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+    if (!force) {
+      const affected = await activeServicesThatWouldLoseAllRooms(id);
+      if (affected.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Deleting this room would leave ${affected.join(", ")} with no room to use.`,
+            affectedServices: affected,
+            code: "WOULD_BREAK_ACTIVE_SERVICE",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const { error } = await sb.from(TABLE).delete().eq("id", id);
     if (error) throw new Error(error.message);
     return NextResponse.json({ success: true });

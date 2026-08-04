@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { AINotConfiguredError, isAIConfigured, parseRuleWithAI } from "@/lib/rules/ai";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import { listActiveServices } from "@/lib/booking/recipe";
 
 export const dynamic = "force-dynamic";
 
@@ -23,7 +24,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "description is required" }, { status: 400 });
     }
 
-    const rule = await parseRuleWithAI(description.trim());
+    const services = await listActiveServices().catch(() => []);
+    const rule = await parseRuleWithAI(
+      description.trim(),
+      services.map((s) => s.name),
+    );
     return NextResponse.json({ ok: true, rule, source: "openai" });
   } catch (error) {
     if (error instanceof AINotConfiguredError) {

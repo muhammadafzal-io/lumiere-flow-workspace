@@ -21,6 +21,8 @@ interface ValidateResult {
   valid: boolean;
   error?: string;
   code?: string;
+  codeType?: "birthday" | "rule" | "campaign";
+  ruleId?: string;
   clientId?: string;
   clientName?: string;
   clientPhone?: string;
@@ -88,7 +90,12 @@ export default function CheckoutClient() {
       const res = await fetch("/api/credits/redeem", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: validation.code }),
+        body: JSON.stringify({
+          code: validation.code,
+          codeType: validation.codeType,
+          ruleId: validation.ruleId,
+          clientId: validation.clientId,
+        }),
       });
       const data = (await res.json()) as RedeemResult;
       setRedeemResult(data);

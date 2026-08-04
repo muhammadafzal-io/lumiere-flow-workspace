@@ -254,6 +254,27 @@ export async function resolveServiceRecipe(
   };
 }
 
+/**
+ * `resolveServiceRecipe` returns null both when no Service matches `serviceIdOrName` at all
+ * (a real, intentional case — callers fall back to legacy freeform booking for treatments not
+ * yet configured as a Service) *and* when a Service matches but is Inactive. Those two cases
+ * must not be treated the same: falling back to freeform booking for a deliberately-deactivated
+ * service means it loses every protection its recipe would have enforced — qualification,
+ * room/equipment requirements, onlineBookable, requiresConsultation, the booking window — while
+ * still being bookable by name. This distinguishes the second case so callers can hard-block it
+ * instead of silently downgrading it to an unrestricted freeform booking.
+ */
+export async function findInactiveService(serviceIdOrName: string): Promise<ServiceRow | null> {
+  if (!serviceIdOrName?.trim()) return null;
+  const sb = getSupabase();
+  const serviceQuery = UUID_RE.test(serviceIdOrName)
+    ? sb.from("Services").select("*").eq("id", serviceIdOrName).maybeSingle()
+    : sb.from("Services").select("*").ilike("Name", serviceIdOrName).maybeSingle();
+  const { data: serviceRow } = await serviceQuery;
+  if (!serviceRow || serviceRow["Status"] !== "Inactive") return null;
+  return mapServiceRow(serviceRow);
+}
+
 function toFractionalHour(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return h + (m || 0) / 60;
@@ -341,7 +362,13 @@ export async function buildAvailabilityInputs(
   const equipmentCleanupMinutes: Record<string, number> = {};
   const equipmentExtraBusy: Record<string, { start: Date; end: Date }[]> = {};
   for (const e of recipe.equipmentCandidates) {
-    equipmentCleanupMinutes[e.name] = e.cleanupMinutes;
+    // Installed equipment "sits inside the room, so it is blocked while the room is being
+    // cleaned" (PRD §7) — its effective turnover buffer can never be shorter than its own home
+    // room's, even if configured lower, or the equipment would show free while the room it
+    // physically lives in is still mid-cleanup.
+    const homeRoomBuffer =
+      e.type === "Installed" && e.homeRoom ? (roomCleanupMinutes[e.homeRoom] ?? 0) : 0;
+    equipmentCleanupMinutes[e.name] = Math.max(e.cleanupMinutes, homeRoomBuffer);
     equipmentExtraBusy[e.name] = closedTimesToRanges(e.closedTimes, timezone);
   }
 
@@ -406,12 +433,75 @@ export function resolveBookingCleanup(
 ): { roomCleanupMinutes?: number; equipmentCleanupMinutes?: number } {
   const room = recipe.roomCandidates.find((r) => r.name === roomName);
   const equipmentCleanup = (equipmentNames ?? [])
-    .map((name) => recipe.equipmentCandidates.find((e) => e.name === name)?.cleanupMinutes)
-    .filter((n): n is number => n !== undefined);
+    .map((name) => recipe.equipmentCandidates.find((e) => e.name === name))
+    .filter((e): e is EquipmentRow => e !== undefined)
+    .map((e) => {
+      // Same rule as buildAvailabilityInputs (PRD §7): installed equipment can't show a shorter
+      // turnover than the room it physically sits in, or the final booking-time conflict check
+      // would use a weaker buffer than what the availability query already offered slots against.
+      const homeRoomBuffer =
+        e.type === "Installed" && e.homeRoom
+          ? (recipe.roomCandidates.find((r) => r.name === e.homeRoom)?.cleanupMinutes ?? 0)
+          : 0;
+      return Math.max(e.cleanupMinutes, homeRoomBuffer);
+    });
 
   return {
     roomCleanupMinutes: room?.cleanupMinutes,
     equipmentCleanupMinutes:
       equipmentCleanup.length > 0 ? Math.max(...equipmentCleanup) : undefined,
   };
+}
+
+/**
+ * Settings-side dependency guards (PRD gap R-2): a room, an equipment item, or a practitioner's
+ * qualification can be the *only* thing satisfying some active Service's recipe. Deleting or
+ * deactivating it then silently drops that service to zero bookable slots, with no error message
+ * pointing at the cause. These check "would this change leave an active service with nothing
+ * left to offer" before the caller commits the change, so Settings can surface a clear warning
+ * instead. Each returns the names of affected active services (empty = safe to proceed).
+ */
+
+async function resolveActiveRecipes(): Promise<ResolvedRecipe[]> {
+  const services = await listActiveServices();
+  const recipes = await Promise.all(services.map((s) => resolveServiceRecipe(s.id)));
+  return recipes.filter((r): r is ResolvedRecipe => r !== null);
+}
+
+export async function activeServicesThatWouldLoseAllRooms(
+  excludeRoomId: string,
+): Promise<string[]> {
+  const recipes = await resolveActiveRecipes();
+  return recipes
+    .filter(
+      (r) =>
+        r.roomCandidates.length > 0 && r.roomCandidates.every((room) => room.id === excludeRoomId),
+    )
+    .map((r) => r.service.name);
+}
+
+export async function activeServicesThatWouldLoseAnEquipmentGroup(
+  excludeEquipmentId: string,
+): Promise<string[]> {
+  const recipes = await resolveActiveRecipes();
+  return recipes
+    .filter((r) =>
+      r.equipmentGroups.some(
+        (group) => group.length > 0 && group.every((e) => e.id === excludeEquipmentId),
+      ),
+    )
+    .map((r) => r.service.name);
+}
+
+export async function activeServicesThatWouldLoseAllPractitioners(
+  excludePractitionerId: string,
+): Promise<string[]> {
+  const recipes = await resolveActiveRecipes();
+  return recipes
+    .filter(
+      (r) =>
+        r.qualifiedPractitioners.length > 0 &&
+        r.qualifiedPractitioners.every((p) => p.id === excludePractitionerId),
+    )
+    .map((r) => r.service.name);
 }

@@ -61,11 +61,13 @@ export async function getClinicConfig(): Promise<ClinicConfig> {
           ? (data["Timezone"] as string)
           : FALLBACK.timezone,
         address,
-        // "Location" column stores the display name; fall back to deriving from address.
-        location:
-          (data["Location"] as string | undefined) ||
-          locationFromAddress(address) ||
-          FALLBACK.location,
+        // The Settings table's own "Location" column is unmanaged — no Settings UI form ever
+        // reads or writes it (same dead-column pattern the multi-branch Location/Locations
+        // columns on Rooms/Equipment/Practitioners/Services were removed for in
+        // migrations/drop_unused_location_columns.sql), so it can silently drift from the real,
+        // editable Address field with no way for an admin to notice or fix it. Always derive
+        // from the real address instead of trusting it.
+        location: locationFromAddress(address) || FALLBACK.location,
         businessHours: (data["Business Hours"] as string | undefined) || FALLBACK.businessHours,
       };
       _cachedAt = Date.now();

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { getClinicConfig } from "@/lib/clinic-config";
+import {
+  activeServicesThatWouldLoseAllPractitioners,
+  resolveServiceRecipe,
+} from "@/lib/booking/recipe";
 
 export const dynamic = "force-dynamic";
 
@@ -129,8 +133,54 @@ export async function PATCH(req: Request) {
       workingHours,
       breaks,
       timeOff,
+      force,
     } = await req.json();
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+    if (status === "Inactive" && !force) {
+      const affected = await activeServicesThatWouldLoseAllPractitioners(id);
+      if (affected.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Deactivating this practitioner would leave ${affected.join(", ")} with no qualified practitioner.`,
+            affectedServices: affected,
+            code: "WOULD_BREAK_ACTIVE_SERVICE",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    if (Array.isArray(qualifications) && !force) {
+      const { data: current } = await sb
+        .from(TABLE)
+        .select("Qualifications")
+        .eq("id", id)
+        .maybeSingle();
+      const previousQualifications: string[] = current?.["Qualifications"] ?? [];
+      const removedServiceIds = previousQualifications.filter(
+        (serviceId) => !qualifications.includes(serviceId),
+      );
+      const affected: string[] = [];
+      for (const serviceId of removedServiceIds) {
+        const recipe = await resolveServiceRecipe(serviceId);
+        if (!recipe) continue;
+        const stillQualified = recipe.qualifiedPractitioners.some((p) => p.id !== id);
+        if (!stillQualified && recipe.qualifiedPractitioners.some((p) => p.id === id)) {
+          affected.push(recipe.service.name);
+        }
+      }
+      if (affected.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Removing this qualification would leave ${affected.join(", ")} with no qualified practitioner.`,
+            affectedServices: affected,
+            code: "WOULD_BREAK_ACTIVE_SERVICE",
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     const fields: Record<string, any> = {};
     if (name !== undefined) fields["Name"] = name;
@@ -160,7 +210,22 @@ export async function DELETE(req: Request) {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const force = searchParams.get("force") === "true";
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+    if (!force) {
+      const affected = await activeServicesThatWouldLoseAllPractitioners(id);
+      if (affected.length > 0) {
+        return NextResponse.json(
+          {
+            error: `Deleting this practitioner would leave ${affected.join(", ")} with no qualified practitioner.`,
+            affectedServices: affected,
+            code: "WOULD_BREAK_ACTIVE_SERVICE",
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     const { error } = await sb.from(TABLE).delete().eq("id", id);
     if (error) throw new Error(error.message);

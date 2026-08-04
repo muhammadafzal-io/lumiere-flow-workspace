@@ -28,7 +28,9 @@ export type PromoCodeValidationResult =
       offerSummary: string;
       clientName?: string;
       clientId?: string;
+      ruleId?: string;
       ruleName?: string;
+      campaignId?: string;
       campaignName?: string;
       expiresAt?: string | null;
       daysRemaining?: number | null;
@@ -145,6 +147,45 @@ async function validateBirthdayCode(
   };
 }
 
+/**
+ * Rule offer codes (e.g. "SAVE40") are one shared code sent to every client the rule matches —
+ * redemption is tracked per (rule, client) pair in rule_code_redemptions.sql, so each client can
+ * redeem it once while other clients can still redeem the same code for themselves. Fails open
+ * (treats as "not yet redeemed") if the table doesn't exist yet — same reasoning as
+ * booking_claims: a missing migration must not make every rule code permanently unusable.
+ */
+async function hasRedeemedRuleCode(ruleId: string, clientId: string): Promise<boolean> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from("rule_code_redemptions")
+    .select("id")
+    .eq("rule_id", ruleId)
+    .eq("client_id", clientId)
+    .maybeSingle();
+  if (error) {
+    console.error("[rule_code_redemptions] check failed, treating as not redeemed:", error.message);
+    return false;
+  }
+  return !!data;
+}
+
+/** Marks a rule offer code as redeemed for this specific client. Call once, after checkout
+ * actually applies the discount — never at validation time, which must stay side-effect-free
+ * and repeatable. Silently no-ops (logs only) if the table doesn't exist yet. */
+export async function redeemRuleCode(ruleId: string, clientId: string): Promise<boolean> {
+  const sb = getSupabase();
+  const { error } = await sb.from("rule_code_redemptions").insert({
+    rule_id: ruleId,
+    client_id: clientId,
+  });
+  if (error) {
+    if (error.code === "23505") return false; // already redeemed by this client
+    console.error("[rule_code_redemptions] redeem failed, proceeding without it:", error.message);
+    return true;
+  }
+  return true;
+}
+
 async function validateRuleOfferCode(
   code: string,
   caller: Client,
@@ -168,6 +209,14 @@ async function validateRuleOfferCode(
   const offer = parseRuleOffer(rule);
   if (!offer.code) return null;
 
+  if (caller.id && (await hasRedeemedRuleCode(rule.id, caller.id))) {
+    return {
+      valid: false,
+      error: `You've already redeemed this offer (rule "${rule.name}").`,
+      clientName: caller.name,
+    };
+  }
+
   const offerSummary = formatOfferSummary(offer.type, offer.amount);
   return {
     valid: true,
@@ -180,6 +229,7 @@ async function validateRuleOfferCode(
     offerSummary,
     clientName: caller.name,
     clientId: caller.id,
+    ruleId: rule.id,
     ruleName: rule.name,
     message: buildValidMessage({
       offerSummary,
@@ -241,6 +291,7 @@ async function validateCampaignRewardCode(
     offerSummary,
     clientName: caller.name,
     clientId: caller.id,
+    campaignId: row.campaign_id != null ? String(row.campaign_id) : undefined,
     campaignName: campaign?.name,
     message: buildValidMessage({
       offerSummary,
@@ -248,6 +299,25 @@ async function validateCampaignRewardCode(
       clientName: caller.name,
     }),
   };
+}
+
+/** Marks a campaign reward code as redeemed. The `is_redeemed` column already existed and was
+ * already checked by validateCampaignRewardCode above, but nothing in the codebase ever set it
+ * — every campaign reward code was really unlimited-use despite looking gated. Call once, after
+ * checkout actually applies the discount. */
+export async function redeemCampaignCode(rewardCode: string): Promise<boolean> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from("customer_rewards")
+    .update({ is_redeemed: true })
+    .eq("reward_code", normalizeCode(rewardCode))
+    .eq("is_redeemed", false)
+    .select("id");
+  if (error) {
+    console.error("[customer_rewards] redeem failed:", error.message);
+    return false;
+  }
+  return (data?.length ?? 0) > 0;
 }
 
 /** Validate birthday, rule offer, and campaign reward codes (chat + voice + checkout). */

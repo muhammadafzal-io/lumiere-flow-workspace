@@ -222,8 +222,10 @@ export function RuleSchedulePanel({ rule, filters, onSaved }: Props) {
       </div>
 
       <p className="text-[10px] text-muted-foreground leading-relaxed">
-        When enabled, scheduled sends run automatically every hour (America/Chicago time). Each
-        client receives at most one send per rule when &quot;Once per client&quot; is selected.
+        When enabled, a daily check runs once each day (around 9 AM America/Chicago time) and sends
+        any rule whose scheduled time has passed for that day — so a time set for later in the day
+        goes out at the next day&apos;s check, not at the exact minute chosen. Each client receives
+        at most one send per rule when &quot;Once per client&quot; is selected.
       </p>
     </div>
   );

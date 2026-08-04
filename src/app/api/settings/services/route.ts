@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getSupabase } from "@/lib/supabase";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import { getEventsByRange } from "@/lib/integrations/google-calendar";
+import { todayInZone, addCalendarDays } from "@/lib/booking/dates";
+import { getClinicTimezone } from "@/lib/clinic-config";
 
 export const dynamic = "force-dynamic";
 
@@ -76,6 +79,22 @@ export async function POST(req: Request) {
     if (!Name || typeof Name !== "string") {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
+    if (
+      DurationMinutes !== undefined &&
+      (typeof DurationMinutes !== "number" || DurationMinutes <= 0)
+    ) {
+      return NextResponse.json(
+        { error: "Duration must be a positive number of minutes" },
+        { status: 400 },
+      );
+    }
+    const { data: existing } = await sb.from(SERVICES).select("id").ilike("Name", Name.trim());
+    if (existing && existing.length > 0) {
+      return NextResponse.json(
+        { error: `A service named "${Name}" already exists` },
+        { status: 409 },
+      );
+    }
 
     const { data: svc, error } = await sb
       .from(SERVICES)
@@ -120,6 +139,30 @@ export async function PATCH(req: Request) {
     const body = await req.json();
     const { id } = body;
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+    if (
+      body.DurationMinutes !== undefined &&
+      (typeof body.DurationMinutes !== "number" || body.DurationMinutes <= 0)
+    ) {
+      return NextResponse.json(
+        { error: "Duration must be a positive number of minutes" },
+        { status: 400 },
+      );
+    }
+
+    if (typeof body.Name === "string" && body.Name.trim()) {
+      const { data: existing } = await sb
+        .from(SERVICES)
+        .select("id")
+        .ilike("Name", body.Name.trim())
+        .neq("id", id);
+      if (existing && existing.length > 0) {
+        return NextResponse.json(
+          { error: `A service named "${body.Name}" already exists` },
+          { status: 409 },
+        );
+      }
+    }
 
     const fields: Record<string, any> = {};
     if (body.Name !== undefined) fields["Name"] = body.Name;
@@ -170,7 +213,33 @@ export async function DELETE(req: Request) {
     const sb = getSupabase();
     const { searchParams } = new URL(req.url);
     const id = searchParams.get("id");
+    const force = searchParams.get("force") === "true";
     if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+
+    const { data: svc } = await sb.from(SERVICES).select("Name").eq("id", id).maybeSingle();
+
+    if (!force && svc?.["Name"]) {
+      // Deleting the Service row would orphan any future appointment that still references it
+      // by name — the calendar event itself displays fine (it's plain text), but rescheduling
+      // or re-resolving it would find no recipe at all. Warn instead of silently orphaning.
+      const tz = await getClinicTimezone();
+      const today = todayInZone(tz);
+      const future = await getEventsByRange(today, addCalendarDays(today, 180), tz);
+      const upcomingCount = future.filter(
+        (e) => e.treatment.toLowerCase() === String(svc["Name"]).toLowerCase(),
+      ).length;
+      if (upcomingCount > 0) {
+        return NextResponse.json(
+          {
+            error: `${svc["Name"]} has ${upcomingCount} upcoming appointment(s) in the next 180 days — deleting it now would leave them pointing at a service that no longer exists.`,
+            upcomingCount,
+            code: "WOULD_ORPHAN_APPOINTMENTS",
+          },
+          { status: 409 },
+        );
+      }
+    }
+
     const { error } = await sb.from(SERVICES).delete().eq("id", id);
     if (error) throw new Error(error.message);
     return NextResponse.json({ success: true });

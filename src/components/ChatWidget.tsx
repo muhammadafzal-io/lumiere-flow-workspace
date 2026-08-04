@@ -30,11 +30,15 @@ function welcomeMessage(clinicName: string): Message {
 interface ChatWidgetProps {
   clinicName?: string;
   location?: string;
+  businessHours?: string;
+  address?: string;
 }
 
 export default function ChatWidget({
   clinicName = "Lumière Med Spa",
   location = "Austin, TX",
+  businessHours,
+  address,
 }: ChatWidgetProps) {
   const [messages, setMessages] = useState<Message[]>([welcomeMessage(clinicName)]);
   const [agentHistory, setAgentHistory] = useState<ConversationMessages>([]);
@@ -223,9 +227,11 @@ export default function ChatWidget({
             <div className="w-10 h-10 rounded-xl bg-lumiere-navy/30" />
           </div>
         )}
-        <p className="text-lumiere-muted text-[10px] text-center mt-2">
-          Mon–Sat 9 AM – 7 PM · (512) 555-0192 · 2847 S Lamar Blvd, Austin TX
-        </p>
+        {(businessHours || address) && (
+          <p className="text-lumiere-muted text-[10px] text-center mt-2">
+            {[businessHours, address].filter(Boolean).join(" · ")}
+          </p>
+        )}
       </div>
     </div>
   );

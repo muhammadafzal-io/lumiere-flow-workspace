@@ -22,6 +22,7 @@ import {
   buildAvailabilityInputs,
   checkServiceBookingWindow,
   resolveBookingCleanup,
+  findInactiveService,
 } from "@/lib/booking/recipe";
 import { getClinicTimezone } from "@/lib/clinic-config";
 import { getPractitioners } from "@/lib/integrations/airtable";
@@ -364,6 +365,24 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
   // guess (e.g. the AI agent) over what the clinic owner configured for this treatment.
   const effectiveDuration = recipe ? recipe.service.durationMinutes : durationMinutes;
 
+  // A Service that exists but is Inactive must not fall through to the legacy freeform path
+  // below — that path has no recipe to enforce, so a deactivated service would otherwise stay
+  // fully bookable (any active room/practitioner, no equipment requirement, no onlineBookable/
+  // requiresConsultation/booking-window checks) instead of being blocked (recipe.ts findInactiveService).
+  if (!recipe && request.treatment) {
+    const inactiveService = await findInactiveService(request.treatment);
+    if (inactiveService) {
+      return {
+        date,
+        durationMinutes,
+        slots: [],
+        bookingWindowNote: `${inactiveService.name} is not currently offered.`,
+        availablePractitioners: [],
+        availableRooms: [],
+      };
+    }
+  }
+
   let slots: AvailableSlot[];
   let bookingWindowNote: string | undefined;
 
@@ -521,6 +540,17 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
   }
 
   const recipe = await resolveServiceRecipe(request.treatment);
+
+  // Same guard as checkAvailability: a Service that exists but is Inactive must be a hard block,
+  // not silently fall through to the legacy freeform path below — that path skips every
+  // service-specific protection (qualification, onlineBookable, requiresConsultation, booking
+  // window) entirely, so a deactivated service would otherwise stay bookable, just unprotected.
+  if (!recipe) {
+    const inactiveService = await findInactiveService(request.treatment);
+    if (inactiveService) {
+      throw new Error(`${inactiveService.name} is not currently offered.`);
+    }
+  }
 
   // A Service's own duration is authoritative once matched — recompute endTime from it rather
   // than trusting whatever the caller (e.g. the AI agent) guessed.

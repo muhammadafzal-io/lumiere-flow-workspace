@@ -426,11 +426,80 @@ export async function bookAdminAppointment(booking: {
   }
 
   const tz = booking.timezone ?? (await getClinicTimezone());
-  const calendar = getCalendarClient();
-  const calId = calendarId();
-
   const bStart = new Date(booking.startTime);
   const bEnd = new Date(booking.endTime);
+
+  const claimKeys = [
+    `room:${booking.room}@${bStart.toISOString()}`,
+    `practitioner:${booking.practitionerName}@${bStart.toISOString()}`,
+    ...(booking.equipment ?? []).map((eq) => `equipment:${eq}@${bStart.toISOString()}`),
+  ];
+  await claimBookingResources(claimKeys);
+
+  try {
+    return await commitBooking(booking, bStart, bEnd, tz);
+  } finally {
+    await releaseBookingResources(claimKeys);
+  }
+}
+
+/**
+ * Atomically claims each resource+start-time key via booking_claims' UNIQUE constraint (see
+ * migrations/create_booking_claims.sql — PRD gap R-1). Sweeps any stale claim on this exact key
+ * first (a prior request that crashed before its `finally` ran), so an abandoned claim can't
+ * permanently block a resource. Throws a retryable error the moment any key is already held by a
+ * genuinely concurrent request, and releases whichever keys it *did* just claim before throwing.
+ */
+async function claimBookingResources(keys: string[]): Promise<void> {
+  const sb = getSupabase();
+  const STALE_MS = 20_000;
+  const claimed: string[] = [];
+  try {
+    for (const key of keys) {
+      await sb
+        .from("booking_claims")
+        .delete()
+        .eq("resource_key", key)
+        .lt("created_at", new Date(Date.now() - STALE_MS).toISOString());
+
+      const { error } = await sb.from("booking_claims").insert({ resource_key: key });
+      if (error) {
+        // 23505 = unique_violation — a genuinely concurrent request holds this exact
+        // resource+time right now; that's the real race this table exists to catch.
+        // Any other error (most notably 42P01 undefined_table, before the migration in
+        // migrations/create_booking_claims.sql has been run) must not block booking
+        // entirely — fail open and log, rather than making every single booking fail with
+        // a misleading "someone else is booking this" until the table exists.
+        if (error.code === "23505") {
+          throw new Error(
+            "Someone else is booking this exact time right now — please try again in a moment.",
+          );
+        }
+        console.error("[booking_claims] claim failed, proceeding without it:", error.message);
+        return;
+      }
+      claimed.push(key);
+    }
+  } catch (err) {
+    await releaseBookingResources(claimed);
+    throw err;
+  }
+}
+
+async function releaseBookingResources(keys: string[]): Promise<void> {
+  if (keys.length === 0) return;
+  const sb = getSupabase();
+  await sb.from("booking_claims").delete().in("resource_key", keys);
+}
+
+async function commitBooking(
+  booking: Parameters<typeof bookAdminAppointment>[0],
+  bStart: Date,
+  bEnd: Date,
+  tz: string,
+): Promise<{ id: string }> {
+  const calendar = getCalendarClient();
+  const calId = calendarId();
 
   const isRecipeAware =
     booking.roomCleanupMinutes !== undefined || booking.equipmentCleanupMinutes !== undefined;
