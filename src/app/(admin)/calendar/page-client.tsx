@@ -77,6 +77,12 @@ export default function CalendarPage() {
   const [calEvents, setCalEvents] = useState<Appointment[]>([]);
   const [calLoading, setCalLoading] = useState(false);
   const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
+  // Gates the first events fetch until practitioners/customers have loaded at least once,
+  // so appointments are never mapped against an empty practitioner list.
+  const [metaLoaded, setMetaLoaded] = useState(false);
+  // Cancels any in-flight /api/calendar/events request when a newer one starts, so a
+  // slower, stale response can never overwrite a more recent one (see fetchCalEvents).
+  const eventsAbortRef = useRef<AbortController | null>(null);
 
   const [view, setView] = useState<ViewMode>(() => {
     if (typeof window === "undefined") return "week";
@@ -165,6 +171,10 @@ export default function CalendarPage() {
       }
     } catch (err) {
       console.error("[calendar] meta load failed:", err);
+    } finally {
+      // Unblock the events fetch even if meta failed — appointments should still render,
+      // just without practitioner/customer enrichment, rather than hanging forever.
+      setMetaLoaded(true);
     }
   }, []);
 
@@ -174,10 +184,18 @@ export default function CalendarPage() {
 
   const fetchCalEvents = useCallback(
     async (from: Date, to: Date) => {
+      // Abort whatever request is still in flight — its response, if it ever arrives,
+      // must never be allowed to overwrite the data from this newer request.
+      eventsAbortRef.current?.abort();
+      const controller = new AbortController();
+      eventsAbortRef.current = controller;
+
       setCalLoading(true);
       const fmt = (d: Date) => d.toISOString().slice(0, 10);
       try {
-        const res = await fetch(`/api/calendar/events?from=${fmt(from)}&to=${fmt(to)}`);
+        const res = await fetch(`/api/calendar/events?from=${fmt(from)}&to=${fmt(to)}`, {
+          signal: controller.signal,
+        });
         if (res.status === 401 || res.status === 403) {
           setAccessDenied(res.status);
           return;
@@ -214,7 +232,11 @@ export default function CalendarPage() {
               ),
               start_time: e.startTime,
               end_time: e.endTime,
-              practitioner_id: matchedPrac?.id ?? practitioners[0]?.id ?? "",
+              // Leave unassigned (matched dynamically by practitionerById at render time)
+              // rather than guessing practitioners[0] — a wrong guess silently misattributes
+              // the appointment to the wrong staff member and can hide it behind that
+              // practitioner's calendar filter.
+              practitioner_id: matchedPrac?.id ?? "",
               room: e.room || "",
               status: e.status === "pending" ? ("pending" as const) : ("confirmed" as const),
               source: "manual" as const,
@@ -228,10 +250,16 @@ export default function CalendarPage() {
         setCalEvents(events);
         setSyncedAt(new Date());
       } catch (err) {
+        if ((err as { name?: string })?.name === "AbortError") return;
         console.error("[calendar sync]", err);
         toast.error("Could not sync calendar");
       } finally {
-        setCalLoading(false);
+        // Only the request that's still current gets to clear the loading flag — an
+        // aborted/superseded request finishing later must not flip it off underneath
+        // the request that's actually still running.
+        if (eventsAbortRef.current === controller) {
+          setCalLoading(false);
+        }
       }
     },
     [customers, practitioners],
@@ -244,9 +272,12 @@ export default function CalendarPage() {
   const syncedAgo = useRelativeTime(syncedAt);
 
   useEffect(() => {
-    if (days.length === 0) return;
+    // Wait for practitioners/customers to load at least once so the very first events
+    // fetch already has real data to match against, instead of mapping blind and relying
+    // on a second fetch to correct itself.
+    if (days.length === 0 || !metaLoaded) return;
     void fetchCalEvents(days[0], days[days.length - 1]);
-  }, [days, fetchCalEvents]);
+  }, [days, fetchCalEvents, metaLoaded]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

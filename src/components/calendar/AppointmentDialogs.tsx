@@ -45,6 +45,7 @@ import {
 } from "@/lib/birthday";
 import { store } from "@/lib/store";
 import { splitAppointmentField } from "@/lib/customers/visit-count";
+import { formatLastVisit } from "@/lib/customers/last-visit";
 import {
   getDisplayTimezone,
   fmtTimeRange,
@@ -211,7 +212,7 @@ export function AppointmentSlideOver({
                 value={`${fmtTimeRange(start, end)} · ${a.duration_minutes} min`}
               />
               <Row label="Treatment" value={a.treatment} />
-              <Row label="Practitioner" value={prac?.name || "—"} swatch={prac?.color} />
+              <Row label="Practitioner" value={prac?.name || "Unassigned"} swatch={prac?.color} />
               <Row icon={<MapPin className="h-3.5 w-3.5" />} label="Room" value={a.room} />
               <Row label="Price" value={`$${a.price.toLocaleString()}`} />
               <Row
@@ -265,12 +266,16 @@ export function AppointmentSlideOver({
                   <div className="rounded-md bg-muted/40 px-2.5 py-2">
                     <div className="text-muted-foreground">Last visit</div>
                     <div className="font-semibold mt-0.5">
-                      {new Date(customer.last_visit).toLocaleDateString("en-US", {
-                        timeZone: getDisplayTimezone(),
-                        month: "short",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
+                      {formatLastVisit(
+                        customer.last_visit,
+                        {
+                          timeZone: getDisplayTimezone(),
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        },
+                        "en-US",
+                      )}
                     </div>
                   </div>
                 </div>

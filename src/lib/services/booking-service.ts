@@ -378,16 +378,28 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
       ? practitionerNames.filter((p) => p === practitionerName)
       : practitionerNames;
 
-    slots = await getAvailableSlots(
-      date,
-      effectiveDuration,
-      rooms,
-      practitioners,
-      undefined,
-      context,
-      equipmentGroups,
-      timezone,
-    );
+    if (practitioners.length === 0) {
+      // In the recipe-aware path, an empty practitioners array is never "no constraint" — the
+      // recipe itself is the full universe of valid practitioners (either because none are
+      // qualified for this service at all, or because a specifically-requested one didn't
+      // match anyone qualified). getAvailableSlots treats an empty array as "unconstrained"
+      // (that's the correct contract for its other, legacy caller, which never passes an
+      // empty list unless it truly means no restriction), so passing this array through here
+      // would be misread the same way — silently offering the slot via whichever practitioner
+      // happens to be free instead of correctly reporting zero availability.
+      slots = [];
+    } else {
+      slots = await getAvailableSlots(
+        date,
+        effectiveDuration,
+        rooms,
+        practitioners,
+        undefined,
+        context,
+        equipmentGroups,
+        timezone,
+      );
+    }
 
     // Enforce this Service's minimum notice / maximum advance window (PRD §6).
     const preWindowSlots = slots;

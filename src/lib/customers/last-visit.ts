@@ -26,9 +26,13 @@ export function deriveLastVisit(
   return latest ? latest.toISOString() : "";
 }
 
-export function formatLastVisit(iso: string | undefined | null): string {
+export function formatLastVisit(
+  iso: string | undefined | null,
+  options?: Intl.DateTimeFormatOptions,
+  locale?: string,
+): string {
   if (!iso?.trim()) return "No visits recorded";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "No visits recorded";
-  return d.toLocaleDateString();
+  return d.toLocaleDateString(locale, options);
 }
