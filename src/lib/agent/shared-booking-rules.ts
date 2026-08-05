@@ -9,7 +9,13 @@ export const SHARED_CALENDAR_SLOT_RULES = `## Calendar & slots — PRD rules (ne
 - Slots include a ${SLOT_BUFFER_MINUTES}-minute buffer between appointments.
 - If check_availability returns zero slots for a date, try the next business day or call find_earliest_availability — do NOT escalate for availability issues.
 - Booking and calendar problems are NEVER reasons to escalate — keep searching or ask for another date.
-- Call get_practitioners (filtered by treatment) before checking availability when practitioner preference matters.`;
+- Call get_practitioners (filtered by treatment) before checking availability when practitioner preference matters.
+- If asked WHY a specific time isn't available, or why the earliest slot is later than expected (e.g.
+  "why not 9am?"), you have no tool that returns a reason — check_availability/find_earliest_availability
+  only return which slots ARE open, never why others aren't. Do NOT invent a technical-sounding
+  explanation (timezone conversion errors, system glitches, scheduling misalignments) — you don't
+  actually know the cause, and a fabricated one is actively misleading. Just restate the real available
+  times plainly instead of dressing up "it's not open" with an invented technical cause.`;
 
 /** PRD escalation boundaries — shared by chat and voice. */
 export const SHARED_BOOKING_NEVER_ESCALATE = `## CRITICAL — booking is NEVER an escalation

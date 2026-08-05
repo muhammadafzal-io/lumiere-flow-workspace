@@ -55,7 +55,8 @@ export async function POST(req: Request) {
     if (typeof CleanupMinutes === "number" && CleanupMinutes < 0) {
       return NextResponse.json({ error: "Cleanup minutes cannot be negative" }, { status: 400 });
     }
-    const { data: existing } = await sb.from(TABLE).select("id").ilike("Name", Name.trim());
+    const normalizedName = Name.trim().replace(/\s+/g, " ");
+    const { data: existing } = await sb.from(TABLE).select("id").ilike("Name", normalizedName);
     if (existing && existing.length > 0) {
       return NextResponse.json(
         { error: `Equipment named "${Name}" already exists` },
@@ -65,7 +66,7 @@ export async function POST(req: Request) {
     const { data, error } = await sb
       .from(TABLE)
       .insert({
-        Name,
+        Name: normalizedName,
         Type: Type ?? "Mobile",
         HomeRoom: HomeRoom ?? null,
         CleanupMinutes: CleanupMinutes ?? 0,
@@ -96,11 +97,14 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ error: "Cleanup minutes cannot be negative" }, { status: 400 });
     }
 
+    let normalizedName: string | undefined;
     if (typeof body.Name === "string" && body.Name.trim()) {
+      const trimmedName: string = body.Name.trim().replace(/\s+/g, " ");
+      normalizedName = trimmedName;
       const { data: existing } = await sb
         .from(TABLE)
         .select("id")
-        .ilike("Name", body.Name.trim())
+        .ilike("Name", trimmedName)
         .neq("id", id);
       if (existing && existing.length > 0) {
         return NextResponse.json(
@@ -141,7 +145,7 @@ export async function PATCH(req: Request) {
     }
 
     const fields: Record<string, any> = {};
-    if (body.Name !== undefined) fields["Name"] = body.Name;
+    if (body.Name !== undefined) fields["Name"] = normalizedName ?? body.Name;
     if (body.Type !== undefined) fields["Type"] = body.Type;
     if (body.HomeRoom !== undefined) fields["HomeRoom"] = body.HomeRoom;
     if (body.CleanupMinutes !== undefined) fields["CleanupMinutes"] = body.CleanupMinutes;
