@@ -36,13 +36,11 @@ export async function POST(req: Request) {
       revenue: 0,
     } satisfies Rule;
 
-    // Must match the run page's default filter state exactly — buildRuleAudience merges these
-    // extraFilters over any audience_filters stored on the rule (e.g. from an AI-parsed
-    // description), and the run page always sends a fully-populated filter set (even at
-    // defaults), which fully overrides them. Replicate that here, or a stale/conflicting stored
-    // audience_filters silently leaks through in the preview but not on the run page, producing a
-    // different (often much lower) count than what will actually be sent.
-    const extraFilters = { ...defaultRuleAudienceFilters(), status: [], treatment: [] };
+    // Only apply UI defaults (last_visit/has_email) here — status/treatment are intentionally
+    // left unset so the rule's own trigger_config.audience_filters (e.g. the "Botox" prerequisite
+    // on a two-treatment AI-parsed rule) survives the merge in buildRuleAudience instead of being
+    // silently wiped to "match everyone."
+    const extraFilters = defaultRuleAudienceFilters();
 
     const { total, eligible, rows } = await buildRuleAudience(rule, extraFilters);
 

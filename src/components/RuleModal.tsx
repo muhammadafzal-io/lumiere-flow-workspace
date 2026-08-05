@@ -168,6 +168,10 @@ export function RuleModal({ open, onOpenChange, editing, onSaved }: Props) {
       setCfg({
         ...p.trigger_config,
         ...(p.audience_filters ? { audience_filters: p.audience_filters } : {}),
+        // The AI never returns a schedule (it's a separate, UI-only concept from
+        // RuleSchedulePanel) — without re-attaching it here, re-describing an existing
+        // rule with the wand silently wipes out its configured auto-send schedule.
+        ...(editing?.trigger_config?.schedule ? { schedule: editing.trigger_config.schedule } : {}),
       });
       setChannel(normalizeRuleChannel(p.channel));
       setMessage(p.message_template);

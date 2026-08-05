@@ -230,7 +230,20 @@ export function matchesRuleTrigger(c: Customer, rule: Rule, now = new Date()): b
       return birthdayWithinDays(c.birthday, cfg.days_before ?? 7, now);
     case "Treatment-based": {
       const t = cfg.treatment as string;
-      if (t && t !== "Any" && !c.treatments.includes(t as Customer["treatments"][0])) {
+      // Two-treatment rules ("had Botox, offer to book Laser") put the prerequisite in
+      // audience_filters.treatment and the booking/trigger treatment in cfg.treatment — the
+      // latter is what they're being invited to book, so it must NOT be required as something
+      // they already have. That prerequisite is enforced separately via matchesExtraFilters.
+      const audienceFilters = cfg.audience_filters as RuleAudienceFilters | undefined;
+      const isTwoTreatmentRule = Array.isArray(audienceFilters?.treatment)
+        ? audienceFilters.treatment.length > 0
+        : false;
+      if (
+        !isTwoTreatmentRule &&
+        t &&
+        t !== "Any" &&
+        !c.treatments.includes(t as Customer["treatments"][0])
+      ) {
         return false;
       }
       const mode = treatmentTimingMode(cfg);

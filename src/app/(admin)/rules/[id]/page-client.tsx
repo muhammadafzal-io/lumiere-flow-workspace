@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -81,6 +81,7 @@ export default function RuleAudiencePage() {
   const [aiQuery, setAiQuery] = useState("");
   const [aiParsing, setAiParsing] = useState(false);
   const [aiExplanation, setAiExplanation] = useState("");
+  const seededFiltersRef = useRef(false);
 
   const ruleMinVisits =
     rule?.trigger_type === "Visit count"
@@ -117,6 +118,23 @@ export default function RuleAudiencePage() {
     const t = setTimeout(() => void load(), 300);
     return () => clearTimeout(t);
   }, [load]);
+
+  // Seed the filter panel from the rule's own saved audience_filters (e.g. the "Botox"
+  // prerequisite on a two-treatment AI-parsed rule) the first time it loads — otherwise the
+  // panel always starts blank and that prerequisite silently never takes effect unless an
+  // admin manually re-adds it as a filter chip every time they open the rule.
+  useEffect(() => {
+    if (!rule || seededFiltersRef.current) return;
+    seededFiltersRef.current = true;
+    const saved = rule.trigger_config?.audience_filters as RuleAudienceFilters | undefined;
+    if (saved?.treatment?.length || saved?.status?.length) {
+      setFilters((prev) => ({
+        ...prev,
+        ...(saved.treatment?.length ? { treatment: saved.treatment } : {}),
+        ...(saved.status?.length ? { status: saved.status } : {}),
+      }));
+    }
+  }, [rule]);
 
   const visibleRows = useMemo(() => rows.filter((r) => !skipped.has(r.id)), [rows, skipped]);
 
