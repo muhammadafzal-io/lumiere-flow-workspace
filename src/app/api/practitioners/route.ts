@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     const { data, error } = await sb
       .from(TABLE)
       .insert({
-        Name: name,
+        Name: name.trim().replace(/\s+/g, " "),
         Email: email ?? "",
         Role: role ?? "",
         Color: color ?? "#6366f1",
@@ -183,7 +183,7 @@ export async function PATCH(req: Request) {
     }
 
     const fields: Record<string, any> = {};
-    if (name !== undefined) fields["Name"] = name;
+    if (name !== undefined) fields["Name"] = String(name).trim().replace(/\s+/g, " ");
     if (email !== undefined) fields["Email"] = email;
     if (role !== undefined) fields["Role"] = role;
     if (color !== undefined) fields["Color"] = color;

@@ -215,7 +215,9 @@ export default function CalendarPage() {
             practitioner: string;
             status?: "pending" | "confirmed";
           }) => {
-            const matchedPrac = practitioners.find((p) => p.name === e.practitioner);
+            const matchedPrac = practitioners.find(
+              (p) => p.name.trim().toLowerCase() === (e.practitioner || "").trim().toLowerCase(),
+            );
             const matchedCustomer = customers.find(
               (c) =>
                 c.phone === e.clientContact ||
