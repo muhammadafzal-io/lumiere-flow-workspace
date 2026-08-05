@@ -123,7 +123,11 @@ audience_filters (optional refinements):
 Defaults: marketing/loyalty offers → Visit count + Email channel.
 Message: professional, warm, under 120 words. Include {credit_code} in the message when offer_code
 is set, and {offer_summary} or {offer_amount} to state the dollar/percent value — do not hardcode
-the number as literal text.`;
+the number as literal text anywhere in the message, including the first sentence.
+Wrong: "Enjoy a $60 discount on your next Botox treatment."
+Right: "Enjoy {offer_summary} on your next Botox treatment."
+This message is saved once and reused for every future send, so a literal number goes stale the
+moment the offer amount is edited later — the placeholder is what stays correct.`;
 
 /** Parse full rule definition from natural language */
 export async function parseRuleWithAI(input: string, serviceNames?: string[]): Promise<ParsedRule> {
@@ -215,13 +219,24 @@ export async function generateRuleMessageWithAI(opts: {
         role: "system",
         content: `Write a marketing email body for Lumière Med Spa.
 Use {first_name}. Use {credit_code} when an offer code applies, and {offer_summary} or {offer_amount} for the dollar or percent value — same for every trigger type, including Birthday.
+
+NEVER write the dollar amount or percent as literal text (e.g. "$60 discount", "20% off") — always
+use the {offer_summary} or {offer_amount} placeholder instead, even when there is no offer code.
+The literal number goes stale the moment someone edits the offer amount later, since this message
+text is saved once and reused for every future send — the placeholder is what stays correct.
+Wrong: "Enjoy an exclusive $60 discount on your next Botox treatment."
+Right: "Enjoy {offer_summary} on your next Botox treatment."
+When an offer code is given, also work {credit_code} into the redemption instructions (e.g. "use
+code {credit_code} at checkout") — never invent a different redemption mechanism ("mention this
+email") when a real code exists.
+
 Warm, professional, no emojis, under 120 words. Return ONLY the message text.`,
       },
       {
         role: "user",
         content: `Rule: ${opts.ruleName}
 Trigger: ${opts.triggerType} ${JSON.stringify(opts.triggerConfig)}
-Offer code: ${opts.offerCode ?? "none"}
+Offer code: ${opts.offerCode || "none"}
 ${opts.instruction ? `Instruction: ${opts.instruction}` : "Write the email."}`,
       },
     ],
