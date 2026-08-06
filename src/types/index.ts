@@ -47,6 +47,11 @@ export interface CalendarEvent {
   clientName: string;
   clientContact: string;
   clientEmail?: string;
+  /** The Clients table row id, when the booking flow that created this event knew it — written
+   * into the event description as "Client ID: <uuid>". Absent on events booked before this field
+   * existed, or when the client wasn't yet on file at booking time; callers fall back to matching
+   * by phone, then name. */
+  clientId?: string;
   startTime: string;
   endTime: string;
   notes: string;

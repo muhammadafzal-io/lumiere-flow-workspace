@@ -39,6 +39,10 @@ export interface BookingRequest {
   clientName: string;
   clientContact: string;
   clientEmail?: string;
+  /** The Clients table row id, when the caller already knows it (e.g. the admin booking modal's
+   * "existing customer" mode) — threaded into the calendar event so future lookups can match by a
+   * stable id instead of phone/name (see getAppointmentHistoryForContact). */
+  clientId?: string;
   treatment: string;
   startTime: string;
   endTime: string;
@@ -694,6 +698,7 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     clientName: request.clientName,
     clientContact: request.clientContact,
     clientEmail: request.clientEmail,
+    clientId: request.clientId,
     treatment: request.treatment,
     room: request.room,
     practitionerName: request.practitionerName,

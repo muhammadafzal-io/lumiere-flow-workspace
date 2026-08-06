@@ -4,6 +4,7 @@ import { isValidBirthdayInput, normalizeBirthdayForStorage } from "@/lib/birthda
 import { normalizeEmail } from "@/lib/email";
 import { phoneSearchVariants, extractPhoneForLookup, phoneDigits, phonesMatch } from "@/lib/phone";
 import { fullNameValidationError, isFullName } from "@/lib/agent/client-name";
+import { isAppointmentPast } from "@/lib/appointment-lock";
 
 export { normalizeEmail };
 
@@ -294,6 +295,15 @@ export async function prepareCancelRescheduleInput(
           await import("@/lib/booking/appointment-duration");
         input.duration_minutes = durationMinutesForAppointment(booking);
       }
+
+      if (isAppointmentPast(input.appointment_end_time as string)) {
+        logFlowStep("cancel-reschedule:appointment already past", {
+          event_id: input.event_id,
+          end_time: input.appointment_end_time,
+        });
+        return "That appointment has already ended and can no longer be changed. If the client needs a new appointment, use book_appointment instead.";
+      }
+
       logFlowStep("cancel-reschedule:using verified event_id", {
         event_id: input.event_id,
         client_email: input.client_email,

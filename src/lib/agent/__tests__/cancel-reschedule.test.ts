@@ -25,6 +25,11 @@ const findApptMock = vi.mocked(findUpcomingAppointmentByPhone);
 const lookupMock = vi.mocked(lookupClientByPhone);
 const getBookingMock = vi.mocked(getCalendarBookingDetails);
 
+/** Relative to the real clock, not a hardcoded date, so this test never silently rots into the
+ * past (which would trip the isAppointmentPast guard on an unrelated future test run). */
+const futureIso = (daysFromNow: number) =>
+  new Date(Date.now() + daysFromNow * 86_400_000).toISOString();
+
 describe("prepareCancelRescheduleInput", () => {
   beforeEach(() => {
     findApptMock.mockReset();
@@ -71,8 +76,8 @@ describe("prepareCancelRescheduleInput", () => {
       treatment: "HydraFacial",
       clientContact: "+15551234567",
       clientEmail: "real@example.com",
-      startTime: "2026-08-01T15:00:00.000Z",
-      endTime: "2026-08-01T15:45:00.000Z",
+      startTime: futureIso(3),
+      endTime: futureIso(3),
       practitionerName: "Dr. A",
       room: "Room 1",
       notes: "",
@@ -89,6 +94,32 @@ describe("prepareCancelRescheduleInput", () => {
     expect(input.client_name).toBe("Real Client");
     expect(input.client_email).toBe("real@example.com");
     // Must never fall back to a phone-based calendar search once the event_id is verified.
+    expect(findApptMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a model-supplied event_id whose appointment has already ended", async () => {
+    getBookingMock.mockResolvedValue({
+      id: "evt_past",
+      clientName: "Real Client",
+      treatment: "HydraFacial",
+      clientContact: "+15551234567",
+      clientEmail: "real@example.com",
+      startTime: futureIso(-3),
+      endTime: futureIso(-3),
+      practitionerName: "Dr. A",
+      room: "Room 1",
+      notes: "",
+    });
+
+    const input: Record<string, unknown> = {
+      phone: "+15551234567",
+      event_id: "evt_past",
+    };
+    const error = await validateCancelAppointment(input);
+
+    expect(error).toContain("already ended");
+    // Must not fall back to a phone-based search either — the appointment was correctly
+    // identified, it's just not editable, so there's no other appointment to substitute.
     expect(findApptMock).not.toHaveBeenCalled();
   });
 

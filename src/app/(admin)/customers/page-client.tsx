@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -10,8 +11,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -27,24 +26,12 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Search, Download, Plus, MoreHorizontal, RefreshCw, Pencil, Loader2 } from "lucide-react";
+import { Search, Download, Plus, MoreHorizontal, RefreshCw, Loader2 } from "lucide-react";
 import type { Customer } from "@/lib/types";
-import { birthdayToInputValue, formatBirthdayDisplay } from "@/lib/birthday";
 import { toast } from "sonner";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import { useCurrentUser } from "@/lib/current-user-context";
-
-function statusPill(s: string) {
-  const map: Record<string, string> = {
-    Active: "bg-success/10 text-success border-success/20",
-    Dormant: "bg-warning/15 text-warning-foreground border-warning/30",
-    VIP: "bg-primary/10 text-primary border-primary/20",
-    New: "bg-info/10 text-info border-info/20",
-    "No-show": "bg-destructive/10 text-destructive border-destructive/20",
-    Discard: "bg-muted text-muted-foreground border-border",
-  };
-  return `inline-flex px-2 py-0.5 text-[11px] font-medium rounded-md border ${map[s] ?? map["Discard"]}`;
-}
+import { statusPillClass } from "@/lib/customers/status-pill";
 
 function SkeletonRows() {
   return (
@@ -92,18 +79,7 @@ interface AddCustomerForm {
   treatmentInterest: string;
 }
 
-interface EditForm {
-  name: string;
-  phone: string;
-  email: string;
-  birthday: string;
-  status: string;
-  notes: string;
-  treatmentInterest: string;
-  appointments: string;
-}
-
-const EMPTY_FORM: EditForm = {
+const EMPTY_FORM: AddCustomerForm = {
   name: "",
   phone: "",
   email: "",
@@ -111,295 +87,10 @@ const EMPTY_FORM: EditForm = {
   status: "Active",
   notes: "",
   treatmentInterest: "",
-  appointments: "",
 };
 
-function customerToEditForm(c: Customer): EditForm {
-  return {
-    name: c.name,
-    phone: c.phone ?? "",
-    email: c.email ?? "",
-    birthday: birthdayToInputValue(c.birthday),
-    status: c.status,
-    notes: c.notes ?? "",
-    treatmentInterest: c.treatments.join(", "),
-    appointments: c.appointments ?? "",
-  };
-}
-
-function CustomerSheet({
-  customer,
-  onClose,
-  onUpdated,
-}: {
-  customer: Customer | null;
-  onClose: () => void;
-  onUpdated: (updated: Customer) => void;
-}) {
-  const { can } = useCurrentUser();
-  const canUpdate = can("customers", "Update");
-  const [editMode, setEditMode] = useState(false);
-  const [form, setForm] = useState<EditForm>(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    if (customer) {
-      setForm(customerToEditForm(customer));
-      setEditMode(false);
-    }
-  }, [customer]);
-
-  const field =
-    (key: keyof EditForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-      setForm((f) => ({ ...f, [key]: e.target.value }));
-
-  const save = async () => {
-    if (!form.name.trim()) {
-      toast.error("Name is required");
-      return;
-    }
-    if (!customer) return;
-    setSaving(true);
-    try {
-      const res = await fetch("/api/customers", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recordId: customer.id, ...form }),
-      });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      onUpdated(data.customer);
-      setEditMode(false);
-      toast.success("Customer updated");
-    } catch {
-      toast.error("Failed to save changes");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const cancel = () => {
-    if (customer) setForm(customerToEditForm(customer));
-    setEditMode(false);
-  };
-
-  return (
-    <Sheet open={!!customer} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-[520px] sm:max-w-[520px] overflow-y-auto">
-        {customer && (
-          <>
-            <SheetHeader className="flex flex-row items-start justify-between pr-8">
-              <SheetTitle className="text-xl">
-                {editMode ? (
-                  <Input
-                    value={form.name}
-                    onChange={field("name")}
-                    className="text-xl font-semibold h-auto py-0.5 -ml-1"
-                  />
-                ) : (
-                  customer.name
-                )}
-              </SheetTitle>
-              {!editMode && canUpdate && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-shrink-0"
-                  onClick={() => setEditMode(true)}
-                >
-                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                  Edit
-                </Button>
-              )}
-            </SheetHeader>
-
-            {/* ── Contact info ── */}
-            {editMode ? (
-              <div className="mt-4 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs">Phone</Label>
-                    <Input
-                      value={form.phone}
-                      onChange={field("phone")}
-                      className="mt-1"
-                      placeholder="+1 555 000 0000"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Email</Label>
-                    <Input
-                      value={form.email}
-                      onChange={field("email")}
-                      className="mt-1"
-                      placeholder="email@example.com"
-                    />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs">Birthday</Label>
-                    <Input
-                      type="date"
-                      value={form.birthday}
-                      onChange={field("birthday")}
-                      className="mt-1"
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-xs">Status</Label>
-                    <Select
-                      value={form.status}
-                      onValueChange={(v) => setForm((f) => ({ ...f, status: v }))}
-                    >
-                      <SelectTrigger className="mt-1">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Active">Active</SelectItem>
-                        <SelectItem value="New">New</SelectItem>
-                        <SelectItem value="VIP">VIP</SelectItem>
-                        <SelectItem value="Dormant">Dormant</SelectItem>
-                        <SelectItem value="No-show">No-show</SelectItem>
-                        <SelectItem value="Discard">Discard</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-xs">Treatment interest</Label>
-                  <Input
-                    value={form.treatmentInterest}
-                    onChange={field("treatmentInterest")}
-                    className="mt-1"
-                    placeholder="e.g. Botox, HydraFacial"
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="mt-4 space-y-1 text-sm">
-                {customer.email && <div className="text-muted-foreground">{customer.email}</div>}
-                {customer.phone && <div className="text-muted-foreground">{customer.phone}</div>}
-                {customer.birthday && (
-                  <div className="text-muted-foreground">
-                    Birthday {formatBirthdayDisplay(customer.birthday)}
-                  </div>
-                )}
-                <div className="pt-2">
-                  <span className={statusPill(customer.status)}>{customer.status}</span>
-                </div>
-              </div>
-            )}
-
-            {/* ── Stats ── */}
-            <div className="grid grid-cols-2 gap-3 mt-5">
-              <div className="rounded-md border p-3">
-                <div className="text-[11px] text-muted-foreground">Visits</div>
-                <div className="text-base font-semibold mt-0.5">{customer.total_visits || "—"}</div>
-              </div>
-              <div className="rounded-md border p-3">
-                <div className="text-[11px] text-muted-foreground">Last visit</div>
-                <div className="text-base font-semibold mt-0.5">
-                  {customer.last_visit ? new Date(customer.last_visit).toLocaleDateString() : "—"}
-                </div>
-              </div>
-            </div>
-
-            {/* ── Treatments ── */}
-            {!editMode && customer.treatments.length > 0 && (
-              <div className="mt-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                  Treatments
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {customer.treatments.map((t) => (
-                    <span
-                      key={t}
-                      className="text-[11px] px-2 py-0.5 rounded-md bg-accent border text-accent-foreground"
-                    >
-                      {t}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* ── Tabs ── */}
-            <Tabs defaultValue="visits" className="mt-5">
-              <TabsList>
-                <TabsTrigger value="visits">Visits</TabsTrigger>
-                <TabsTrigger value="notes">Notes</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="visits" className="mt-3">
-                {editMode ? (
-                  <div>
-                    <Textarea
-                      value={form.appointments}
-                      onChange={field("appointments")}
-                      placeholder="2026-01-05 Botox; 2026-03-10 HydraFacial"
-                      rows={4}
-                      className="text-sm font-mono"
-                    />
-                    <p className="text-xs text-muted-foreground mt-1.5">
-                      Semicolon-separated visits, each starting with a date (YYYY-MM-DD). Drives
-                      this customer&apos;s visit count, last visit, and this list.
-                    </p>
-                  </div>
-                ) : customer.visits.length > 0 ? (
-                  <div className="rounded-md border divide-y text-sm">
-                    {customer.visits.slice(0, 12).map((v, i) => (
-                      <div key={i} className="px-3 py-2 flex justify-between">
-                        <span>{new Date(v.date).toLocaleDateString()}</span>
-                        <span className="text-muted-foreground">{v.treatment}</span>
-                        {v.spend > 0 && <span className="font-medium">${v.spend}</span>}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="rounded-md border px-3 py-6 text-center text-sm text-muted-foreground">
-                    No visit history available.
-                  </div>
-                )}
-              </TabsContent>
-
-              <TabsContent value="notes" className="mt-3">
-                {editMode ? (
-                  <Textarea
-                    value={form.notes}
-                    onChange={field("notes")}
-                    placeholder="Notes about this customer…"
-                    rows={5}
-                    className="text-sm"
-                  />
-                ) : (
-                  <div className="rounded-md border p-3 min-h-[80px] text-sm">
-                    {customer.notes || <span className="text-muted-foreground">No notes yet.</span>}
-                  </div>
-                )}
-              </TabsContent>
-            </Tabs>
-
-            {/* ── Edit actions ── */}
-            {editMode && (
-              <div className="flex gap-2 mt-6 pt-4 border-t">
-                <Button onClick={save} disabled={saving}>
-                  {saving && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-                  Save changes
-                </Button>
-                <Button variant="outline" onClick={cancel} disabled={saving}>
-                  Cancel
-                </Button>
-              </div>
-            )}
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
-  );
-}
-
 export default function CustomersPage() {
+  const router = useRouter();
   const { can } = useCurrentUser();
   const canCreate = can("customers", "Create");
   const canDelete = can("customers", "Delete");
@@ -409,7 +100,6 @@ export default function CustomersPage() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("all");
   const [last, setLast] = useState("any");
-  const [selected, setSelected] = useState<Customer | null>(null);
   const [confirmCustomer, setConfirmCustomer] = useState<Customer | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [form, setForm] = useState<AddCustomerForm>(EMPTY_FORM);
@@ -503,16 +193,10 @@ export default function CustomersPage() {
       const res = await fetch(`/api/customers?id=${c.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
       setCustomers((prev) => prev.filter((x) => x.id !== c.id));
-      if (selected?.id === c.id) setSelected(null);
       toast.success("Customer deleted");
     } catch {
       toast.error("Failed to delete customer");
     }
-  };
-
-  const handleUpdated = (updated: Customer) => {
-    setCustomers((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
-    setSelected(updated);
   };
 
   const activeCount = customers.filter((c) => c.status === "Active").length;
@@ -627,7 +311,7 @@ export default function CustomersPage() {
                 filtered.map((c) => (
                   <tr
                     key={c.id}
-                    onClick={() => setSelected(c)}
+                    onClick={() => router.push(`/customers/${c.id}`)}
                     className="cursor-pointer hover:bg-muted/40 transition-colors"
                   >
                     <td className="px-4 py-2.5">
@@ -646,7 +330,7 @@ export default function CustomersPage() {
                     <td className="px-4 py-2.5 text-right">{c.total_visits}</td>
                     <td className="px-4 py-2.5 text-muted-foreground">{c.treatments[0] || "—"}</td>
                     <td className="px-4 py-2.5">
-                      <span className={statusPill(c.status)}>{c.status}</span>
+                      <span className={statusPillClass(c.status)}>{c.status}</span>
                     </td>
                     <td className="px-2 py-2.5">
                       <DropdownMenu>
@@ -656,7 +340,7 @@ export default function CustomersPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => setSelected(c)}>
+                          <DropdownMenuItem onClick={() => router.push(`/customers/${c.id}`)}>
                             View profile
                           </DropdownMenuItem>
                           {canDelete && (
@@ -680,13 +364,6 @@ export default function CustomersPage() {
           </table>
         </div>
       </div>
-
-      {/* Customer profile slide-over */}
-      <CustomerSheet
-        customer={selected}
-        onClose={() => setSelected(null)}
-        onUpdated={handleUpdated}
-      />
 
       {/* Confirm delete dialog */}
       <Dialog open={!!confirmCustomer} onOpenChange={(o) => !o && setConfirmCustomer(null)}>

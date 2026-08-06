@@ -2,60 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { readActivityLog } from "@/lib/integrations/activity-log";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import { requireApiPermission } from "@/lib/rbac/guard";
-import type { OpsLogEntry } from "@/types";
 import { getClinicTimezone } from "@/lib/clinic-config";
+import {
+  calEventToLogRow,
+  dedupeCalendarAgainstLog,
+  type LogRow,
+} from "@/lib/activity/merge-timeline";
 
 export const dynamic = "force-dynamic";
-
-type LogRow = OpsLogEntry & { id: string };
 
 function dateOffset(days: number, tz: string): string {
   const d = new Date();
   d.setDate(d.getDate() + days);
   return d.toLocaleDateString("en-CA", { timeZone: tz });
-}
-
-// Convert a Google Calendar event into the same shape as an Activity_Log row
-function calEventToLogRow(
-  e: {
-    id: string;
-    treatment: string;
-    clientName: string;
-    clientContact: string;
-    startTime: string;
-    endTime: string;
-    notes: string;
-    room: string;
-    practitioner: string;
-  },
-  tz: string,
-): LogRow {
-  const parts: string[] = [];
-  if (e.treatment) parts.push(e.treatment);
-  if (e.practitioner) parts.push(`with ${e.practitioner}`);
-  if (e.room) parts.push(`in ${e.room}`);
-  const apptTime = new Date(e.startTime).toLocaleString("en-US", {
-    timeZone: tz,
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
-  });
-  parts.push(`on ${apptTime}`);
-
-  return {
-    id: `cal_${e.id}`,
-    timestamp: e.startTime,
-    eventType: "booking",
-    clientName: e.clientName || "Unknown",
-    phone: e.clientContact || "",
-    email: "",
-    clientId: "",
-    details: parts.join(" "),
-    status: "success",
-    platform: "calendar",
-  };
 }
 
 export async function GET(req: NextRequest) {
@@ -84,21 +43,8 @@ export async function GET(req: NextRequest) {
   const calEntries: LogRow[] =
     calResult.status === "fulfilled" ? calResult.value.map((e) => calEventToLogRow(e, tz)) : [];
 
-  // Merge: deduplicate calendar events that already have a matching log entry
-  // (match by clientName + approximate time within 5 minutes)
-  const logSet = new Set(
-    logEntries
-      .filter((e) => e.eventType === "booking")
-      .map((e) => {
-        const t = new Date(e.timestamp ?? 0).getTime();
-        return `${(e.clientName ?? "").toLowerCase()}_${Math.round(t / 300000)}`;
-      }),
-  );
-
-  const uniqueCalEntries = calEntries.filter((e) => {
-    const t = new Date(e.timestamp ?? 0).getTime();
-    return !logSet.has(`${(e.clientName ?? "").toLowerCase()}_${Math.round(t / 300000)}`);
-  });
+  // Deduplicate calendar events that already have a matching log entry
+  const uniqueCalEntries = dedupeCalendarAgainstLog(logEntries, calEntries);
 
   // Combine and sort newest first
   let entries: LogRow[] = [...logEntries, ...uniqueCalEntries].sort(

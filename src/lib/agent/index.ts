@@ -17,6 +17,7 @@ import {
   rescheduleCalendarEvent,
   getCalendarBookingDetails,
   findLastPractitionerForContact,
+  patchCalendarBookingFields,
 } from "@/lib/integrations/google-calendar";
 import {
   lookupClient,
@@ -470,6 +471,17 @@ export async function executeTool(
             clientRecord?.id,
           ).catch(() => undefined);
           flow?.step("book:crm record saved", { clientId: clientRecord?.id });
+
+          // The client's real Clients-table id is only known now (upsert/lookup happens after
+          // booking, since we don't want to touch the CRM record if the booking itself fails) —
+          // patch it into the just-created event's description so future lookups (the customer
+          // 360° profile, activity feed) can match by a stable id instead of phone/name. Best
+          // effort: never fail the booking over this.
+          if (clientRecord?.id) {
+            await patchCalendarBookingFields(appt.id, { clientId: clientRecord.id }).catch((e) => {
+              console.error("[agent/book] client id patch failed:", e);
+            });
+          }
 
           const clientEmail = (input.client_email as string | undefined) || clientRecord?.email;
 

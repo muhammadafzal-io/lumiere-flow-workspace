@@ -38,6 +38,7 @@ import { store } from "@/lib/store";
 import { mapTeamToPractitioners } from "@/lib/practitioners";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import type { Appointment, Practitioner, Customer, Treatment } from "@/lib/types";
+import { isAppointmentPast } from "@/lib/appointment-lock";
 import {
   getDisplayTimezone,
   setDisplayTimezone,
@@ -208,6 +209,7 @@ export default function CalendarPage() {
             treatment: string;
             clientName: string;
             clientContact: string;
+            clientId?: string;
             startTime: string;
             endTime: string;
             notes: string;
@@ -218,11 +220,15 @@ export default function CalendarPage() {
             const matchedPrac = practitioners.find(
               (p) => p.name.trim().toLowerCase() === (e.practitioner || "").trim().toLowerCase(),
             );
-            const matchedCustomer = customers.find(
-              (c) =>
-                c.phone === e.clientContact ||
-                c.name.toLowerCase() === (e.clientName || "").toLowerCase(),
-            );
+            // Prefer the stable Clients-table id (written into newer bookings' calendar
+            // description) over phone/name matching, which breaks if either is edited later.
+            const matchedCustomer =
+              (e.clientId && customers.find((c) => c.id === e.clientId)) ||
+              customers.find(
+                (c) =>
+                  c.phone === e.clientContact ||
+                  c.name.toLowerCase() === (e.clientName || "").toLowerCase(),
+              );
             return {
               id: e.id,
               customer_id: matchedCustomer?.id || "",
@@ -314,6 +320,13 @@ export default function CalendarPage() {
     const apt = appointments.find((a) => a.id === aptId);
     if (!slot || !apt) return;
     if (slot.date.getTime() === new Date(apt.start_time).getTime()) return;
+
+    // Defense-in-depth — DraggableAppointment already disables dragging for past appointments,
+    // this covers a stale render or any other way a drag-end could still fire for one.
+    if (isAppointmentPast(apt.end_time)) {
+      toast.error("This appointment is in the past and can no longer be rescheduled.");
+      return;
+    }
 
     // Validate business hours: 9 AM - 7 PM, no Sundays
     const dayOfWeek = slot.date.getDay();
@@ -857,7 +870,11 @@ function DraggableAppointment({
   const color = practitioner?.color || "#0F766E";
 
   const pct = 100 / totalCols;
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: a.id });
+  const isPast = isAppointmentPast(a.end_time);
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: a.id,
+    disabled: isPast,
+  });
   const style: React.CSSProperties = {
     top,
     height: h,
@@ -893,7 +910,7 @@ function DraggableAppointment({
         onClick();
       }}
       style={style}
-      className={`absolute rounded-md border-l-[3px] border bg-card px-2 py-1 text-[11px] cursor-grab active:cursor-grabbing overflow-hidden transition-shadow hover:shadow-md ${isAiPulse ? "ring-2 ring-primary animate-pulse" : ""}`}
+      className={`absolute rounded-md border-l-[3px] border bg-card px-2 py-1 text-[11px] ${isPast ? "cursor-default" : "cursor-grab active:cursor-grabbing"} overflow-hidden transition-shadow hover:shadow-md ${isAiPulse ? "ring-2 ring-primary animate-pulse" : ""}`}
     >
       <div className="flex items-start justify-between gap-1">
         <div className="min-w-0 flex-1">
@@ -1000,6 +1017,7 @@ function AgendaView({
               const p = practitionerById(practitioners, a.practitioner_id);
               const start = new Date(a.start_time);
               const end = new Date(a.end_time);
+              const isPast = isAppointmentPast(a.end_time);
               return (
                 <div
                   key={a.id}
@@ -1033,12 +1051,19 @@ function AgendaView({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => onSelect(a.id)}>View</DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onReschedule(a.id)}>
-                        Reschedule
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => onCancel(a.id)} className="text-destructive">
-                        Cancel
-                      </DropdownMenuItem>
+                      {!isPast && (
+                        <>
+                          <DropdownMenuItem onClick={() => onReschedule(a.id)}>
+                            Reschedule
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => onCancel(a.id)}
+                            className="text-destructive"
+                          >
+                            Cancel
+                          </DropdownMenuItem>
+                        </>
+                      )}
                       <DropdownMenuItem
                         onClick={() => {
                           store.upsertAppointment({ ...a, status: "no_show" });

@@ -17,6 +17,7 @@ import { RefreshCw, Mail } from "lucide-react";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import { useCurrentUser } from "@/lib/current-user-context";
 import type { EmailSendLogEntry, EmailSendCategory } from "@/lib/integrations/email-send-log-types";
+import { CustomerLink } from "@/components/customers/CustomerLink";
 
 const CATEGORIES = [
   "rule",
@@ -327,7 +328,9 @@ export default function EmailLogsPage() {
               <dt className="text-muted-foreground">Source</dt>
               <dd>{selected.sourceName ?? selected.sourceId ?? "—"}</dd>
               <dt className="text-muted-foreground">Client</dt>
-              <dd>{selected.clientName ?? "—"}</dd>
+              <dd>
+                <CustomerLink customerId={selected.clientId} name={selected.clientName ?? "—"} />
+              </dd>
               <dt className="text-muted-foreground">To</dt>
               <dd>{selected.toEmail || "—"}</dd>
               <dt className="text-muted-foreground">Subject</dt>

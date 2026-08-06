@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { RefreshCw } from "lucide-react";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import { useCurrentUser } from "@/lib/current-user-context";
+import { CustomerLink } from "@/components/customers/CustomerLink";
 import type { OpsLogEntry } from "@/types";
 
 type LogRow = OpsLogEntry & { id: string };
@@ -273,7 +274,9 @@ export default function ActivityPage() {
                         {fmtTimestamp(a.timestamp, tz)}
                       </td>
                       <td className="px-4 py-2.5">
-                        <div className="font-medium">{a.clientName || "—"}</div>
+                        <div className="font-medium">
+                          <CustomerLink customerId={a.clientId} name={a.clientName || "—"} />
+                        </div>
                         {(a.phone || a.email) && (
                           <div className="text-xs text-muted-foreground">{a.phone || a.email}</div>
                         )}
@@ -316,7 +319,9 @@ export default function ActivityPage() {
               <div className="text-sm grid grid-cols-2 gap-3">
                 <div>
                   <div className="text-xs text-muted-foreground mb-0.5">Client</div>
-                  <div className="font-medium">{open.clientName || "—"}</div>
+                  <div className="font-medium">
+                    <CustomerLink customerId={open.clientId} name={open.clientName || "—"} />
+                  </div>
                 </div>
                 <div>
                   <div className="text-xs text-muted-foreground mb-0.5">Event type</div>

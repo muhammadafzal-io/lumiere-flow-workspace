@@ -8,6 +8,11 @@ import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import { getClinicConfig } from "@/lib/clinic-config";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import {
+  isAppointmentPast,
+  PAST_APPOINTMENT_ERROR_CODE,
+  PAST_APPOINTMENT_LOCK_MESSAGE,
+} from "@/lib/appointment-lock";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -63,6 +68,13 @@ export async function DELETE(req: NextRequest) {
 
     const getRes = await calendar.events.get({ calendarId: calId, eventId });
     const event = getRes.data;
+
+    if (event.end?.dateTime && isAppointmentPast(event.end.dateTime)) {
+      return NextResponse.json(
+        { error: PAST_APPOINTMENT_LOCK_MESSAGE, code: PAST_APPOINTMENT_ERROR_CODE },
+        { status: 409 },
+      );
+    }
 
     await calendar.events.delete({ calendarId: calId, eventId });
 

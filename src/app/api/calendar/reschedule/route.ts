@@ -14,6 +14,11 @@ import {
 } from "@/lib/booking/clinic-hours";
 import { dateInZone } from "@/lib/booking/dates";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import {
+  isAppointmentPast,
+  PAST_APPOINTMENT_ERROR_CODE,
+  PAST_APPOINTMENT_LOCK_MESSAGE,
+} from "@/lib/appointment-lock";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -128,6 +133,13 @@ export async function PATCH(req: NextRequest) {
     const getRes = await calendar.events.get({ calendarId: calId, eventId });
     const event = getRes.data;
     const oldStartTime = event.start?.dateTime;
+
+    if (event.end?.dateTime && isAppointmentPast(event.end.dateTime)) {
+      return NextResponse.json(
+        { error: PAST_APPOINTMENT_LOCK_MESSAGE, code: PAST_APPOINTMENT_ERROR_CODE },
+        { status: 409 },
+      );
+    }
 
     const updatedEvent = await calendar.events.update({
       calendarId: calId,

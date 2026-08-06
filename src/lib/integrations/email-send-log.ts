@@ -94,6 +94,9 @@ export async function readEmailSendLog(
   if (filters.triggerType && filters.triggerType !== "all") {
     query = query.eq("trigger_type", filters.triggerType);
   }
+  if (filters.clientId) {
+    query = query.eq("client_id", filters.clientId);
+  }
 
   const { data, error } = await query;
   if (error) {

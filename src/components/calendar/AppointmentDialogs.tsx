@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Dialog,
@@ -34,6 +35,7 @@ import {
   CheckCheck,
   Clock,
   Loader2,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Appointment, Practitioner, Customer, AppointmentStatus } from "@/lib/types";
@@ -55,6 +57,7 @@ import {
   zonedDateTimeToUtc,
 } from "@/lib/calendar-utils";
 import { useCurrentUser } from "@/lib/current-user-context";
+import { isAppointmentPast } from "@/lib/appointment-lock";
 
 function statusPill(s: AppointmentStatus) {
   const map: Record<AppointmentStatus, string> = {
@@ -123,7 +126,7 @@ export function AppointmentSlideOver({
   const start = new Date(a.start_time);
   const end = new Date(a.end_time);
   const prac = practitionerById(practitioners, a.practitioner_id);
-  const isPast = end.getTime() < Date.now();
+  const isPast = isAppointmentPast(a.end_time);
 
   const markComplete = async () => {
     if (!customer) {
@@ -190,6 +193,13 @@ export function AppointmentSlideOver({
         </SheetHeader>
 
         <div className="px-6 py-5 space-y-6">
+          {isPast && (
+            <div className="rounded-lg border bg-muted/40 px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground">
+              <Lock className="h-3.5 w-3.5 flex-shrink-0" />
+              This appointment is in the past — scheduling details are locked.
+            </div>
+          )}
+
           {/* Appointment details */}
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
@@ -279,6 +289,12 @@ export function AppointmentSlideOver({
                     </div>
                   </div>
                 </div>
+                <Link
+                  href={`/customers/${customer.id}`}
+                  className="block mt-3 text-xs text-primary hover:underline"
+                >
+                  View full profile →
+                </Link>
               </div>
             </section>
           ) : a.clientName ? (
@@ -401,17 +417,23 @@ export function AppointmentSlideOver({
               defaultValue={a.notes}
               placeholder="Add a note about this appointment…"
               className="min-h-[80px]"
+              readOnly={isPast}
               onBlur={(e) => {
-                if (e.target.value !== a.notes) {
+                if (!isPast && e.target.value !== a.notes) {
                   store.upsertAppointment({ ...a, notes: e.target.value });
                 }
               }}
             />
+            {isPast && (
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Notes are locked once an appointment is in the past.
+              </p>
+            )}
           </section>
         </div>
 
         <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t px-6 py-3 flex items-center justify-end gap-2">
-          {a.status !== "completed" && a.status !== "cancelled" && (
+          {!isPast && a.status !== "completed" && a.status !== "cancelled" && (
             <>
               <Button
                 variant="outline"
@@ -591,6 +613,13 @@ export function RescheduleModal({
     if (!a.id) {
       console.error("[Reschedule] Appointment ID missing");
       toast.error("Cannot reschedule: appointment ID missing");
+      return;
+    }
+
+    // Defense-in-depth only — every real entry point that opens this modal already hides itself
+    // for past appointments, and the server rejects this same request with a 409 regardless.
+    if (isAppointmentPast(a.end_time)) {
+      toast.error("This appointment is in the past and can no longer be rescheduled.");
       return;
     }
 
@@ -897,6 +926,13 @@ export function CancelModal({
     if (!appointment.id) {
       console.error("[Cancel] Appointment ID missing");
       toast.error("Cannot cancel: appointment ID missing");
+      return;
+    }
+
+    // Defense-in-depth only — every real entry point that opens this modal already hides itself
+    // for past appointments, and the server rejects this same request with a 409 regardless.
+    if (isAppointmentPast(appointment.end_time)) {
+      toast.error("This appointment is in the past and can no longer be cancelled.");
       return;
     }
 
@@ -1398,6 +1434,7 @@ export function NewAppointmentModal({
           clientName: resolvedName,
           clientContact: clientPhone.trim(),
           clientEmail: clientEmail.trim(),
+          customer_id: bookedCustomerId || undefined,
           treatment,
           room,
           practitionerName: prac?.name ?? "",

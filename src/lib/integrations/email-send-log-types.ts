@@ -54,6 +54,7 @@ export interface ReadEmailSendLogFilters {
   categories?: EmailSendCategory[];
   status?: EmailSendStatus | "all";
   triggerType?: EmailSendTrigger | "all";
+  clientId?: string;
   search?: string;
   limit?: number;
 }

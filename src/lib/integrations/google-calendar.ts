@@ -195,6 +195,7 @@ function parseDesc(description: string): {
   practitioner: string | null;
   equipment: string[];
   client: string | null;
+  clientId: string | null;
   contact: string;
   email: string;
   notes: string;
@@ -217,6 +218,7 @@ function parseDesc(description: string): {
     practitioner: find("Practitioner:") || null,
     equipment: findAll("Equipment:"),
     client: find("Client:") || null,
+    clientId: find("Client ID:") || null,
     contact: find("Contact:"),
     email: find("Email:") || emailInNotes,
     notes: rawNotes,
@@ -408,6 +410,10 @@ export async function bookAdminAppointment(booking: {
   clientName: string;
   clientContact?: string;
   clientEmail?: string;
+  /** The Clients table row id, when known at booking time — written into the event description
+   * as "Client ID:" so future lookups can match this booking by a stable id instead of falling
+   * back to phone/name matching (see getAppointmentHistoryForContact). */
+  clientId?: string;
   treatment: string;
   room: string;
   practitionerName: string;
@@ -586,6 +592,7 @@ async function commitBooking(
         `Treatment: ${booking.treatment}`,
         `Client: ${booking.clientName}`,
         `Contact: ${booking.clientContact ?? ""}`,
+        booking.clientId ? `Client ID: ${booking.clientId}` : "",
         booking.clientEmail ? `Email: ${booking.clientEmail}` : "",
         `Room: ${booking.room}`,
         `Practitioner: ${booking.practitionerName}`,
@@ -653,17 +660,28 @@ export async function getEventsByRange(
   const timeMin = zonedHourToUtc(from, 0, tz).toISOString();
   const timeMax = zonedHourToUtc(to, 24, tz).toISOString();
 
-  const res = await calendar.events.list({
-    calendarId: calId,
-    timeMin,
-    timeMax,
-    singleEvents: true,
-    orderBy: "startTime",
-  });
+  // A wide date range can exceed Google's default page size (server default is 250) for a busy
+  // clinic — without paging through, events beyond the first page are silently dropped with no
+  // error, undetectably truncating history for whichever caller asked for a long window.
+  const items: calendar_v3.Schema$Event[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await calendar.events.list({
+      calendarId: calId,
+      timeMin,
+      timeMax,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: 500,
+      pageToken,
+    });
+    items.push(...(res.data.items ?? []));
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
 
-  const events = (res.data.items ?? []).filter(isCalendarEventWithStartTime).map((e) => {
+  const events = items.filter(isCalendarEventWithStartTime).map((e) => {
     const { treatment, clientName } = resolveEventClient(e.summary ?? "", e.description ?? "");
-    const { room, practitioner, contact, email, notes } = parseDesc(e.description ?? "");
+    const { room, practitioner, contact, email, notes, clientId } = parseDesc(e.description ?? "");
     return {
       id: e.id!,
       treatment,
@@ -672,6 +690,7 @@ export async function getEventsByRange(
       endTime: e.end?.dateTime ?? e.start.dateTime,
       clientContact: contact,
       clientEmail: email || undefined,
+      clientId: clientId ?? undefined,
       notes,
       room: room ?? "",
       practitioner: practitioner ?? "",
@@ -680,6 +699,68 @@ export async function getEventsByRange(
 
   eventsRangeCache.set(cacheKey, { at: Date.now(), events });
   return events;
+}
+
+export interface AppointmentHistoryResult {
+  past: CalendarEvent[];
+  upcoming: CalendarEvent[];
+  /** True when the oldest matched past appointment falls near the lookback window's edge —
+   * a signal there's likely earlier history the window cut off, not that this IS all of it. */
+  truncated: boolean;
+  matchedBy: "id" | "phone" | "name" | "unmatched";
+}
+
+/** Full appointment history (past + upcoming) for a customer, for the 360° profile view.
+ * Matches by the Clients row id first — most bookings made after this field was introduced carry
+ * it (see bookAdminAppointment's `Client ID:` line) — then phone (phonesMatch, tolerant of
+ * formatting/country-code differences), then falls back to case-insensitive name equality for
+ * older events that predate both. All three signals are unioned (not exclusive), so a customer
+ * with a mix of old phone/name-only bookings and newer id-tagged ones sees their full history;
+ * `matchedBy` reports the strongest tier that actually contributed a match, so callers can surface
+ * confidence to the UI rather than treating every result as equally reliable. */
+export async function getAppointmentHistoryForContact(
+  contact: { id?: string; phone?: string; name?: string },
+  opts: { pastDays?: number; futureDays?: number } = {},
+): Promise<AppointmentHistoryResult> {
+  const pastDays = opts.pastDays ?? 730;
+  const futureDays = opts.futureDays ?? 180;
+  const tz = await getClinicTimezone();
+  const today = todayInZone(tz);
+  const from = addCalendarDays(today, -pastDays);
+  const to = addCalendarDays(today, futureDays);
+  const events = await getEventsByRange(from, to, tz);
+
+  const id = contact.id?.trim();
+  const phone = contact.phone?.trim();
+  const byId = new Set(id ? events.filter((e) => e.clientId === id) : []);
+  const byPhone = new Set(
+    phone ? events.filter((e) => e.clientContact && phonesMatch(e.clientContact, phone)) : [],
+  );
+  const byName = new Set(
+    contact.name?.trim()
+      ? events.filter(
+          (e) => e.clientName?.trim().toLowerCase() === contact.name!.trim().toLowerCase(),
+        )
+      : [],
+  );
+
+  const matched = Array.from(new Set([...byId, ...byPhone, ...byName]));
+  const matchedBy: AppointmentHistoryResult["matchedBy"] =
+    byId.size > 0 ? "id" : byPhone.size > 0 ? "phone" : byName.size > 0 ? "name" : "unmatched";
+
+  const now = Date.now();
+  const past = matched
+    .filter((e) => new Date(e.startTime).getTime() < now)
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  const upcoming = matched
+    .filter((e) => new Date(e.startTime).getTime() >= now)
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
+
+  const windowEdgeMs = zonedHourToUtc(from, 0, tz).getTime();
+  const oldestPastMs = past.length ? new Date(past[past.length - 1].startTime).getTime() : null;
+  const truncated = oldestPastMs !== null && oldestPastMs - windowEdgeMs < 30 * 86_400_000;
+
+  return { past, upcoming, truncated, matchedBy };
 }
 
 /** Past (up to 365 days back) calendar events matching this phone number, most recent first. */
@@ -828,7 +909,7 @@ export async function updateCalendarBookingEmail(eventId: string, email: string)
  */
 export async function patchCalendarBookingFields(
   eventId: string,
-  fields: { clientName?: string; email?: string },
+  fields: { clientName?: string; email?: string; clientId?: string },
 ): Promise<void> {
   const calendar = getCalendarClient();
   const calId = calendarId();
@@ -840,6 +921,9 @@ export async function patchCalendarBookingFields(
   }
   if (fields.email) {
     description = setDescriptionEmail(description, fields.email);
+  }
+  if (fields.clientId) {
+    description = setDescriptionField(description, "Client ID:", fields.clientId);
   }
 
   const requestBody: calendar_v3.Schema$Event = { description };

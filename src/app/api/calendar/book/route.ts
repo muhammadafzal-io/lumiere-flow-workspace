@@ -23,6 +23,7 @@ export async function POST(req: NextRequest) {
     clientName,
     clientContact,
     clientEmail,
+    customer_id: customerId,
     treatment,
     room,
     practitionerName,
@@ -80,6 +81,11 @@ export async function POST(req: NextRequest) {
     const clientRecord = clientContact
       ? await lookupClient({ phone: String(clientContact) }).catch(() => null)
       : null;
+    // Prefer the id the caller already resolved (e.g. the admin modal's "existing customer"
+    // picker) over a fresh phone-based lookup — more reliable when the phone on the form differs
+    // slightly from what's on file, and works even when clientContact is empty.
+    const passedClientId = typeof customerId === "string" ? customerId.trim() : "";
+    const resolvedClientId = passedClientId || clientRecord?.id || undefined;
 
     const result = await bookAppointment({
       startTime: String(startTime),
@@ -87,6 +93,7 @@ export async function POST(req: NextRequest) {
       clientName: String(clientName),
       clientContact: String(clientContact || ""),
       clientEmail: resolvedEmail,
+      clientId: resolvedClientId,
       treatment: String(treatment),
       room: String(room),
       practitionerName: String(practitionerName),
