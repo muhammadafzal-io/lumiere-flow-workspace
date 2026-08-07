@@ -867,13 +867,16 @@ function TeamTab({
       const res = await fetch("/api/practitioners", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id, status: "Away" }),
+        body: JSON.stringify({ id, status: "Inactive" }),
       });
-      if (!res.ok) throw new Error();
-      onStatusChange(id, "Away");
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to deactivate team member");
+      }
+      onStatusChange(id, "Inactive");
       toast.success("Team member deactivated");
-    } catch {
-      toast.error("Failed to deactivate team member");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to deactivate team member");
     } finally {
       setActionId(null);
     }

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/booking/appointment-by-phone", () => ({
   findUpcomingAppointmentByPhone: vi.fn(),
+  findRecentPastAppointmentByPhone: vi.fn(),
 }));
 
 vi.mock("@/lib/integrations/airtable", () => ({
@@ -12,7 +13,14 @@ vi.mock("@/lib/integrations/google-calendar", () => ({
   getCalendarBookingDetails: vi.fn(),
 }));
 
-import { findUpcomingAppointmentByPhone } from "@/lib/booking/appointment-by-phone";
+vi.mock("@/lib/clinic-config", () => ({
+  getClinicConfig: vi.fn().mockResolvedValue({ timezone: "America/New_York" }),
+}));
+
+import {
+  findUpcomingAppointmentByPhone,
+  findRecentPastAppointmentByPhone,
+} from "@/lib/booking/appointment-by-phone";
 import { lookupClientByPhone } from "@/lib/integrations/airtable";
 import { getCalendarBookingDetails } from "@/lib/integrations/google-calendar";
 import {
@@ -22,6 +30,7 @@ import {
 } from "@/lib/agent/booking-guards";
 
 const findApptMock = vi.mocked(findUpcomingAppointmentByPhone);
+const findPastApptMock = vi.mocked(findRecentPastAppointmentByPhone);
 const lookupMock = vi.mocked(lookupClientByPhone);
 const getBookingMock = vi.mocked(getCalendarBookingDetails);
 
@@ -33,9 +42,11 @@ const futureIso = (daysFromNow: number) =>
 describe("prepareCancelRescheduleInput", () => {
   beforeEach(() => {
     findApptMock.mockReset();
+    findPastApptMock.mockReset();
     lookupMock.mockReset();
     getBookingMock.mockReset();
     lookupMock.mockResolvedValue(null);
+    findPastApptMock.mockResolvedValue(null);
   });
 
   it("requires phone", async () => {
@@ -67,6 +78,25 @@ describe("prepareCancelRescheduleInput", () => {
     findApptMock.mockResolvedValue(null);
     const error = await validateCancelAppointment({ phone: "+15550001111" });
     expect(error).toContain("No upcoming appointment found");
+  });
+
+  it("tells the client their appointment already passed when only a past one is found", async () => {
+    findApptMock.mockResolvedValue(null);
+    findPastApptMock.mockResolvedValue({
+      eventId: "evt_old",
+      clientName: "Real Client",
+      treatment: "HydraFacial",
+      startTime: "2026-07-01T14:00:00.000Z",
+      endTime: "2026-07-01T14:30:00.000Z",
+      clientPhone: "+15551234567",
+      clientEmail: "real@example.com",
+    });
+
+    const error = await validateCancelAppointment({ phone: "+15551234567" });
+
+    expect(error).toContain("HydraFacial");
+    expect(error).toContain("already passed");
+    expect(error).not.toContain("No upcoming appointment found");
   });
 
   it("trusts a model-supplied event_id when it actually belongs to the given phone", async () => {
@@ -117,7 +147,8 @@ describe("prepareCancelRescheduleInput", () => {
     };
     const error = await validateCancelAppointment(input);
 
-    expect(error).toContain("already ended");
+    expect(error).toContain("already passed");
+    expect(error).toContain("HydraFacial");
     // Must not fall back to a phone-based search either — the appointment was correctly
     // identified, it's just not editable, so there's no other appointment to substitute.
     expect(findApptMock).not.toHaveBeenCalled();
@@ -188,9 +219,11 @@ describe("prepareCancelRescheduleInput", () => {
 describe("validateRescheduleAppointment", () => {
   beforeEach(() => {
     findApptMock.mockReset();
+    findPastApptMock.mockReset();
     lookupMock.mockReset();
     getBookingMock.mockReset();
     lookupMock.mockResolvedValue(null);
+    findPastApptMock.mockResolvedValue(null);
   });
 
   it("requires new_date_time after resolving the appointment", async () => {

@@ -938,10 +938,32 @@ export async function executeTool(
         }
         const phone = extractPhoneForLookup(rawPhone) || rawPhone;
         flow?.step("fetch:upcoming start", { rawPhone, normalizedPhone: phone });
-        const { findUpcomingAppointmentByPhone } =
+        const { findUpcomingAppointmentByPhone, findRecentPastAppointmentByPhone } =
           await import("@/lib/booking/appointment-by-phone");
         const appt = await findUpcomingAppointmentByPhone(phone);
         if (!appt) {
+          const pastAppt = await findRecentPastAppointmentByPhone(phone);
+          if (pastAppt) {
+            const pastDisplayTime = new Date(pastAppt.startTime).toLocaleString("en-US", {
+              timeZone: tz,
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+            });
+            flow?.step("fetch:upcoming — only a past appointment found", {
+              phone,
+              event_id: pastAppt.eventId,
+            });
+            return {
+              result: {
+                found: false,
+                summary: `Tell the client exactly this: their ${pastAppt.treatment} appointment on ${pastDisplayTime} has already passed, so it can no longer be cancelled or rescheduled. If they need a new appointment, offer to book one.`,
+              },
+            };
+          }
           flow?.step("fetch:upcoming not found", { phone });
           return {
             result: {

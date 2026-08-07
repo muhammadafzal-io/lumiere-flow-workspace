@@ -269,7 +269,7 @@ export interface Practitioner {
   specialty?: string;
   bio?: string;
   calendarId?: string;
-  status: "Active" | "Away";
+  status: "Active" | "Inactive";
 }
 
 function rowToPractitioner(row: Record<string, unknown>): Practitioner {
@@ -281,7 +281,7 @@ function rowToPractitioner(row: Record<string, unknown>): Practitioner {
     specialty: (row["Specialty"] as string) ?? undefined,
     bio: (row["Bio"] as string) ?? undefined,
     calendarId: (row["Calendar ID"] as string) ?? undefined,
-    status: (row["Status"] as "Active" | "Away") ?? "Active",
+    status: (row["Status"] as "Active" | "Inactive") ?? "Active",
   };
 }
 

@@ -1197,7 +1197,7 @@ export function NewAppointmentModal({
           if (Array.isArray(data.team)) {
             setModalPractitioners(
               data.team
-                .filter((p: { status?: string }) => p.status !== "Inactive" && p.status !== "Away")
+                .filter((p: { status?: string }) => p.status !== "Inactive")
                 .map(
                   (p: {
                     id: string;

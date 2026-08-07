@@ -6,7 +6,10 @@ import {
   findUpcomingEventByClientName,
   findUpcomingEventInList,
 } from "@/lib/booking/upcoming-event-match";
-import { loadUpcomingCalendarEvents } from "@/lib/booking/resend-confirmation";
+import {
+  loadUpcomingCalendarEvents,
+  loadRecentPastCalendarEvents,
+} from "@/lib/booking/resend-confirmation";
 
 export type UpcomingAppointment = {
   eventId: string;
@@ -103,6 +106,59 @@ export async function findUpcomingAppointmentByPhone(
   });
 
   return appt;
+}
+
+/**
+ * Most recent already-ended appointment for a phone number, if any. Used only to give an
+ * accurate "that appointment already happened" message when no upcoming appointment matches —
+ * never to allow cancelling/rescheduling it.
+ */
+export async function findRecentPastAppointmentByPhone(
+  phone: string,
+): Promise<UpcomingAppointment | null> {
+  const normalized = extractPhoneForLookup(phone);
+  if (!normalized) return null;
+
+  const events = await loadRecentPastCalendarEvents();
+  let matched = findUpcomingEventInList(events, phone, normalized);
+
+  if (!matched) {
+    for (const variant of phoneSearchVariants(normalized, phone)) {
+      const client = await lookupClientByPhone(variant).catch(() => null);
+      if (!client) continue;
+
+      if (client.phone) {
+        matched = findUpcomingEventInList(events, client.phone, phone, normalized);
+      }
+      if (!matched && client.name) {
+        matched = findUpcomingEventByClientName(events, client.name);
+      }
+      if (matched) break;
+    }
+  }
+
+  if (!matched) return null;
+
+  let clientEmail = normalizeEmail(matched.clientEmail);
+  for (const variant of phoneSearchVariants(normalized, matched.clientContact)) {
+    const client = await lookupClientByPhone(variant).catch(() => null);
+    if (client?.email) {
+      clientEmail = normalizeEmail(client.email) ?? clientEmail;
+      break;
+    }
+  }
+
+  return {
+    eventId: matched.id,
+    clientName: matched.clientName,
+    treatment: matched.treatment,
+    startTime: matched.startTime,
+    endTime: matched.endTime,
+    clientPhone: matched.clientContact || normalized,
+    clientEmail,
+    practitionerName: matched.practitioner || undefined,
+    room: matched.room || undefined,
+  };
 }
 
 /** Best email for cancel/reschedule notifications — CRM, calendar, or hint. */

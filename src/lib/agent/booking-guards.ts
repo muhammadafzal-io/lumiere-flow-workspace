@@ -5,8 +5,22 @@ import { normalizeEmail } from "@/lib/email";
 import { phoneSearchVariants, extractPhoneForLookup, phoneDigits, phonesMatch } from "@/lib/phone";
 import { fullNameValidationError, isFullName } from "@/lib/agent/client-name";
 import { isAppointmentPast } from "@/lib/appointment-lock";
+import { getClinicConfig } from "@/lib/clinic-config";
 
 export { normalizeEmail };
+
+async function formatPastAppointmentTime(iso: string): Promise<string> {
+  const { timezone } = await getClinicConfig();
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: timezone,
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
 
 /** Normalize email on booking payloads (strips spaces from speech/typing, e.g. "talha azeem@gmail.com"). */
 export function sanitizeBookingEmails(input: Record<string, unknown>): void {
@@ -301,7 +315,9 @@ export async function prepareCancelRescheduleInput(
           event_id: input.event_id,
           end_time: input.appointment_end_time,
         });
-        return "That appointment has already ended and can no longer be changed. If the client needs a new appointment, use book_appointment instead.";
+        const when = await formatPastAppointmentTime(input.appointment_start_time as string);
+        const treatment = String(input.appointment_treatment ?? "appointment");
+        return `Tell the client exactly this: their ${treatment} appointment on ${when} has already passed, so it can no longer be cancelled or rescheduled. If they need a new appointment, use book_appointment instead.`;
       }
 
       logFlowStep("cancel-reschedule:using verified event_id", {
@@ -332,8 +348,24 @@ export async function prepareCancelRescheduleInput(
     if (appt) break;
   }
   if (!appt) {
+    const { findRecentPastAppointmentByPhone } = await import("@/lib/booking/appointment-by-phone");
+    let pastAppt = null as Awaited<ReturnType<typeof findRecentPastAppointmentByPhone>>;
+    for (const phoneCandidate of lookupPhones) {
+      pastAppt = await findRecentPastAppointmentByPhone(phoneCandidate);
+      if (pastAppt) break;
+    }
+    if (pastAppt) {
+      logFlowStep("cancel-reschedule:only a past appointment found", {
+        phones: lookupPhones,
+        event_id: pastAppt.eventId,
+        end_time: pastAppt.endTime,
+      });
+      const when = await formatPastAppointmentTime(pastAppt.startTime);
+      return `Tell the client exactly this: their ${pastAppt.treatment} appointment on ${when} has already passed, so it can no longer be cancelled or rescheduled. If they need a new appointment, use book_appointment instead.`;
+    }
+
     logFlowStep("cancel-reschedule:appointment not found", { phones: lookupPhones });
-    return "No upcoming appointment found for this phone number. Confirm the number is correct or check if the appointment already passed.";
+    return "No upcoming appointment found for this phone number. Confirm the number is correct.";
   }
   input.event_id = appt.eventId;
   if (!String(input.client_name ?? "").trim()) input.client_name = appt.clientName;

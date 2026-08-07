@@ -22,6 +22,7 @@ export {
 } from "@/lib/booking/upcoming-event-match";
 
 const UPCOMING_LOOKAHEAD_DAYS = 120;
+const PAST_LOOKBACK_DAYS = 30;
 
 async function todayLocal(): Promise<string> {
   const { timezone } = await getClinicConfig();
@@ -33,6 +34,13 @@ async function upcomingRange(): Promise<{ from: string; to: string }> {
   const toDate = new Date();
   toDate.setDate(toDate.getDate() + UPCOMING_LOOKAHEAD_DAYS);
   return { from, to: toDate.toISOString().slice(0, 10) };
+}
+
+async function pastRange(): Promise<{ from: string; to: string }> {
+  const to = await todayLocal();
+  const fromDate = new Date();
+  fromDate.setDate(fromDate.getDate() - PAST_LOOKBACK_DAYS);
+  return { from: fromDate.toISOString().slice(0, 10), to };
 }
 
 /** Future calendar events (single API fetch, cached via getEventsByRange). */
@@ -51,6 +59,28 @@ export async function loadUpcomingCalendarEvents(): Promise<CalendarEvent[]> {
     upcoming: upcoming.length,
   });
   return upcoming;
+}
+
+/**
+ * Recently-ended calendar events (last PAST_LOOKBACK_DAYS days), most recent first. Used only to
+ * give an accurate "that appointment already happened" message when no upcoming appointment
+ * matches — never to allow acting on the appointment itself.
+ */
+export async function loadRecentPastCalendarEvents(): Promise<CalendarEvent[]> {
+  logFlowStep("fetch:loadRecentPastCalendarEvents:start");
+  const { from, to } = await pastRange();
+  const events = await getEventsByRange(from, to);
+  const now = Date.now();
+  const past = events
+    .filter((e) => new Date(e.endTime).getTime() < now)
+    .sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+  logFlowStep("fetch:loadRecentPastCalendarEvents:end", {
+    from,
+    to,
+    total: events.length,
+    past: past.length,
+  });
+  return past;
 }
 
 /** Match any phone variant against one pre-loaded event list (avoids N calendar API calls). */
