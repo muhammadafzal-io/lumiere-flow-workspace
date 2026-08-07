@@ -3,6 +3,11 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { widgetLinkLine } from "@/lib/client-channels";
 import { getClinicConfig } from "@/lib/clinic-config";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
+import {
+  getServiceFormLinks,
+  formatRequiredFormsLines,
+  type ServiceFormLink,
+} from "@/lib/booking/recipe";
 
 export async function sendBookingConfirmationEmail(opts: {
   to: string;
@@ -27,6 +32,7 @@ export async function sendBookingConfirmationEmail(opts: {
     timeZoneName: "short",
   });
   const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
+  const formLinks = await getServiceFormLinks(opts.treatment).catch(() => [] as ServiceFormLink[]);
 
   await sendRetentionEmail({
     to: opts.to,
@@ -53,6 +59,7 @@ export async function sendBookingConfirmationEmail(opts: {
       `Practitioner: ${opts.practitionerName}`,
       `Location: ${clinic.address}`,
       opts.notes ? `Notes: ${opts.notes}` : "",
+      ...formatRequiredFormsLines(formLinks),
       ``,
       `Need to change anything? Reply to this email or contact us ${businessHoursLabel}.`,
       widgetLinkLine(),

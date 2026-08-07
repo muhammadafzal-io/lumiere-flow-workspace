@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Check, X, RefreshCw, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import { AccessGate } from "@/components/rbac/AccessGate";
+import { isValidHttpUrl } from "@/lib/settings/service-form-links";
 import { toast } from "sonner";
 
 interface ClinicSettings {
@@ -107,6 +108,12 @@ interface ServiceRequirement {
   rule: any;
 }
 
+interface ServiceFormLink {
+  id: string;
+  label: string;
+  url: string;
+}
+
 interface ServiceItem {
   id: string;
   name: string;
@@ -117,6 +124,7 @@ interface ServiceItem {
   maxAdvanceDays: number;
   status: string;
   requirements: ServiceRequirement[];
+  formLinks: ServiceFormLink[];
 }
 
 interface SettingsData {
@@ -1603,6 +1611,7 @@ function ServicesTab({
   const [equipmentRequirements, setEquipmentRequirements] = useState<EquipmentRequirementRule[]>(
     [],
   );
+  const [formLinks, setFormLinks] = useState<{ label: string; url: string }[]>([]);
 
   useEffect(() => {
     if (active) {
@@ -1614,6 +1623,7 @@ function ServicesTab({
           .filter((r) => r.kind === "equipment")
           .map((r) => r.rule as EquipmentRequirementRule),
       );
+      setFormLinks((active.formLinks ?? []).map((l) => ({ label: l.label, url: l.url })));
     } else {
       setForm({
         durationMinutes: 60,
@@ -1625,6 +1635,7 @@ function ServicesTab({
       });
       setRoomRequirement(null);
       setEquipmentRequirements([]);
+      setFormLinks([]);
     }
   }, [active]);
 
@@ -1655,6 +1666,12 @@ function ServicesTab({
         .filter((r) => r.equipmentIds.length > 0)
         .map((rule) => ({ id: crypto.randomUUID(), kind: "equipment", rule })),
     ];
+    const cleanFormLinks = formLinks.filter((l) => l.url.trim());
+    const localFormLinks: ServiceFormLink[] = cleanFormLinks.map((l, i) => ({
+      id: crypto.randomUUID(),
+      label: l.label.trim() || `Form ${i + 1}`,
+      url: l.url.trim(),
+    }));
 
     setSaving(true);
     try {
@@ -1667,6 +1684,7 @@ function ServicesTab({
         MaxAdvanceDays: form.maxAdvanceDays ?? 365,
         Status: form.status ?? "Active",
         requirements,
+        formLinks: cleanFormLinks,
       } as any;
 
       const method = active ? "PATCH" : "POST";
@@ -1677,18 +1695,25 @@ function ServicesTab({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to save service");
+      }
       const json = await res.json();
       const item = json.service as ServiceItem;
       onSaved(
         active
-          ? services.map((svc) => (svc.id === item.id ? { ...item, requirements } : svc))
-          : [...services, { ...item, requirements }].sort((a, b) => a.name.localeCompare(b.name)),
+          ? services.map((svc) =>
+              svc.id === item.id ? { ...item, requirements, formLinks: localFormLinks } : svc,
+            )
+          : [...services, { ...item, requirements, formLinks: localFormLinks }].sort((a, b) =>
+              a.name.localeCompare(b.name),
+            ),
       );
       setDialogOpen(false);
       toast.success(`Service ${active ? "updated" : "added"}`);
-    } catch {
-      toast.error("Failed to save service");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save service");
     } finally {
       setSaving(false);
     }
@@ -1727,6 +1752,7 @@ function ServicesTab({
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Duration</th>
               <th className="px-4 py-3">Requirements</th>
+              <th className="px-4 py-3">Forms</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Actions</th>
             </tr>
@@ -1737,6 +1763,7 @@ function ServicesTab({
                 <td className="px-4 py-3">{item.name}</td>
                 <td className="px-4 py-3">{item.durationMinutes} min</td>
                 <td className="px-4 py-3">{item.requirements?.length ?? 0}</td>
+                <td className="px-4 py-3">{item.formLinks?.length ?? 0}</td>
                 <td className="px-4 py-3">{item.status}</td>
                 <td className="px-4 py-3 flex gap-2">
                   <Button variant="ghost" size="sm" onClick={() => editItem(item)}>
@@ -1750,7 +1777,7 @@ function ServicesTab({
             ))}
             {services.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
                   No services configured yet.
                 </td>
               </tr>
@@ -2015,6 +2042,80 @@ function ServicesTab({
                 {equipmentRequirements.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     No equipment required for this service.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <Label>Required forms</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Optional. Link to forms staff or clients need to complete — e.g. a consent form
+                    or medical history form hosted elsewhere.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setFormLinks((links) => [...links, { label: "", url: "" }])}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {formLinks.map((link, i) => (
+                  <div key={i} className="rounded-md border p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs text-muted-foreground">Form {i + 1}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => setFormLinks((links) => links.filter((_, idx) => idx !== i))}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        placeholder="e.g. Consent Form"
+                        value={link.label}
+                        onChange={(e) =>
+                          setFormLinks((links) =>
+                            links.map((l, idx) =>
+                              idx === i ? { ...l, label: e.target.value } : l,
+                            ),
+                          )
+                        }
+                      />
+                      <div>
+                        <Input
+                          type="url"
+                          placeholder="https://..."
+                          value={link.url}
+                          onChange={(e) =>
+                            setFormLinks((links) =>
+                              links.map((l, idx) =>
+                                idx === i ? { ...l, url: e.target.value } : l,
+                              ),
+                            )
+                          }
+                        />
+                        {link.url.trim() && !isValidHttpUrl(link.url.trim()) && (
+                          <p className="text-xs text-destructive mt-1">
+                            Enter a valid http(s) URL.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {formLinks.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No forms required for this service.
                   </p>
                 )}
               </div>

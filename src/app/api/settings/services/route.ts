@@ -4,11 +4,13 @@ import { requireApiPermission } from "@/lib/rbac/guard";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import { todayInZone, addCalendarDays } from "@/lib/booking/dates";
 import { getClinicTimezone } from "@/lib/clinic-config";
+import { isValidHttpUrl, normalizeFormLinks } from "@/lib/settings/service-form-links";
 
 export const dynamic = "force-dynamic";
 
 const SERVICES = "Services";
 const REQS = "ServiceRequirements";
+const FORM_LINKS = "ServiceFormLinks";
 
 function mapService(r: any) {
   return {
@@ -47,9 +49,21 @@ export async function GET() {
       (grouped[r.service_id] ??= []).push({ id: r.id, kind: r.kind, rule: r.rule });
     });
 
+    const { data: links } = await sb
+      .from(FORM_LINKS)
+      .select("*")
+      .in("service_id", ids.length ? ids : ["invalid"])
+      .order("sort_order", { ascending: true });
+
+    const linksGrouped: Record<string, any[]> = {};
+    (links ?? []).forEach((l: any) => {
+      (linksGrouped[l.service_id] ??= []).push({ id: l.id, label: l.label, url: l.url });
+    });
+
     const payload = services.map((s: any) => ({
       ...mapService(s),
       requirements: grouped[s.id] ?? [],
+      formLinks: linksGrouped[s.id] ?? [],
     }));
     return NextResponse.json({ services: payload });
   } catch (err) {
@@ -74,6 +88,7 @@ export async function POST(req: Request) {
       MaxAdvanceDays,
       Status,
       requirements,
+      formLinks,
     } = body;
 
     if (!Name || typeof Name !== "string") {
@@ -87,6 +102,17 @@ export async function POST(req: Request) {
         { error: "Duration must be a positive number of minutes" },
         { status: 400 },
       );
+    }
+    if (Array.isArray(formLinks)) {
+      const badUrl = formLinks.find(
+        (l: any) => l?.url && String(l.url).trim() && !isValidHttpUrl(String(l.url).trim()),
+      );
+      if (badUrl) {
+        return NextResponse.json(
+          { error: `"${badUrl.url}" is not a valid http(s) URL` },
+          { status: 400 },
+        );
+      }
     }
     const { data: existing } = await sb.from(SERVICES).select("id").ilike("Name", Name.trim());
     if (existing && existing.length > 0) {
@@ -123,6 +149,20 @@ export async function POST(req: Request) {
       if (rerr) throw new Error(rerr.message);
     }
 
+    // Insert form links if provided
+    if (Array.isArray(formLinks) && formLinks.length > 0) {
+      const rows = normalizeFormLinks(formLinks).map((l) => ({
+        service_id: svc.id,
+        label: l.label,
+        url: l.url,
+        sort_order: l.sort_order,
+      }));
+      if (rows.length > 0) {
+        const { error: lerr } = await sb.from(FORM_LINKS).insert(rows);
+        if (lerr) throw new Error(lerr.message);
+      }
+    }
+
     return NextResponse.json({ service: mapService(svc) });
   } catch (err) {
     console.error("POST /api/settings/services error:", err);
@@ -148,6 +188,17 @@ export async function PATCH(req: Request) {
         { error: "Duration must be a positive number of minutes" },
         { status: 400 },
       );
+    }
+    if (Array.isArray(body.formLinks)) {
+      const badUrl = body.formLinks.find(
+        (l: any) => l?.url && String(l.url).trim() && !isValidHttpUrl(String(l.url).trim()),
+      );
+      if (badUrl) {
+        return NextResponse.json(
+          { error: `"${badUrl.url}" is not a valid http(s) URL` },
+          { status: 400 },
+        );
+      }
     }
 
     if (typeof body.Name === "string" && body.Name.trim()) {
@@ -195,6 +246,22 @@ export async function PATCH(req: Request) {
         }));
         const { error: iErr } = await sb.from(REQS).insert(rows);
         if (iErr) throw new Error(iErr.message);
+      }
+    }
+
+    // Replace form links if provided
+    if (Array.isArray(body.formLinks)) {
+      const { error: dlErr } = await sb.from(FORM_LINKS).delete().eq("service_id", id);
+      if (dlErr) throw new Error(dlErr.message);
+      const rows = normalizeFormLinks(body.formLinks).map((l) => ({
+        service_id: id,
+        label: l.label,
+        url: l.url,
+        sort_order: l.sort_order,
+      }));
+      if (rows.length > 0) {
+        const { error: ilErr } = await sb.from(FORM_LINKS).insert(rows);
+        if (ilErr) throw new Error(ilErr.message);
       }
     }
 

@@ -275,6 +275,90 @@ export async function findInactiveService(serviceIdOrName: string): Promise<Serv
   return mapServiceRow(serviceRow);
 }
 
+export interface ServiceFormLink {
+  id: string;
+  label: string;
+  url: string;
+}
+
+/**
+ * Hosted form links attached to a Service (by id or case-insensitive name), ordered by
+ * sort_order. Used by the booking-confirmation email. Never throws — returns [] for any
+ * failure (no matching service, table error, etc.), since this is a non-critical enhancement
+ * layered onto a critical send path.
+ */
+export async function getServiceFormLinks(treatmentNameOrId: string): Promise<ServiceFormLink[]> {
+  if (!treatmentNameOrId?.trim()) return [];
+  try {
+    const sb = getSupabase();
+    let serviceId: string | null = null;
+
+    if (UUID_RE.test(treatmentNameOrId)) {
+      const { data } = await sb
+        .from("Services")
+        .select("id")
+        .eq("id", treatmentNameOrId)
+        .maybeSingle();
+      serviceId = data?.id ?? null;
+    } else {
+      const { data: exact } = await sb
+        .from("Services")
+        .select("id")
+        .ilike("Name", treatmentNameOrId)
+        .maybeSingle();
+      serviceId = exact?.id ?? (await matchServiceByNameContainedIn(sb, treatmentNameOrId));
+    }
+
+    if (!serviceId) return [];
+
+    const { data: linkRows, error } = await sb
+      .from("ServiceFormLinks")
+      .select("id, label, url")
+      .eq("service_id", serviceId)
+      .order("sort_order", { ascending: true });
+    if (error || !linkRows) return [];
+
+    return linkRows.map((r: any) => ({ id: String(r.id), label: r.label, url: r.url }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Fallback for `getServiceFormLinks` when a treatment string doesn't exactly match a Service's
+ * name — e.g. the AI or a staff member records "Consultation for Microneedling" rather than the
+ * bare service name "Microneedling". Finds active Services whose name appears as a whole
+ * substring of the treatment text, preferring the longest match to avoid a short name (e.g.
+ * "Facial") accidentally matching inside an unrelated longer one.
+ */
+async function matchServiceByNameContainedIn(
+  sb: ReturnType<typeof getSupabase>,
+  treatment: string,
+): Promise<string | null> {
+  const { data } = await sb.from("Services").select("id, Name").eq("Status", "Active");
+  const lowerTreatment = treatment.toLowerCase();
+  const matches = (data ?? [])
+    .filter((s: any) => {
+      const name = String(s["Name"] ?? "")
+        .trim()
+        .toLowerCase();
+      return name.length > 0 && lowerTreatment.includes(name);
+    })
+    .sort((a: any, b: any) => String(b["Name"]).length - String(a["Name"]).length);
+  return matches[0]?.id ?? null;
+}
+
+/** Renders the "Required forms" block as plain-text lines, or [] when there are none —
+ * callers must not emit a bare section header with nothing under it. */
+export function formatRequiredFormsLines(links: ServiceFormLink[]): string[] {
+  if (links.length === 0) return [];
+  return [
+    "",
+    "Required forms — please complete before your visit:",
+    ...links.map((l) => `${l.label}: ${l.url}`),
+  ];
+}
+
 function toFractionalHour(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return h + (m || 0) / 60;
