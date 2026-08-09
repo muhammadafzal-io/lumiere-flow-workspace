@@ -127,6 +127,7 @@ export async function resendBookingConfirmation(opts: { eventId: string; to: str
       notes: booking.notes || undefined,
       clientId: existing?.id,
       phone: booking.clientContact,
+      eventId: opts.eventId,
     });
   } else {
     await sendBookingConfirmationEmail({
@@ -136,6 +137,7 @@ export async function resendBookingConfirmation(opts: { eventId: string; to: str
       startTime: booking.startTime,
       practitionerName: booking.practitionerName || "Your practitioner",
       notes: booking.notes || undefined,
+      eventId: opts.eventId,
     });
   }
 

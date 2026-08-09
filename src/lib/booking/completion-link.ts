@@ -195,6 +195,7 @@ export async function completeBookingLink(
     practitionerName: booking.practitionerName,
     clientId: clientRecord?.id,
     phone: link.phone,
+    eventId: link.eventId,
   }).catch((err) => console.error("[completion-link] confirmation email failed:", err));
 
   return { ok: true };

@@ -503,6 +503,7 @@ export async function executeTool(
                 notes: apptData.notes,
                 clientId: clientRecord?.id,
                 phone: apptData.clientContact,
+                eventId: appt.id,
               });
               confirmationEmailSent = true;
               flow?.step("book:confirmation email sent", { to: clientEmail });

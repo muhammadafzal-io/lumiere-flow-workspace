@@ -8,6 +8,7 @@ import {
   Calendar as CalendarIcon,
   Clock,
   ShieldCheck,
+  FileText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -33,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
     module: "pending_bookings",
   },
   { title: "Customers", url: "/customers", icon: Users, module: "customers" },
+  { title: "Forms", url: "/forms", icon: FileText, module: "forms" },
   { title: "Activity Log", url: "/activity", icon: ScrollText, module: "activity" },
   { title: "Email Log", url: "/email-logs", icon: Mail, module: "email_logs" },
   { title: "Settings", url: "/settings", icon: SettingsIcon, module: "settings" },

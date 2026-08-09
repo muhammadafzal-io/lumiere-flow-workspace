@@ -122,6 +122,7 @@ export async function POST(req: NextRequest) {
             notes: typeof notes === "string" ? notes : undefined,
             clientId: clientRecord?.id,
             phone: String(clientContact || ""),
+            eventId: result.id,
           });
           emailSent = true;
         } catch (err) {

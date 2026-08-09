@@ -15,6 +15,7 @@ import {
   WEEKDAY_BY_UTC_DAY,
   type ClinicHoursSchedule,
 } from "@/lib/booking/clinic-hours";
+import { createFormResponseLink } from "@/lib/forms/response-link";
 
 export interface ClosedTimeEntry {
   start: string;
@@ -291,24 +292,7 @@ export async function getServiceFormLinks(treatmentNameOrId: string): Promise<Se
   if (!treatmentNameOrId?.trim()) return [];
   try {
     const sb = getSupabase();
-    let serviceId: string | null = null;
-
-    if (UUID_RE.test(treatmentNameOrId)) {
-      const { data } = await sb
-        .from("Services")
-        .select("id")
-        .eq("id", treatmentNameOrId)
-        .maybeSingle();
-      serviceId = data?.id ?? null;
-    } else {
-      const { data: exact } = await sb
-        .from("Services")
-        .select("id")
-        .ilike("Name", treatmentNameOrId)
-        .maybeSingle();
-      serviceId = exact?.id ?? (await matchServiceByNameContainedIn(sb, treatmentNameOrId));
-    }
-
+    const serviceId = await resolveServiceId(sb, treatmentNameOrId);
     if (!serviceId) return [];
 
     const { data: linkRows, error } = await sb
@@ -324,8 +308,30 @@ export async function getServiceFormLinks(treatmentNameOrId: string): Promise<Se
   }
 }
 
+/** Resolves a Service's id from either a UUID or a name (exact match, falling back to a
+ * substring-containment match) — shared by getServiceFormLinks and getInHouseFormLinks. */
+async function resolveServiceId(
+  sb: ReturnType<typeof getSupabase>,
+  treatmentNameOrId: string,
+): Promise<string | null> {
+  if (UUID_RE.test(treatmentNameOrId)) {
+    const { data } = await sb
+      .from("Services")
+      .select("id")
+      .eq("id", treatmentNameOrId)
+      .maybeSingle();
+    return data?.id ?? null;
+  }
+  const { data: exact } = await sb
+    .from("Services")
+    .select("id")
+    .ilike("Name", treatmentNameOrId)
+    .maybeSingle();
+  return exact?.id ?? (await matchServiceByNameContainedIn(sb, treatmentNameOrId));
+}
+
 /**
- * Fallback for `getServiceFormLinks` when a treatment string doesn't exactly match a Service's
+ * Fallback for `resolveServiceId` when a treatment string doesn't exactly match a Service's
  * name — e.g. the AI or a staff member records "Consultation for Microneedling" rather than the
  * bare service name "Microneedling". Finds active Services whose name appears as a whole
  * substring of the treatment text, preferring the longest match to avoid a short name (e.g.
@@ -357,6 +363,70 @@ export function formatRequiredFormsLines(links: ServiceFormLink[]): string[] {
     "Required forms — please complete before your visit:",
     ...links.map((l) => `${l.label}: ${l.url}`),
   ];
+}
+
+export interface InHouseFormLink {
+  formName: string;
+  url: string;
+}
+
+/**
+ * Mints a fresh single-use fill-out link (src/lib/forms/response-link.ts) for every Active
+ * in-house Form attached to a Service via ServiceFormAssignments. Used by the booking-
+ * confirmation email, alongside (never replacing) getServiceFormLinks' external links. Never
+ * throws — returns [] on any failure, same non-critical-enhancement philosophy.
+ */
+export async function getInHouseFormLinks(
+  treatmentNameOrId: string,
+  eventId: string,
+  appointmentStartTime: string,
+  phone: string,
+  clientName?: string,
+): Promise<InHouseFormLink[]> {
+  if (!treatmentNameOrId?.trim() || !eventId) return [];
+  try {
+    const sb = getSupabase();
+    const serviceId = await resolveServiceId(sb, treatmentNameOrId);
+    if (!serviceId) return [];
+
+    const { data: assignments } = await sb
+      .from("ServiceFormAssignments")
+      .select("form_id")
+      .eq("service_id", serviceId);
+    const formIds = (assignments ?? []).map((a: any) => a.form_id);
+    if (formIds.length === 0) return [];
+
+    const { data: formRows } = await sb
+      .from("Forms")
+      .select("id, name")
+      .in("id", formIds)
+      .eq("status", "Active");
+    if (!formRows || formRows.length === 0) return [];
+
+    return await Promise.all(
+      formRows.map(async (f: any) => {
+        const { url } = await createFormResponseLink({
+          formId: f.id,
+          serviceId,
+          eventId,
+          phone,
+          clientName,
+          appointmentStartTime,
+        });
+        return { formName: f.name, url };
+      }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+/** Renders the in-house-forms block as plain-text lines, or [] when there are none — distinct
+ * wording from formatRequiredFormsLines so a booking with both kinds shows two clearly separate
+ * sections rather than a redundant-sounding duplicate. */
+export function formatInHouseFormLinks(links: InHouseFormLink[]): string[] {
+  if (links.length === 0) return [];
+  return ["", "Please complete before your visit:", ...links.map((l) => `${l.formName}: ${l.url}`)];
 }
 
 function toFractionalHour(hhmm: string): number {

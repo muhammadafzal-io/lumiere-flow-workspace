@@ -125,6 +125,13 @@ interface ServiceItem {
   status: string;
   requirements: ServiceRequirement[];
   formLinks: ServiceFormLink[];
+  attachedFormIds: string[];
+}
+
+interface AttachableForm {
+  id: string;
+  name: string;
+  status: string;
 }
 
 interface SettingsData {
@@ -1612,6 +1619,19 @@ function ServicesTab({
     [],
   );
   const [formLinks, setFormLinks] = useState<{ label: string; url: string }[]>([]);
+  const [attachedFormIds, setAttachedFormIds] = useState<string[]>([]);
+  const [availableForms, setAvailableForms] = useState<AttachableForm[]>([]);
+
+  useEffect(() => {
+    fetch("/api/forms")
+      .then((r) => (r.ok ? r.json() : { forms: [] }))
+      .then((json) =>
+        setAvailableForms(
+          (json.forms ?? []).filter((f: AttachableForm) => f.status !== "Inactive"),
+        ),
+      )
+      .catch(() => setAvailableForms([]));
+  }, []);
 
   useEffect(() => {
     if (active) {
@@ -1624,6 +1644,7 @@ function ServicesTab({
           .map((r) => r.rule as EquipmentRequirementRule),
       );
       setFormLinks((active.formLinks ?? []).map((l) => ({ label: l.label, url: l.url })));
+      setAttachedFormIds(active.attachedFormIds ?? []);
     } else {
       setForm({
         durationMinutes: 60,
@@ -1636,6 +1657,7 @@ function ServicesTab({
       setRoomRequirement(null);
       setEquipmentRequirements([]);
       setFormLinks([]);
+      setAttachedFormIds([]);
     }
   }, [active]);
 
@@ -1685,6 +1707,7 @@ function ServicesTab({
         Status: form.status ?? "Active",
         requirements,
         formLinks: cleanFormLinks,
+        attachedFormIds,
       } as any;
 
       const method = active ? "PATCH" : "POST";
@@ -1704,11 +1727,14 @@ function ServicesTab({
       onSaved(
         active
           ? services.map((svc) =>
-              svc.id === item.id ? { ...item, requirements, formLinks: localFormLinks } : svc,
+              svc.id === item.id
+                ? { ...item, requirements, formLinks: localFormLinks, attachedFormIds }
+                : svc,
             )
-          : [...services, { ...item, requirements, formLinks: localFormLinks }].sort((a, b) =>
-              a.name.localeCompare(b.name),
-            ),
+          : [
+              ...services,
+              { ...item, requirements, formLinks: localFormLinks, attachedFormIds },
+            ].sort((a, b) => a.name.localeCompare(b.name)),
       );
       setDialogOpen(false);
       toast.success(`Service ${active ? "updated" : "added"}`);
@@ -2116,6 +2142,47 @@ function ServicesTab({
                 {formLinks.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     No forms required for this service.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="border-t pt-4">
+              <Label className="mb-2 block">Attached forms</Label>
+              <p className="text-xs text-muted-foreground mb-2">
+                In-house forms built in the Forms section. Clients see these tied to this service.
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {availableForms.map((f) => {
+                  const checked = attachedFormIds.includes(f.id);
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() =>
+                        setAttachedFormIds((ids) =>
+                          checked ? ids.filter((id) => id !== f.id) : [...ids, f.id],
+                        )
+                      }
+                      className={`flex items-center gap-2 px-3 py-2 rounded-md border text-sm text-left transition-colors ${
+                        checked
+                          ? "bg-primary/10 border-primary/30 text-primary font-medium"
+                          : "border-border text-muted-foreground hover:border-primary/20 hover:text-foreground"
+                      }`}
+                    >
+                      <span
+                        className={`h-3.5 w-3.5 rounded border flex-shrink-0 flex items-center justify-center ${
+                          checked ? "bg-primary border-primary" : "border-muted-foreground/40"
+                        }`}
+                      >
+                        {checked && <Check className="h-2.5 w-2.5 text-white" />}
+                      </span>
+                      {f.name}
+                    </button>
+                  );
+                })}
+                {availableForms.length === 0 && (
+                  <p className="text-xs text-muted-foreground col-span-2">
+                    No forms created yet — add some in the Forms section.
                   </p>
                 )}
               </div>

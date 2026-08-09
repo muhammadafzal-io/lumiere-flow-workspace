@@ -1,0 +1,443 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Plus, Pencil, Trash2, Sparkles, Loader2, Eye } from "lucide-react";
+import { toast } from "sonner";
+import { AccessGate } from "@/components/rbac/AccessGate";
+import { FormRenderer } from "@/components/forms/FormRenderer";
+import type { FormField, FormFieldType } from "@/lib/forms/types";
+
+interface FormListItem {
+  id: string;
+  name: string;
+  description: string;
+  fields: FormField[];
+  status: string;
+  attachedServiceCount: number;
+  sourcePrompt: string | null;
+  created_at: string;
+}
+
+const FIELD_TYPE_LABELS: Record<FormFieldType, string> = {
+  text: "Text",
+  textarea: "Textarea",
+  number: "Number",
+  date: "Date",
+  yes_no: "Yes / No",
+  checkbox: "Checkbox (multi-select)",
+  radio: "Radio options",
+  select: "Select / dropdown",
+  consent: "Consent / signature",
+};
+
+const CHOICE_TYPES: FormFieldType[] = ["checkbox", "radio", "select"];
+
+function blankField(): FormField {
+  return { id: crypto.randomUUID(), type: "text", label: "", required: false };
+}
+
+export default function FormsPage() {
+  const [forms, setForms] = useState<FormListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
+
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<FormListItem | null>(null);
+  const [prompt, setPrompt] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [name, setName] = useState("");
+  const [fields, setFields] = useState<FormField[]>([]);
+  const [sourcePrompt, setSourcePrompt] = useState<string | null>(null);
+  // Scratch answers for the interactive preview only — never sent anywhere, just lets an admin
+  // click through the form to see how it feels before saving. Reset whenever the field list is
+  // freshly loaded (new form, editing a different form, or a new AI generation).
+  const [previewAnswers, setPreviewAnswers] = useState<Record<string, unknown>>({});
+  const [previewOpen, setPreviewOpen] = useState(false);
+
+  const fetchForms = useCallback(async () => {
+    setLoading(true);
+    setAccessDenied(null);
+    try {
+      const res = await fetch("/api/forms");
+      if (res.status === 401 || res.status === 403) {
+        setAccessDenied(res.status);
+        return;
+      }
+      if (!res.ok) throw new Error();
+      const json = await res.json();
+      setForms(json.forms ?? []);
+    } catch {
+      toast.error("Failed to load forms");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void fetchForms();
+  }, [fetchForms]);
+
+  const startAdd = () => {
+    setEditing(null);
+    setPrompt("");
+    setName("");
+    setFields([]);
+    setSourcePrompt(null);
+    setPreviewAnswers({});
+    setPreviewOpen(false);
+    setDialogOpen(true);
+  };
+
+  const startEdit = (form: FormListItem) => {
+    setEditing(form);
+    setPrompt("");
+    setName(form.name);
+    setFields(form.fields);
+    setSourcePrompt(form.sourcePrompt);
+    setPreviewAnswers({});
+    setPreviewOpen(false);
+    setDialogOpen(true);
+  };
+
+  const generate = async () => {
+    if (!prompt.trim()) {
+      toast.error("Describe what the form should contain first");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const res = await fetch("/api/forms/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to generate form");
+      }
+      const json = await res.json();
+      setName(json.name ?? "");
+      setFields(json.fields ?? []);
+      setSourcePrompt(prompt.trim());
+      setPreviewAnswers({});
+      setPreviewOpen(false);
+      toast.success("Form generated — review and edit before saving");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to generate form");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const addField = () => setFields((f) => [...f, blankField()]);
+  const removeField = (i: number) => setFields((f) => f.filter((_, idx) => idx !== i));
+  const updateField = (i: number, patch: Partial<FormField>) =>
+    setFields((f) => f.map((field, idx) => (idx === i ? { ...field, ...patch } : field)));
+
+  const save = async () => {
+    if (!name.trim()) {
+      toast.error("Form name is required");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = { name, fields, sourcePrompt };
+      const method = editing ? "PATCH" : "POST";
+      const url = editing ? `/api/forms/${editing.id}` : "/api/forms";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || "Failed to save form");
+      }
+      const json = await res.json();
+      const saved = json.form as FormListItem;
+      setForms((prev) =>
+        editing
+          ? prev.map((f) =>
+              f.id === saved.id
+                ? { ...saved, attachedServiceCount: editing.attachedServiceCount }
+                : f,
+            )
+          : [...prev, { ...saved, attachedServiceCount: 0 }].sort((a, b) =>
+              a.name.localeCompare(b.name),
+            ),
+      );
+      setDialogOpen(false);
+      toast.success(`Form ${editing ? "updated" : "created"}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save form");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeForm = async (form: FormListItem) => {
+    if (!confirm(`Delete "${form.name}"? This cannot be undone.`)) return;
+    try {
+      const res = await fetch(`/api/forms/${form.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setForms((prev) => prev.filter((f) => f.id !== form.id));
+      toast.success("Form deleted");
+    } catch {
+      toast.error("Failed to delete form");
+    }
+  };
+
+  if (accessDenied) {
+    return (
+      <div className="space-y-5 max-w-4xl">
+        <h1 className="text-2xl font-semibold tracking-tight">Forms</h1>
+        <AccessGate status={accessDenied} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5 max-w-4xl">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Forms</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Create consent and intake forms with AI, then attach them to a procedure in Settings →
+            Services.
+          </p>
+        </div>
+        <Button onClick={startAdd}>
+          <Sparkles className="h-4 w-4 mr-1.5" /> Create Form with AI
+        </Button>
+      </div>
+
+      <div className="rounded-lg border bg-card overflow-hidden">
+        <table className="min-w-full text-sm">
+          <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Fields</th>
+              <th className="px-4 py-3">Attached services</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {forms.map((form) => (
+              <tr key={form.id} className="border-t">
+                <td className="px-4 py-3">{form.name}</td>
+                <td className="px-4 py-3">{form.fields.length}</td>
+                <td className="px-4 py-3">{form.attachedServiceCount}</td>
+                <td className="px-4 py-3">{form.status}</td>
+                <td className="px-4 py-3 flex gap-2">
+                  <Button variant="ghost" size="sm" onClick={() => startEdit(form)}>
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => removeForm(form)}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </td>
+              </tr>
+            ))}
+            {!loading && forms.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                  No forms yet — create one with AI to get started.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editing ? "Edit form" : "Create form with AI"}</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            {!editing && (
+              <div className="space-y-2">
+                <Label>Describe the form</Label>
+                <Textarea
+                  placeholder='e.g. "Create a pre-treatment consent form for Botox treatment. Ask about allergies, medications, pregnancy, previous Botox treatments, and include consent confirmation."'
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  rows={3}
+                />
+                <Button type="button" variant="outline" onClick={generate} disabled={generating}>
+                  {generating ? (
+                    <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                  )}
+                  Generate
+                </Button>
+              </div>
+            )}
+
+            <div>
+              <Label>Form name</Label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1.5" />
+            </div>
+
+            <div>
+              <Label className="mb-2 block">Preview</Label>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPreviewOpen(true)}
+                disabled={fields.length === 0}
+              >
+                <Eye className="h-3.5 w-3.5 mr-1.5" /> Preview form
+              </Button>
+              {fields.length === 0 && (
+                <p className="text-xs text-muted-foreground mt-1.5">
+                  Add at least one field to preview the form.
+                </p>
+              )}
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <Label>Fields</Label>
+                <Button type="button" variant="outline" size="sm" onClick={addField}>
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add field
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {fields.map((field, i) => (
+                  <div key={field.id} className="rounded-md border p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">Field {i + 1}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={() => removeField(i)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Select
+                        value={field.type}
+                        onValueChange={(v) => updateField(i, { type: v as FormFieldType })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {Object.entries(FIELD_TYPE_LABELS).map(([value, label]) => (
+                            <SelectItem key={value} value={value}>
+                              {label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <div className="flex items-center justify-between rounded-md border px-3 h-9">
+                        <Label className="mb-0 text-xs">Required</Label>
+                        <Switch
+                          checked={field.required}
+                          onCheckedChange={(v) => updateField(i, { required: v })}
+                        />
+                      </div>
+                    </div>
+                    <Input
+                      placeholder="Label / question"
+                      value={field.label}
+                      onChange={(e) => updateField(i, { label: e.target.value })}
+                    />
+                    {CHOICE_TYPES.includes(field.type) && (
+                      <Input
+                        placeholder="Options, comma-separated (e.g. Yes, No, Not sure)"
+                        value={(field.options ?? []).join(", ")}
+                        onChange={(e) =>
+                          updateField(i, {
+                            options: e.target.value
+                              .split(",")
+                              .map((o) => o.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                      />
+                    )}
+                    <Input
+                      placeholder="Help text (optional)"
+                      value={field.helpText ?? ""}
+                      onChange={(e) => updateField(i, { helpText: e.target.value })}
+                    />
+                  </div>
+                ))}
+                {fields.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No fields yet — generate with AI or add one manually.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="mt-2">
+            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
+              Cancel
+            </Button>
+            <Button onClick={save} disabled={saving}>
+              {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Save form
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto bg-muted/30">
+          <DialogTitle className="sr-only">Form preview</DialogTitle>
+          <div className="flex items-center justify-center">
+            <span className="inline-flex items-center gap-1 rounded-full border border-warning/30 bg-warning/10 px-2.5 py-0.5 text-[11px] font-medium text-warning-foreground">
+              Preview — not published
+            </span>
+          </div>
+          <div className="rounded-2xl border bg-card shadow-sm p-8 space-y-6">
+            <div className="space-y-1 text-center">
+              <h1 className="text-lg font-semibold">{name || "Untitled form"}</h1>
+            </div>
+            <FormRenderer
+              fields={fields}
+              mode="fill"
+              answers={previewAnswers}
+              onChange={(fieldId, value) =>
+                setPreviewAnswers((prev) => ({ ...prev, [fieldId]: value }))
+              }
+            />
+            <p className="text-xs text-muted-foreground text-center">
+              This is a preview only — nothing you enter here is saved or sent anywhere.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

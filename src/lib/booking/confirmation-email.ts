@@ -6,7 +6,10 @@ import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clini
 import {
   getServiceFormLinks,
   formatRequiredFormsLines,
+  getInHouseFormLinks,
+  formatInHouseFormLinks,
   type ServiceFormLink,
+  type InHouseFormLink,
 } from "@/lib/booking/recipe";
 
 export async function sendBookingConfirmationEmail(opts: {
@@ -18,6 +21,7 @@ export async function sendBookingConfirmationEmail(opts: {
   notes?: string;
   clientId?: string;
   phone?: string;
+  eventId?: string;
 }): Promise<void> {
   const clinic = await getClinicConfig();
   const displayTime = new Date(opts.startTime).toLocaleString("en-US", {
@@ -33,6 +37,15 @@ export async function sendBookingConfirmationEmail(opts: {
   });
   const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
   const formLinks = await getServiceFormLinks(opts.treatment).catch(() => [] as ServiceFormLink[]);
+  const inHouseLinks = opts.eventId
+    ? await getInHouseFormLinks(
+        opts.treatment,
+        opts.eventId,
+        opts.startTime,
+        opts.phone ?? "",
+        opts.clientName,
+      ).catch(() => [] as InHouseFormLink[])
+    : ([] as InHouseFormLink[]);
 
   await sendRetentionEmail({
     to: opts.to,
@@ -60,6 +73,7 @@ export async function sendBookingConfirmationEmail(opts: {
       `Location: ${clinic.address}`,
       opts.notes ? `Notes: ${opts.notes}` : "",
       ...formatRequiredFormsLines(formLinks),
+      ...formatInHouseFormLinks(inHouseLinks),
       ``,
       `Need to change anything? Reply to this email or contact us ${businessHoursLabel}.`,
       widgetLinkLine(),

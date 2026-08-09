@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 const SERVICES = "Services";
 const REQS = "ServiceRequirements";
 const FORM_LINKS = "ServiceFormLinks";
+const FORM_ASSIGNMENTS = "ServiceFormAssignments";
 
 function mapService(r: any) {
   return {
@@ -60,10 +61,21 @@ export async function GET() {
       (linksGrouped[l.service_id] ??= []).push({ id: l.id, label: l.label, url: l.url });
     });
 
+    const { data: assignments } = await sb
+      .from(FORM_ASSIGNMENTS)
+      .select("*")
+      .in("service_id", ids.length ? ids : ["invalid"]);
+
+    const assignmentsGrouped: Record<string, string[]> = {};
+    (assignments ?? []).forEach((a: any) => {
+      (assignmentsGrouped[a.service_id] ??= []).push(a.form_id);
+    });
+
     const payload = services.map((s: any) => ({
       ...mapService(s),
       requirements: grouped[s.id] ?? [],
       formLinks: linksGrouped[s.id] ?? [],
+      attachedFormIds: assignmentsGrouped[s.id] ?? [],
     }));
     return NextResponse.json({ services: payload });
   } catch (err) {
@@ -89,6 +101,7 @@ export async function POST(req: Request) {
       Status,
       requirements,
       formLinks,
+      attachedFormIds,
     } = body;
 
     if (!Name || typeof Name !== "string") {
@@ -161,6 +174,16 @@ export async function POST(req: Request) {
         const { error: lerr } = await sb.from(FORM_LINKS).insert(rows);
         if (lerr) throw new Error(lerr.message);
       }
+    }
+
+    // Insert attached form assignments if provided
+    if (Array.isArray(attachedFormIds) && attachedFormIds.length > 0) {
+      const rows = attachedFormIds.map((formId: string) => ({
+        service_id: svc.id,
+        form_id: formId,
+      }));
+      const { error: aerr } = await sb.from(FORM_ASSIGNMENTS).insert(rows);
+      if (aerr) throw new Error(aerr.message);
     }
 
     return NextResponse.json({ service: mapService(svc) });
@@ -262,6 +285,20 @@ export async function PATCH(req: Request) {
       if (rows.length > 0) {
         const { error: ilErr } = await sb.from(FORM_LINKS).insert(rows);
         if (ilErr) throw new Error(ilErr.message);
+      }
+    }
+
+    // Replace attached form assignments if provided
+    if (Array.isArray(body.attachedFormIds)) {
+      const { error: daErr } = await sb.from(FORM_ASSIGNMENTS).delete().eq("service_id", id);
+      if (daErr) throw new Error(daErr.message);
+      if (body.attachedFormIds.length > 0) {
+        const rows = body.attachedFormIds.map((formId: string) => ({
+          service_id: id,
+          form_id: formId,
+        }));
+        const { error: iaErr } = await sb.from(FORM_ASSIGNMENTS).insert(rows);
+        if (iaErr) throw new Error(iaErr.message);
       }
     }
 
