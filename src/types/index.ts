@@ -40,6 +40,15 @@ export interface AvailableSlot {
   availableEquipment?: string[];
 }
 
+export interface RequiredFormStatus {
+  id: string;
+  formName: string;
+  url: string;
+  source: "external" | "inhouse";
+  status: "PENDING" | "COMPLETED";
+  completedAt: string | null;
+}
+
 // Minimal shape returned by getEventsByRange (used by admin calendar)
 export interface CalendarEvent {
   id: string;
@@ -57,6 +66,7 @@ export interface CalendarEvent {
   notes: string;
   room: string;
   practitioner: string;
+  requiredForms?: RequiredFormStatus[];
 }
 
 export interface InboundMessage {

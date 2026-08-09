@@ -38,6 +38,7 @@ import { store } from "@/lib/store";
 import { mapTeamToPractitioners } from "@/lib/practitioners";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import type { Appointment, Practitioner, Customer, Treatment } from "@/lib/types";
+import type { RequiredFormStatus } from "@/types";
 import { isAppointmentPast } from "@/lib/appointment-lock";
 import {
   getDisplayTimezone,
@@ -216,6 +217,7 @@ export default function CalendarPage() {
             room: string;
             practitioner: string;
             status?: "pending" | "confirmed";
+            requiredForms?: RequiredFormStatus[];
           }) => {
             const matchedPrac = practitioners.find(
               (p) => p.name.trim().toLowerCase() === (e.practitioner || "").trim().toLowerCase(),
@@ -252,6 +254,7 @@ export default function CalendarPage() {
               price: 0,
               created_at: e.startTime,
               reminder_status: { t_3day: false, t_1day: false, t_2hour: false },
+              requiredForms: e.requiredForms ?? [],
             };
           },
         );

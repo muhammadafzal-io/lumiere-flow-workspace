@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import { requireApiPermission } from "@/lib/rbac/guard";
 import { listPendingCompletions } from "@/lib/booking/completion-followups";
+import { listRequiredFormsForEvents, type RequiredFormTrackingRecord } from "@/lib/forms/tracking";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -42,9 +43,20 @@ export async function GET(req: NextRequest) {
         .filter((c) => c.status === "pending")
         .map((c) => c.eventId),
     );
+    const requiredFormsByEvent = await listRequiredFormsForEvents(events.map((e) => e.id)).catch(
+      () => new Map<string, RequiredFormTrackingRecord[]>(),
+    );
     const eventsWithStatus = events.map((e) => ({
       ...e,
       status: pendingEventIds.has(e.id) ? ("pending" as const) : ("confirmed" as const),
+      requiredForms: (requiredFormsByEvent.get(e.id) ?? []).map((f) => ({
+        id: f.id,
+        formName: f.formName,
+        url: f.url,
+        source: f.source,
+        status: f.status,
+        completedAt: f.completedAt,
+      })),
     }));
 
     return NextResponse.json({ events: eventsWithStatus });

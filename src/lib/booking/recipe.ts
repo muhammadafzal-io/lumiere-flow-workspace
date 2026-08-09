@@ -310,7 +310,7 @@ export async function getServiceFormLinks(treatmentNameOrId: string): Promise<Se
 
 /** Resolves a Service's id from either a UUID or a name (exact match, falling back to a
  * substring-containment match) — shared by getServiceFormLinks and getInHouseFormLinks. */
-async function resolveServiceId(
+export async function resolveServiceId(
   sb: ReturnType<typeof getSupabase>,
   treatmentNameOrId: string,
 ): Promise<string | null> {
@@ -368,6 +368,7 @@ export function formatRequiredFormsLines(links: ServiceFormLink[]): string[] {
 export interface InHouseFormLink {
   formName: string;
   url: string;
+  formResponseId: string;
 }
 
 /**
@@ -405,7 +406,7 @@ export async function getInHouseFormLinks(
 
     return await Promise.all(
       formRows.map(async (f: any) => {
-        const { url } = await createFormResponseLink({
+        const { id, url } = await createFormResponseLink({
           formId: f.id,
           serviceId,
           eventId,
@@ -413,7 +414,7 @@ export async function getInHouseFormLinks(
           clientName,
           appointmentStartTime,
         });
-        return { formName: f.name, url };
+        return { formName: f.name, url, formResponseId: id };
       }),
     );
   } catch {

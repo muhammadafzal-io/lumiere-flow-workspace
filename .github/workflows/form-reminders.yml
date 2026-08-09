@@ -1,0 +1,41 @@
+name: Required form reminders
+
+# Vercel Hobby: GitHub Actions cron for /api/cron/form-reminders
+# Reminds clients who still have PENDING required forms ~24h before their appointment. Two runs a
+# day is enough to reliably catch the single 20-28h window this job checks (vs. the three windows
+# the appointment-reminder cron covers).
+
+on:
+  schedule:
+    - cron: "0 14 * * *"
+    - cron: "0 20 * * *"
+  workflow_dispatch:
+
+jobs:
+  form-reminders-cron:
+    name: Sweep pending required-form reminders
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger form reminder flow
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ vars.VERCEL_APP_URL }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "Missing CRON_SECRET in GitHub repository secrets"
+            exit 1
+          fi
+          BASE="${APP_URL:-https://lumiere-flow-workspace-htt1.vercel.app}"
+          echo "Calling ${BASE}/api/cron/form-reminders"
+          response=$(curl -s -w "\n%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${BASE}/api/cron/form-reminders")
+          body=$(echo "$response" | head -n -1)
+          status=$(echo "$response" | tail -n1)
+          echo "Status: $status"
+          echo "Response: $body"
+          if [ "$status" != "200" ]; then
+            echo "Form-reminders cron failed with status $status"
+            exit 1
+          fi
+          echo "Form-reminders cron completed"

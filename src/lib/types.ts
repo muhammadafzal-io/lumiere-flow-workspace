@@ -178,4 +178,5 @@ export interface Appointment {
   created_by?: string;
   ai_transcript?: AiTranscriptMsg[];
   reminder_status: { t_3day: boolean; t_1day: boolean; t_2hour: boolean };
+  requiredForms?: import("@/types").RequiredFormStatus[];
 }

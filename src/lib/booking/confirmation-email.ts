@@ -3,14 +3,17 @@ import { logEvent } from "@/lib/integrations/activity-log";
 import { widgetLinkLine } from "@/lib/client-channels";
 import { getClinicConfig } from "@/lib/clinic-config";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
+import { getSupabase } from "@/lib/supabase";
 import {
   getServiceFormLinks,
   formatRequiredFormsLines,
   getInHouseFormLinks,
   formatInHouseFormLinks,
+  resolveServiceId,
   type ServiceFormLink,
   type InHouseFormLink,
 } from "@/lib/booking/recipe";
+import { trackRequiredForms } from "@/lib/forms/tracking";
 
 export async function sendBookingConfirmationEmail(opts: {
   to: string;
@@ -46,6 +49,16 @@ export async function sendBookingConfirmationEmail(opts: {
         opts.clientName,
       ).catch(() => [] as InHouseFormLink[])
     : ([] as InHouseFormLink[]);
+
+  if (opts.eventId && (formLinks.length > 0 || inHouseLinks.length > 0)) {
+    const serviceId = await resolveServiceId(getSupabase(), opts.treatment).catch(() => null);
+    await trackRequiredForms({
+      eventId: opts.eventId,
+      serviceId,
+      externalLinks: formLinks,
+      inHouseLinks,
+    }).catch((err) => console.error("[trackRequiredForms] failed:", err));
+  }
 
   await sendRetentionEmail({
     to: opts.to,

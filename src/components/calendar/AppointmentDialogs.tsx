@@ -36,10 +36,12 @@ import {
   Clock,
   Loader2,
   Lock,
+  ClipboardList,
+  Hourglass,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Appointment, Practitioner, Customer, AppointmentStatus } from "@/lib/types";
-import type { AvailableSlot } from "@/types";
+import type { AvailableSlot, RequiredFormStatus } from "@/types";
 import {
   birthdayToInputValue,
   isValidBirthdayInput,
@@ -116,6 +118,11 @@ export function AppointmentSlideOver({
 }) {
   const open = !!appointment;
   const [completing, setCompleting] = useState(false);
+  const [forms, setForms] = useState<RequiredFormStatus[]>([]);
+  const [markingFormId, setMarkingFormId] = useState<string | null>(null);
+  useEffect(() => {
+    setForms(appointment?.requiredForms ?? []);
+  }, [appointment?.id, appointment?.requiredForms]);
   if (!appointment)
     return (
       <Sheet open={false} onOpenChange={onClose}>
@@ -127,6 +134,26 @@ export function AppointmentSlideOver({
   const end = new Date(a.end_time);
   const prac = practitionerById(practitioners, a.practitioner_id);
   const isPast = isAppointmentPast(a.end_time);
+
+  const markFormComplete = async (formId: string) => {
+    setMarkingFormId(formId);
+    try {
+      const res = await fetch(`/api/required-forms/${formId}/complete`, { method: "PATCH" });
+      if (!res.ok) throw new Error();
+      setForms((prev) =>
+        prev.map((f) =>
+          f.id === formId
+            ? { ...f, status: "COMPLETED", completedAt: new Date().toISOString() }
+            : f,
+        ),
+      );
+      toast.success("Form marked as completed");
+    } catch {
+      toast.error("Failed to update form status");
+    } finally {
+      setMarkingFormId(null);
+    }
+  };
 
   const markComplete = async () => {
     if (!customer) {
@@ -408,6 +435,25 @@ export function AppointmentSlideOver({
             </div>
           </section>
 
+          {/* Required Forms */}
+          {forms.length > 0 && (
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5 flex items-center gap-1.5">
+                <ClipboardList className="h-3 w-3" /> Required Forms
+              </h3>
+              <div className="rounded-lg border bg-card divide-y">
+                {forms.map((f) => (
+                  <RequiredFormRow
+                    key={f.id}
+                    form={f}
+                    marking={markingFormId === f.id}
+                    onMarkComplete={markFormComplete}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
           {/* Notes */}
           <section>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
@@ -506,6 +552,45 @@ function ReminderRow({ label, sent, when }: { label: string; sent: boolean; when
         </span>
       ) : (
         <span className="text-xs text-muted-foreground">Scheduled</span>
+      )}
+    </div>
+  );
+}
+
+function RequiredFormRow({
+  form,
+  marking,
+  onMarkComplete,
+}: {
+  form: RequiredFormStatus;
+  marking: boolean;
+  onMarkComplete: (formId: string) => void;
+}) {
+  const completed = form.status === "COMPLETED";
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
+      <div className="flex-1 truncate">{form.formName}</div>
+      {completed ? (
+        <span className="text-xs text-success flex items-center gap-1">
+          <CheckCheck className="h-3.5 w-3.5" /> Completed
+        </span>
+      ) : (
+        <>
+          <span className="text-xs text-muted-foreground flex items-center gap-1">
+            <Hourglass className="h-3.5 w-3.5" /> Pending
+          </span>
+          {form.source === "external" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              disabled={marking}
+              onClick={() => onMarkComplete(form.id)}
+            >
+              {marking ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : "Mark as completed"}
+            </Button>
+          )}
+        </>
       )}
     </div>
   );

@@ -18,6 +18,7 @@ const MAX_WINDOW_MS = 24 * 60 * 60_000;
 export const TABLE = "FormResponses";
 
 export interface FormResponseRecord {
+  id: string;
   token: string;
   formId: string;
   serviceId: string;
@@ -32,6 +33,7 @@ export interface FormResponseRecord {
 function mapFormResponseRow(r: any): FormResponseRecord {
   const expired = r.status === "pending" && new Date(r.expires_at).getTime() < Date.now();
   return {
+    id: r.id,
     token: r.token,
     formId: r.form_id,
     serviceId: r.service_id,
@@ -60,23 +62,27 @@ export async function createFormResponseLink(opts: {
   phone: string;
   clientName?: string;
   appointmentStartTime: string;
-}): Promise<{ token: string; url: string }> {
+}): Promise<{ id: string; token: string; url: string }> {
   const token = crypto.randomBytes(32).toString("base64url");
   const expiresAt = computeFormResponseExpiry(opts.appointmentStartTime);
 
   const sb = getSupabase();
-  const { error } = await sb.from(TABLE).insert({
-    token,
-    form_id: opts.formId,
-    service_id: opts.serviceId,
-    event_id: opts.eventId,
-    phone: opts.phone,
-    client_name: opts.clientName ?? null,
-    expires_at: expiresAt,
-  });
+  const { data, error } = await sb
+    .from(TABLE)
+    .insert({
+      token,
+      form_id: opts.formId,
+      service_id: opts.serviceId,
+      event_id: opts.eventId,
+      phone: opts.phone,
+      client_name: opts.clientName ?? null,
+      expires_at: expiresAt,
+    })
+    .select("id")
+    .single();
   if (error) throw new Error(`createFormResponseLink: ${error.message}`);
 
-  return { token, url: `${getAppBaseUrl()}/forms/fill/${token}` };
+  return { id: data.id, token, url: `${getAppBaseUrl()}/forms/fill/${token}` };
 }
 
 /** Loads the link + its parent Form. Unlike getCompletionLink, does NOT depend on the calendar
@@ -134,6 +140,20 @@ export async function submitFormResponse(
     .eq("token", token);
   if (error) {
     return { ok: false, error: "Something went wrong saving your answers. Please try again." };
+  }
+
+  // Best-effort — keep the unified staff-facing tracking row in sync, but never let a failure
+  // here affect the client's actual submission, which already succeeded above.
+  try {
+    const { error: trackingError } = await sb
+      .from("RequiredFormTracking")
+      .update({ status: "COMPLETED", completed_at: new Date().toISOString() })
+      .eq("form_response_id", link.id);
+    if (trackingError) {
+      console.error("[submitFormResponse] tracking update failed:", trackingError.message);
+    }
+  } catch (err) {
+    console.error("[submitFormResponse] tracking update failed:", err);
   }
 
   return { ok: true };
