@@ -60,6 +60,7 @@ import {
 } from "@/lib/calendar-utils";
 import { useCurrentUser } from "@/lib/current-user-context";
 import { isAppointmentPast } from "@/lib/appointment-lock";
+import { FormResponseDialog } from "@/components/forms/FormResponseDialog";
 
 function statusPill(s: AppointmentStatus) {
   const map: Record<AppointmentStatus, string> = {
@@ -120,6 +121,7 @@ export function AppointmentSlideOver({
   const [completing, setCompleting] = useState(false);
   const [forms, setForms] = useState<RequiredFormStatus[]>([]);
   const [markingFormId, setMarkingFormId] = useState<string | null>(null);
+  const [viewingResponseId, setViewingResponseId] = useState<string | null>(null);
   useEffect(() => {
     setForms(appointment?.requiredForms ?? []);
   }, [appointment?.id, appointment?.requiredForms]);
@@ -196,314 +198,323 @@ export function AppointmentSlideOver({
   };
 
   return (
-    <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-[480px] sm:max-w-[480px] overflow-y-auto p-0">
-        <SheetHeader className="px-6 pt-6 pb-4 border-b">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <SheetTitle className="text-lg leading-tight">
-                {customer?.name || a.clientName || "Client"}
-              </SheetTitle>
-              <div className="mt-2 flex items-center gap-2">
-                {statusPill(a.status)}
-                {a.source === "ai_booked" && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md border bg-primary/10 text-primary border-primary/20">
-                    <Sparkles className="h-3 w-3" /> AI booked
-                  </span>
-                )}
+    <>
+      <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
+        <SheetContent className="w-[480px] sm:max-w-[480px] overflow-y-auto p-0">
+          <SheetHeader className="px-6 pt-6 pb-4 border-b">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <SheetTitle className="text-lg leading-tight">
+                  {customer?.name || a.clientName || "Client"}
+                </SheetTitle>
+                <div className="mt-2 flex items-center gap-2">
+                  {statusPill(a.status)}
+                  {a.source === "ai_booked" && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded-md border bg-primary/10 text-primary border-primary/20">
+                      <Sparkles className="h-3 w-3" /> AI booked
+                    </span>
+                  )}
+                </div>
               </div>
+              <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+                <X className="h-4 w-4" />
+              </button>
             </div>
-            <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </SheetHeader>
+          </SheetHeader>
 
-        <div className="px-6 py-5 space-y-6">
-          {isPast && (
-            <div className="rounded-lg border bg-muted/40 px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground">
-              <Lock className="h-3.5 w-3.5 flex-shrink-0" />
-              This appointment is in the past — scheduling details are locked.
-            </div>
-          )}
+          <div className="px-6 py-5 space-y-6">
+            {isPast && (
+              <div className="rounded-lg border bg-muted/40 px-3 py-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <Lock className="h-3.5 w-3.5 flex-shrink-0" />
+                This appointment is in the past — scheduling details are locked.
+              </div>
+            )}
 
-          {/* Appointment details */}
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
-              Appointment
-            </h3>
-            <div className="rounded-lg border bg-card divide-y">
-              <Row
-                icon={<CalendarIcon className="h-3.5 w-3.5" />}
-                label="Date"
-                value={start.toLocaleDateString("en-US", {
-                  timeZone: getDisplayTimezone(),
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                })}
-              />
-              <Row
-                icon={<Clock className="h-3.5 w-3.5" />}
-                label="Time"
-                value={`${fmtTimeRange(start, end)} · ${a.duration_minutes} min`}
-              />
-              <Row label="Treatment" value={a.treatment} />
-              <Row label="Practitioner" value={prac?.name || "Unassigned"} swatch={prac?.color} />
-              <Row icon={<MapPin className="h-3.5 w-3.5" />} label="Room" value={a.room} />
-              <Row label="Price" value={`$${a.price.toLocaleString()}`} />
-              <Row
-                label="Source"
-                value={
-                  a.source === "ai_booked"
-                    ? `Booked by AI on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), month: "short", day: "numeric" })}, ${fmtTime(new Date(a.created_at))}`
-                    : `Manually booked${a.created_by ? ` by ${a.created_by}` : ""} on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), month: "short", day: "numeric" })}`
-                }
-              />
-            </div>
-          </section>
-
-          {/* Client snapshot */}
-          {customer ? (
+            {/* Appointment details */}
             <section>
               <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
-                Client
-              </h3>
-              <div className="rounded-lg border bg-card p-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-medium flex-shrink-0">
-                    {customer.name
-                      .split(" ")
-                      .map((s) => s[0])
-                      .slice(0, 2)
-                      .join("")}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <div className="font-semibold text-sm truncate">{customer.name}</div>
-                      {customerStatusPill(customer.status)}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <Phone className="h-3 w-3" />
-                        {customer.phone}
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Mail className="h-3 w-3" />
-                        {customer.email}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-md bg-muted/40 px-2.5 py-2">
-                    <div className="text-muted-foreground">Total visits</div>
-                    <div className="font-semibold mt-0.5">{customer.total_visits}</div>
-                  </div>
-                  <div className="rounded-md bg-muted/40 px-2.5 py-2">
-                    <div className="text-muted-foreground">Last visit</div>
-                    <div className="font-semibold mt-0.5">
-                      {formatLastVisit(
-                        customer.last_visit,
-                        {
-                          timeZone: getDisplayTimezone(),
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        },
-                        "en-US",
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <Link
-                  href={`/customers/${customer.id}`}
-                  className="block mt-3 text-xs text-primary hover:underline"
-                >
-                  View full profile →
-                </Link>
-              </div>
-            </section>
-          ) : a.clientName ? (
-            <section>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
-                Client
-              </h3>
-              <div className="rounded-lg border bg-card p-4">
-                <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-medium flex-shrink-0">
-                    {a.clientName
-                      .split(" ")
-                      .map((s) => s[0])
-                      .slice(0, 2)
-                      .join("")}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-semibold text-sm truncate">{a.clientName}</div>
-                    <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <Phone className="h-3 w-3" />
-                        {a.clientContact && !a.clientContact.includes("@") ? a.clientContact : "—"}
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <Mail className="h-3 w-3" />
-                        {a.clientContact && a.clientContact.includes("@") ? a.clientContact : "—"}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-md bg-muted/40 px-2.5 py-2">
-                    <div className="text-muted-foreground">Total visits</div>
-                    <div className="font-semibold mt-0.5">—</div>
-                  </div>
-                  <div className="rounded-md bg-muted/40 px-2.5 py-2">
-                    <div className="text-muted-foreground">Last visit</div>
-                    <div className="font-semibold mt-0.5">—</div>
-                  </div>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          {/* AI transcript */}
-          {a.source === "ai_booked" && a.ai_transcript && a.ai_transcript.length > 0 && (
-            <section>
-              <Collapsible defaultOpen>
-                <div className="flex items-center justify-between mb-2.5">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
-                    <Sparkles className="h-3 w-3 text-primary" /> AI booking transcript
-                  </h3>
-                  <CollapsibleTrigger asChild>
-                    <button className="text-muted-foreground hover:text-foreground">
-                      <ChevronDown className="h-4 w-4" />
-                    </button>
-                  </CollapsibleTrigger>
-                </div>
-                <CollapsibleContent>
-                  <div className="rounded-lg border bg-card p-3 space-y-2">
-                    {a.ai_transcript.map((m, i) => (
-                      <div
-                        key={i}
-                        className={`flex ${m.from === "ai" ? "justify-start" : "justify-end"}`}
-                      >
-                        <div
-                          className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
-                            m.from === "ai"
-                              ? "bg-primary/10 text-foreground border border-primary/15"
-                              : "bg-muted text-foreground"
-                          }`}
-                        >
-                          <div
-                            className={`text-[10px] font-semibold mb-0.5 uppercase tracking-wider ${m.from === "ai" ? "text-primary" : "text-muted-foreground"}`}
-                          >
-                            {m.from === "ai"
-                              ? "AI Agent"
-                              : customer?.name.split(" ")[0] || "Client"}
-                          </div>
-                          <div>{m.text}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-            </section>
-          )}
-
-          {/* Reminders */}
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5 flex items-center gap-1.5">
-              <Bell className="h-3 w-3" /> Reminders
-            </h3>
-            <div className="rounded-lg border bg-card divide-y">
-              <ReminderRow
-                label="3-day reminder"
-                sent={a.reminder_status.t_3day}
-                when={new Date(start.getTime() - 3 * 86400000)}
-              />
-              <ReminderRow
-                label="1-day reminder"
-                sent={a.reminder_status.t_1day}
-                when={new Date(start.getTime() - 86400000)}
-              />
-              <ReminderRow
-                label="2-hour reminder"
-                sent={a.reminder_status.t_2hour}
-                when={new Date(start.getTime() - 2 * 3600000)}
-              />
-            </div>
-          </section>
-
-          {/* Required Forms */}
-          {forms.length > 0 && (
-            <section>
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5 flex items-center gap-1.5">
-                <ClipboardList className="h-3 w-3" /> Required Forms
+                Appointment
               </h3>
               <div className="rounded-lg border bg-card divide-y">
-                {forms.map((f) => (
-                  <RequiredFormRow
-                    key={f.id}
-                    form={f}
-                    marking={markingFormId === f.id}
-                    onMarkComplete={markFormComplete}
-                  />
-                ))}
+                <Row
+                  icon={<CalendarIcon className="h-3.5 w-3.5" />}
+                  label="Date"
+                  value={start.toLocaleDateString("en-US", {
+                    timeZone: getDisplayTimezone(),
+                    weekday: "long",
+                    month: "long",
+                    day: "numeric",
+                  })}
+                />
+                <Row
+                  icon={<Clock className="h-3.5 w-3.5" />}
+                  label="Time"
+                  value={`${fmtTimeRange(start, end)} · ${a.duration_minutes} min`}
+                />
+                <Row label="Treatment" value={a.treatment} />
+                <Row label="Practitioner" value={prac?.name || "Unassigned"} swatch={prac?.color} />
+                <Row icon={<MapPin className="h-3.5 w-3.5" />} label="Room" value={a.room} />
+                <Row label="Price" value={`$${a.price.toLocaleString()}`} />
+                <Row
+                  label="Source"
+                  value={
+                    a.source === "ai_booked"
+                      ? `Booked by AI on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), month: "short", day: "numeric" })}, ${fmtTime(new Date(a.created_at))}`
+                      : `Manually booked${a.created_by ? ` by ${a.created_by}` : ""} on ${new Date(a.created_at).toLocaleDateString("en-US", { timeZone: getDisplayTimezone(), month: "short", day: "numeric" })}`
+                  }
+                />
               </div>
             </section>
-          )}
 
-          {/* Notes */}
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
-              Notes
-            </h3>
-            <Textarea
-              defaultValue={a.notes}
-              placeholder="Add a note about this appointment…"
-              className="min-h-[80px]"
-              readOnly={isPast}
-              onBlur={(e) => {
-                if (!isPast && e.target.value !== a.notes) {
-                  store.upsertAppointment({ ...a, notes: e.target.value });
-                }
-              }}
-            />
-            {isPast && (
-              <p className="text-[11px] text-muted-foreground mt-1">
-                Notes are locked once an appointment is in the past.
-              </p>
+            {/* Client snapshot */}
+            {customer ? (
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
+                  Client
+                </h3>
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-medium flex-shrink-0">
+                      {customer.name
+                        .split(" ")
+                        .map((s) => s[0])
+                        .slice(0, 2)
+                        .join("")}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <div className="font-semibold text-sm truncate">{customer.name}</div>
+                        {customerStatusPill(customer.status)}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="h-3 w-3" />
+                          {customer.phone}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Mail className="h-3 w-3" />
+                          {customer.email}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-md bg-muted/40 px-2.5 py-2">
+                      <div className="text-muted-foreground">Total visits</div>
+                      <div className="font-semibold mt-0.5">{customer.total_visits}</div>
+                    </div>
+                    <div className="rounded-md bg-muted/40 px-2.5 py-2">
+                      <div className="text-muted-foreground">Last visit</div>
+                      <div className="font-semibold mt-0.5">
+                        {formatLastVisit(
+                          customer.last_visit,
+                          {
+                            timeZone: getDisplayTimezone(),
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          },
+                          "en-US",
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <Link
+                    href={`/customers/${customer.id}`}
+                    className="block mt-3 text-xs text-primary hover:underline"
+                  >
+                    View full profile →
+                  </Link>
+                </div>
+              </section>
+            ) : a.clientName ? (
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
+                  Client
+                </h3>
+                <div className="rounded-lg border bg-card p-4">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-full bg-accent text-accent-foreground flex items-center justify-center text-sm font-medium flex-shrink-0">
+                      {a.clientName
+                        .split(" ")
+                        .map((s) => s[0])
+                        .slice(0, 2)
+                        .join("")}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-sm truncate">{a.clientName}</div>
+                      <div className="mt-1 text-xs text-muted-foreground space-y-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="h-3 w-3" />
+                          {a.clientContact && !a.clientContact.includes("@")
+                            ? a.clientContact
+                            : "—"}
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Mail className="h-3 w-3" />
+                          {a.clientContact && a.clientContact.includes("@") ? a.clientContact : "—"}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-md bg-muted/40 px-2.5 py-2">
+                      <div className="text-muted-foreground">Total visits</div>
+                      <div className="font-semibold mt-0.5">—</div>
+                    </div>
+                    <div className="rounded-md bg-muted/40 px-2.5 py-2">
+                      <div className="text-muted-foreground">Last visit</div>
+                      <div className="font-semibold mt-0.5">—</div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {/* AI transcript */}
+            {a.source === "ai_booked" && a.ai_transcript && a.ai_transcript.length > 0 && (
+              <section>
+                <Collapsible defaultOpen>
+                  <div className="flex items-center justify-between mb-2.5">
+                    <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex items-center gap-1.5">
+                      <Sparkles className="h-3 w-3 text-primary" /> AI booking transcript
+                    </h3>
+                    <CollapsibleTrigger asChild>
+                      <button className="text-muted-foreground hover:text-foreground">
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                    </CollapsibleTrigger>
+                  </div>
+                  <CollapsibleContent>
+                    <div className="rounded-lg border bg-card p-3 space-y-2">
+                      {a.ai_transcript.map((m, i) => (
+                        <div
+                          key={i}
+                          className={`flex ${m.from === "ai" ? "justify-start" : "justify-end"}`}
+                        >
+                          <div
+                            className={`max-w-[85%] rounded-lg px-3 py-2 text-xs ${
+                              m.from === "ai"
+                                ? "bg-primary/10 text-foreground border border-primary/15"
+                                : "bg-muted text-foreground"
+                            }`}
+                          >
+                            <div
+                              className={`text-[10px] font-semibold mb-0.5 uppercase tracking-wider ${m.from === "ai" ? "text-primary" : "text-muted-foreground"}`}
+                            >
+                              {m.from === "ai"
+                                ? "AI Agent"
+                                : customer?.name.split(" ")[0] || "Client"}
+                            </div>
+                            <div>{m.text}</div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              </section>
             )}
-          </section>
-        </div>
 
-        <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t px-6 py-3 flex items-center justify-end gap-2">
-          {!isPast && a.status !== "completed" && a.status !== "cancelled" && (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onCancel(a)}
-                className="text-destructive hover:text-destructive"
-              >
-                Cancel appointment
-              </Button>
-            </>
-          )}
-          {isPast && a.status !== "completed" && a.status !== "cancelled" && (
-            <Button size="sm" onClick={markComplete} disabled={completing}>
-              {completing ? (
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-              ) : (
-                <CheckCheck className="h-3.5 w-3.5 mr-1" />
+            {/* Reminders */}
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5 flex items-center gap-1.5">
+                <Bell className="h-3 w-3" /> Reminders
+              </h3>
+              <div className="rounded-lg border bg-card divide-y">
+                <ReminderRow
+                  label="3-day reminder"
+                  sent={a.reminder_status.t_3day}
+                  when={new Date(start.getTime() - 3 * 86400000)}
+                />
+                <ReminderRow
+                  label="1-day reminder"
+                  sent={a.reminder_status.t_1day}
+                  when={new Date(start.getTime() - 86400000)}
+                />
+                <ReminderRow
+                  label="2-hour reminder"
+                  sent={a.reminder_status.t_2hour}
+                  when={new Date(start.getTime() - 2 * 3600000)}
+                />
+              </div>
+            </section>
+
+            {/* Required Forms */}
+            {forms.length > 0 && (
+              <section>
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5 flex items-center gap-1.5">
+                  <ClipboardList className="h-3 w-3" /> Required Forms
+                </h3>
+                <div className="rounded-lg border bg-card divide-y">
+                  {forms.map((f) => (
+                    <RequiredFormRow
+                      key={f.id}
+                      form={f}
+                      marking={markingFormId === f.id}
+                      onMarkComplete={markFormComplete}
+                      onViewResponse={setViewingResponseId}
+                    />
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Notes */}
+            <section>
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2.5">
+                Notes
+              </h3>
+              <Textarea
+                defaultValue={a.notes}
+                placeholder="Add a note about this appointment…"
+                className="min-h-[80px]"
+                readOnly={isPast}
+                onBlur={(e) => {
+                  if (!isPast && e.target.value !== a.notes) {
+                    store.upsertAppointment({ ...a, notes: e.target.value });
+                  }
+                }}
+              />
+              {isPast && (
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Notes are locked once an appointment is in the past.
+                </p>
               )}
-              Mark complete
-            </Button>
-          )}
-        </div>
-      </SheetContent>
-    </Sheet>
+            </section>
+          </div>
+
+          <div className="sticky bottom-0 bg-background/95 backdrop-blur border-t px-6 py-3 flex items-center justify-end gap-2">
+            {!isPast && a.status !== "completed" && a.status !== "cancelled" && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onCancel(a)}
+                  className="text-destructive hover:text-destructive"
+                >
+                  Cancel appointment
+                </Button>
+              </>
+            )}
+            {isPast && a.status !== "completed" && a.status !== "cancelled" && (
+              <Button size="sm" onClick={markComplete} disabled={completing}>
+                {completing ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                ) : (
+                  <CheckCheck className="h-3.5 w-3.5 mr-1" />
+                )}
+                Mark complete
+              </Button>
+            )}
+          </div>
+        </SheetContent>
+      </Sheet>
+      <FormResponseDialog
+        trackingId={viewingResponseId}
+        onClose={() => setViewingResponseId(null)}
+      />
+    </>
   );
 }
 
@@ -557,29 +568,43 @@ function ReminderRow({ label, sent, when }: { label: string; sent: boolean; when
   );
 }
 
+function fmtShortDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    timeZone: getDisplayTimezone(),
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 function RequiredFormRow({
   form,
   marking,
   onMarkComplete,
+  onViewResponse,
 }: {
   form: RequiredFormStatus;
   marking: boolean;
   onMarkComplete: (formId: string) => void;
+  onViewResponse: (formId: string) => void;
 }) {
   const completed = form.status === "COMPLETED";
   return (
-    <div className="flex items-center gap-3 px-4 py-2.5 text-sm">
-      <div className="flex-1 truncate">{form.formName}</div>
-      {completed ? (
-        <span className="text-xs text-success flex items-center gap-1">
-          <CheckCheck className="h-3.5 w-3.5" /> Completed
-        </span>
-      ) : (
-        <>
-          <span className="text-xs text-muted-foreground flex items-center gap-1">
-            <Hourglass className="h-3.5 w-3.5" /> Pending
-          </span>
-          {form.source === "external" && (
+    <div className="px-4 py-2.5 text-sm">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 truncate">{form.formName}</div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {completed ? (
+            <span className="text-xs text-success flex items-center gap-1">
+              <CheckCheck className="h-3.5 w-3.5" /> Completed
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              <Hourglass className="h-3.5 w-3.5" /> Pending
+            </span>
+          )}
+          {!completed && form.source === "external" && (
             <Button
               variant="outline"
               size="sm"
@@ -590,8 +615,22 @@ function RequiredFormRow({
               {marking ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : "Mark as completed"}
             </Button>
           )}
-        </>
-      )}
+          {completed && form.source === "inhouse" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => onViewResponse(form.id)}
+            >
+              View Response
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="text-xs text-muted-foreground mt-0.5">
+        {form.sentAt && <>Sent {fmtShortDateTime(form.sentAt)}</>}
+        {form.completedAt && <> · Completed {fmtShortDateTime(form.completedAt)}</>}
+      </div>
     </div>
   );
 }

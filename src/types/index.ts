@@ -46,6 +46,7 @@ export interface RequiredFormStatus {
   url: string;
   source: "external" | "inhouse";
   status: "PENDING" | "COMPLETED";
+  sentAt: string | null;
   completedAt: string | null;
 }
 

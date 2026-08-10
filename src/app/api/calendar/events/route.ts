@@ -55,6 +55,7 @@ export async function GET(req: NextRequest) {
         url: f.url,
         source: f.source,
         status: f.status,
+        sentAt: f.sentAt,
         completedAt: f.completedAt,
       })),
     }));

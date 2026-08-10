@@ -13,6 +13,8 @@ import {
 } from "@/lib/customers/profile";
 import { getClinicTimezone } from "@/lib/clinic-config";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import { listRequiredFormsForEvents, type RequiredFormTrackingRecord } from "@/lib/forms/tracking";
+import type { CalendarEvent } from "@/types";
 
 export const dynamic = "force-dynamic";
 
@@ -59,12 +61,30 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
       tz,
     );
 
+    const allEventIds = [...history.upcoming, ...history.past].map((e) => e.id);
+    const requiredFormsByEvent = await listRequiredFormsForEvents(allEventIds).catch(
+      () => new Map<string, RequiredFormTrackingRecord[]>(),
+    );
+    const withRequiredForms = (events: CalendarEvent[]): CalendarEvent[] =>
+      events.map((e) => ({
+        ...e,
+        requiredForms: (requiredFormsByEvent.get(e.id) ?? []).map((f) => ({
+          id: f.id,
+          formName: f.formName,
+          url: f.url,
+          source: f.source,
+          status: f.status,
+          sentAt: f.sentAt,
+          completedAt: f.completedAt,
+        })),
+      }));
+
     return NextResponse.json({
       customer,
       statistics,
       appointments: {
-        upcoming: history.upcoming,
-        past: history.past,
+        upcoming: withRequiredForms(history.upcoming),
+        past: withRequiredForms(history.past),
         lookbackDays: pastDays,
         truncated: history.truncated,
       },

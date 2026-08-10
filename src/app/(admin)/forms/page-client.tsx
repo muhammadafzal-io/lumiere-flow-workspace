@@ -14,13 +14,21 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Sparkles, Loader2, Eye } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, Loader2, Eye, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import { FormRenderer } from "@/components/forms/FormRenderer";
@@ -73,6 +81,8 @@ export default function FormsPage() {
   // freshly loaded (new form, editing a different form, or a new AI generation).
   const [previewAnswers, setPreviewAnswers] = useState<Record<string, unknown>>({});
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<FormListItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchForms = useCallback(async () => {
     setLoading(true);
@@ -195,15 +205,19 @@ export default function FormsPage() {
     }
   };
 
-  const removeForm = async (form: FormListItem) => {
-    if (!confirm(`Delete "${form.name}"? This cannot be undone.`)) return;
+  const confirmRemoveForm = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/forms/${form.id}`, { method: "DELETE" });
+      const res = await fetch(`/api/forms/${pendingDelete.id}`, { method: "DELETE" });
       if (!res.ok) throw new Error();
-      setForms((prev) => prev.filter((f) => f.id !== form.id));
+      setForms((prev) => prev.filter((f) => f.id !== pendingDelete.id));
       toast.success("Form deleted");
+      setPendingDelete(null);
     } catch {
       toast.error("Failed to delete form");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -253,7 +267,7 @@ export default function FormsPage() {
                   <Button variant="ghost" size="sm" onClick={() => startEdit(form)}>
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => removeForm(form)}>
+                  <Button variant="ghost" size="sm" onClick={() => setPendingDelete(form)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </td>
@@ -438,6 +452,42 @@ export default function FormsPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => !o && !deleting && setPendingDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="mx-auto sm:mx-0 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+              <TriangleAlert className="h-6 w-6 text-destructive" />
+            </div>
+            <AlertDialogTitle className="text-center sm:text-left">
+              Delete &ldquo;{pendingDelete?.name}&rdquo;?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center sm:text-left">
+              This permanently deletes the form and every response a client has ever submitted to
+              it. This cannot be undone.
+              {!!pendingDelete && pendingDelete.attachedServiceCount > 0 && (
+                <span className="mt-2 block rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-destructive font-medium">
+                  It&apos;s currently attached to {pendingDelete.attachedServiceCount}{" "}
+                  {pendingDelete.attachedServiceCount === 1 ? "service" : "services"} — those
+                  bookings will stop receiving this form immediately.
+                </span>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmRemoveForm} disabled={deleting}>
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete form
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

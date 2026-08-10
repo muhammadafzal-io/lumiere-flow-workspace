@@ -111,6 +111,35 @@ export async function getFormResponseLink(token: string): Promise<{
   };
 }
 
+export interface FormResponseAnswers {
+  formName: string;
+  fields: FormField[];
+  answers: Record<string, unknown>;
+  submittedAt: string | null;
+}
+
+/** Staff-facing read of a single response's submitted answers, keyed by FormResponses.id (not
+ * token, which is the client-facing single-use credential) — backs the admin "View Response"
+ * action. Returns null if the response isn't actually completed yet, or if the response or its
+ * parent Form no longer exists. */
+export async function getFormResponseAnswers(
+  formResponseId: string,
+): Promise<FormResponseAnswers | null> {
+  const sb = getSupabase();
+  const { data } = await sb.from(TABLE).select("*").eq("id", formResponseId).maybeSingle();
+  if (!data || data.status !== "completed") return null;
+
+  const { data: formRow } = await sb.from("Forms").select("*").eq("id", data.form_id).maybeSingle();
+  if (!formRow) return null;
+
+  return {
+    formName: formRow.name ?? "",
+    fields: Array.isArray(formRow.fields) ? formRow.fields : [],
+    answers: data.answers ?? {},
+    submittedAt: data.consumed_at ?? null,
+  };
+}
+
 export type SubmitFormResult =
   | { ok: true }
   | { ok: false; error: string; errors?: Record<string, string> };
