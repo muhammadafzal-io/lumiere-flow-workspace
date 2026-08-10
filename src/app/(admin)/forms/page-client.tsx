@@ -28,8 +28,32 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Pencil, Trash2, Sparkles, Loader2, Eye, TriangleAlert } from "lucide-react";
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Sparkles,
+  Loader2,
+  Eye,
+  TriangleAlert,
+  GripVertical,
+} from "lucide-react";
 import { toast } from "sonner";
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import { FormRenderer } from "@/components/forms/FormRenderer";
 import type { FormField, FormFieldType } from "@/lib/forms/types";
@@ -61,6 +85,94 @@ const CHOICE_TYPES: FormFieldType[] = ["checkbox", "radio", "select"];
 
 function blankField(): FormField {
   return { id: crypto.randomUUID(), type: "text", label: "", required: false };
+}
+
+function SortableFieldCard({
+  field,
+  index,
+  onUpdate,
+  onRemove,
+}: {
+  field: FormField;
+  index: number;
+  onUpdate: (patch: Partial<FormField>) => void;
+  onRemove: () => void;
+}) {
+  // Drag listeners are scoped to the grip handle only, not the whole card — the card is full of
+  // text inputs and selects that need normal click/focus behavior, which a card-wide drag
+  // listener would swallow.
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: field.id,
+  });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} className="rounded-md border p-3 space-y-2 bg-card">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            className="cursor-grab active:cursor-grabbing text-muted-foreground hover:text-foreground touch-none"
+            aria-label="Drag to reorder"
+            {...attributes}
+            {...listeners}
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+          <span className="text-xs text-muted-foreground">Field {index + 1}</span>
+        </div>
+        <Button type="button" variant="ghost" size="icon" className="h-6 w-6" onClick={onRemove}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <Select value={field.type} onValueChange={(v) => onUpdate({ type: v as FormFieldType })}>
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {Object.entries(FIELD_TYPE_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center justify-between rounded-md border px-3 h-9">
+          <Label className="mb-0 text-xs">Required</Label>
+          <Switch checked={field.required} onCheckedChange={(v) => onUpdate({ required: v })} />
+        </div>
+      </div>
+      <Input
+        placeholder="Label / question"
+        value={field.label}
+        onChange={(e) => onUpdate({ label: e.target.value })}
+      />
+      {CHOICE_TYPES.includes(field.type) && (
+        <Input
+          placeholder="Options, comma-separated (e.g. Yes, No, Not sure)"
+          value={(field.options ?? []).join(", ")}
+          onChange={(e) =>
+            onUpdate({
+              options: e.target.value
+                .split(",")
+                .map((o) => o.trim())
+                .filter(Boolean),
+            })
+          }
+        />
+      )}
+      <Input
+        placeholder="Help text (optional)"
+        value={field.helpText ?? ""}
+        onChange={(e) => onUpdate({ helpText: e.target.value })}
+      />
+    </div>
+  );
 }
 
 export default function FormsPage() {
@@ -163,6 +275,20 @@ export default function FormsPage() {
   const removeField = (i: number) => setFields((f) => f.filter((_, idx) => idx !== i));
   const updateField = (i: number, patch: Partial<FormField>) =>
     setFields((f) => f.map((field, idx) => (idx === i ? { ...field, ...patch } : field)));
+
+  const fieldSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+  );
+  const handleFieldDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setFields((prev) => {
+      const oldIndex = prev.findIndex((f) => f.id === active.id);
+      const newIndex = prev.findIndex((f) => f.id === over.id);
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return arrayMove(prev, oldIndex, newIndex);
+    });
+  };
 
   const save = async () => {
     if (!name.trim()) {
@@ -341,70 +467,28 @@ export default function FormsPage() {
                 </Button>
               </div>
               <div className="space-y-3">
-                {fields.map((field, i) => (
-                  <div key={field.id} className="rounded-md border p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted-foreground">Field {i + 1}</span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6"
-                        onClick={() => removeField(i)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <Select
-                        value={field.type}
-                        onValueChange={(v) => updateField(i, { type: v as FormFieldType })}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {Object.entries(FIELD_TYPE_LABELS).map(([value, label]) => (
-                            <SelectItem key={value} value={value}>
-                              {label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <div className="flex items-center justify-between rounded-md border px-3 h-9">
-                        <Label className="mb-0 text-xs">Required</Label>
-                        <Switch
-                          checked={field.required}
-                          onCheckedChange={(v) => updateField(i, { required: v })}
+                <DndContext
+                  sensors={fieldSensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleFieldDragEnd}
+                >
+                  <SortableContext
+                    items={fields.map((f) => f.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-3">
+                      {fields.map((field, i) => (
+                        <SortableFieldCard
+                          key={field.id}
+                          field={field}
+                          index={i}
+                          onUpdate={(patch) => updateField(i, patch)}
+                          onRemove={() => removeField(i)}
                         />
-                      </div>
+                      ))}
                     </div>
-                    <Input
-                      placeholder="Label / question"
-                      value={field.label}
-                      onChange={(e) => updateField(i, { label: e.target.value })}
-                    />
-                    {CHOICE_TYPES.includes(field.type) && (
-                      <Input
-                        placeholder="Options, comma-separated (e.g. Yes, No, Not sure)"
-                        value={(field.options ?? []).join(", ")}
-                        onChange={(e) =>
-                          updateField(i, {
-                            options: e.target.value
-                              .split(",")
-                              .map((o) => o.trim())
-                              .filter(Boolean),
-                          })
-                        }
-                      />
-                    )}
-                    <Input
-                      placeholder="Help text (optional)"
-                      value={field.helpText ?? ""}
-                      onChange={(e) => updateField(i, { helpText: e.target.value })}
-                    />
-                  </div>
-                ))}
+                  </SortableContext>
+                </DndContext>
                 {fields.length === 0 && (
                   <p className="text-xs text-muted-foreground">
                     No fields yet — generate with AI or add one manually.
