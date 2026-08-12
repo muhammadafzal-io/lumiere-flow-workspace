@@ -6,6 +6,7 @@
  */
 import { getSupabase } from "@/lib/supabase";
 import { resolveServiceId } from "@/lib/booking/recipe";
+import { getClientById } from "@/lib/integrations/airtable";
 
 const TABLE = "Waitlist";
 
@@ -16,6 +17,8 @@ export interface WaitlistEntry {
   id: string;
   clientId: string;
   clientName: string;
+  clientPhone: string | null;
+  clientEmail: string | null;
   treatment: string;
   serviceId: string | null;
   preferredDate: string;
@@ -33,11 +36,16 @@ export interface WaitlistEntry {
   updatedAt: string;
 }
 
-function mapRow(r: any): WaitlistEntry {
+function mapRow(
+  r: any,
+  clientContact?: { phone: string | null; email: string | null },
+): WaitlistEntry {
   return {
     id: r.id,
     clientId: r.client_id,
     clientName: r.client_name,
+    clientPhone: clientContact?.phone ?? null,
+    clientEmail: clientContact?.email ?? null,
     treatment: r.treatment,
     serviceId: r.service_id,
     preferredDate: r.preferred_date,
@@ -81,6 +89,8 @@ const OPEN_STATUSES: WaitlistStatus[] = ["Waiting", "Contacted"];
 export async function createWaitlistEntry(input: CreateWaitlistEntryInput): Promise<WaitlistEntry> {
   const sb = getSupabase();
   const serviceId = await resolveServiceId(sb, input.treatment).catch(() => null);
+  const client = await getClientById(input.clientId).catch(() => null);
+  const clientContact = { phone: client?.phone ?? null, email: client?.email ?? null };
 
   const { data: existing } = await sb
     .from(TABLE)
@@ -110,7 +120,7 @@ export async function createWaitlistEntry(input: CreateWaitlistEntryInput): Prom
       .select("*")
       .single();
     if (error) throw new Error(`createWaitlistEntry (update): ${error.message}`);
-    return mapRow(data);
+    return mapRow(data, clientContact);
   }
 
   const { data, error } = await sb
@@ -125,7 +135,7 @@ export async function createWaitlistEntry(input: CreateWaitlistEntryInput): Prom
     .select("*")
     .single();
   if (error) throw new Error(`createWaitlistEntry (insert): ${error.message}`);
-  return mapRow(data);
+  return mapRow(data, clientContact);
 }
 
 export async function listWaitlistEntries(filters?: {
@@ -138,7 +148,21 @@ export async function listWaitlistEntries(filters?: {
   if (filters?.clientId) query = query.eq("client_id", filters.clientId);
   const { data, error } = await query;
   if (error) throw new Error(`listWaitlistEntries: ${error.message}`);
-  return (data ?? []).map(mapRow);
+  const rows = data ?? [];
+
+  const clientIds = [...new Set(rows.map((r) => r.client_id))];
+  const contactByClientId = new Map<string, { phone: string | null; email: string | null }>();
+  if (clientIds.length > 0) {
+    const { data: clients } = await sb
+      .from("Clients")
+      .select("id, Phone, Email")
+      .in("id", clientIds);
+    for (const c of clients ?? []) {
+      contactByClientId.set(c.id, { phone: c.Phone ?? null, email: c.Email ?? null });
+    }
+  }
+
+  return rows.map((r) => mapRow(r, contactByClientId.get(r.client_id)));
 }
 
 export async function updateWaitlistStatus(

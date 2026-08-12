@@ -19,7 +19,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Loader2, CalendarSearch } from "lucide-react";
+import { Plus, Loader2, CalendarSearch, Phone, Mail } from "lucide-react";
 import { toast } from "sonner";
 import { AccessGate } from "@/components/rbac/AccessGate";
 
@@ -28,6 +28,8 @@ type WaitlistStatus = "Waiting" | "Contacted" | "Booked" | "Cancelled";
 interface WaitlistEntry {
   id: string;
   clientName: string;
+  clientPhone: string | null;
+  clientEmail: string | null;
   treatment: string;
   preferredDate: string;
   preferredTimeStart: string | null;
@@ -289,7 +291,21 @@ export default function WaitlistPage() {
           <tbody>
             {entries.map((entry) => (
               <tr key={entry.id} className="border-t align-top">
-                <td className="px-4 py-3 font-medium">{entry.clientName}</td>
+                <td className="px-4 py-3">
+                  <div className="font-medium">{entry.clientName}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5 space-y-0.5">
+                    {entry.clientPhone && (
+                      <div className="flex items-center gap-1">
+                        <Phone className="h-3 w-3" /> {entry.clientPhone}
+                      </div>
+                    )}
+                    {entry.clientEmail && (
+                      <div className="flex items-center gap-1">
+                        <Mail className="h-3 w-3" /> {entry.clientEmail}
+                      </div>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-3">{entry.treatment}</td>
                 <td className="px-4 py-3">{formatPreferred(entry)}</td>
                 <td className="px-4 py-3">{entry.preferredPractitionerName || "No preference"}</td>
@@ -354,7 +370,7 @@ export default function WaitlistPage() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label className="text-xs">Client name</Label>
+                <Label className="text-xs">Full name</Label>
                 <Input value={form.clientName} onChange={field("clientName")} className="mt-1" />
               </div>
               <div>
