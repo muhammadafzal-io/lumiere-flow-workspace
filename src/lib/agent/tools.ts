@@ -189,6 +189,56 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "add_to_waitlist",
+      description:
+        "Save the client's preferred slot to the waitlist instead of losing the booking opportunity. Call this ONLY after check_availability shows their preferred time/date isn't open AND you've offered alternatives AND the client doesn't want any of them (and doesn't want to try a different date either). Do NOT call this before offering alternatives — always try check_availability and present real open slots first.",
+      parameters: {
+        type: "object",
+        properties: {
+          treatment: { type: "string", description: "Name of the treatment they want" },
+          preferred_date: {
+            type: "string",
+            description: "The date they originally wanted, YYYY-MM-DD (Austin, TX local date)",
+          },
+          client_contact: { type: "string", description: "Client phone number or Discord ID" },
+          client_name: {
+            type: "string",
+            description: "Client's name if given — casual first name is fine, don't ask for more.",
+          },
+          client_email: { type: "string", description: "Client's email if given — optional." },
+          preferred_time: {
+            type: "string",
+            description:
+              "The specific time they originally wanted, as they said it (e.g. '3 PM'). Omit if they only gave a date with no specific time.",
+          },
+          preferred_time_end: {
+            type: "string",
+            description:
+              "Only pass this if they gave a time RANGE (e.g. 'sometime between 2 and 4') — the end of that range.",
+          },
+          preferred_practitioner_name: {
+            type: "string",
+            description:
+              "Practitioner PERSON from get_practitioners — NEVER the treatment name. Omit if they have no preference.",
+          },
+          flexibility: {
+            type: "string",
+            description:
+              "Any flexibility the client mentioned, in their own words (e.g. 'also open Saturday morning', 'any time that day works', 'only that exact slot'). Omit if they gave none.",
+          },
+          notes: {
+            type: "string",
+            description: "Any other relevant context worth passing to staff.",
+          },
+        },
+        required: ["treatment", "preferred_date", "client_contact"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
       name: "send_booking_completion_link",
       description:
         "Resend the secure link to finish a booking profile (email, date of birth). This is sent AUTOMATICALLY right after every successful book_appointment — you do NOT need to call this yourself in the normal flow. Only call it if the client says they didn't receive the link or explicitly asks for it again.",

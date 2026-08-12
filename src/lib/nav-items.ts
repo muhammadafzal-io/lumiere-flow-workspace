@@ -9,6 +9,7 @@ import {
   Clock,
   ShieldCheck,
   FileText,
+  ListPlus,
   type LucideIcon,
 } from "lucide-react";
 
@@ -33,6 +34,7 @@ export const NAV_ITEMS: NavItem[] = [
     icon: Clock,
     module: "pending_bookings",
   },
+  { title: "Waitlist", url: "/waitlist", icon: ListPlus, module: "waitlist" },
   { title: "Customers", url: "/customers", icon: Users, module: "customers" },
   { title: "Forms", url: "/forms", icon: FileText, module: "forms" },
   { title: "Activity Log", url: "/activity", icon: ScrollText, module: "activity" },

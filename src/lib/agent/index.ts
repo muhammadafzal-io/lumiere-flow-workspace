@@ -33,9 +33,11 @@ import {
   validateEscalation,
   validateCancelAppointment,
   validateRescheduleAppointment,
+  validateWaitlistEntry,
   normalizeEmail,
   sanitizeBookingEmails,
 } from "@/lib/agent/booking-guards";
+import { createWaitlistEntry, closeMatchingWaitlistEntries } from "@/lib/waitlist/store";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import {
   dateOfBirthNotPromoCodeError,
@@ -536,6 +538,15 @@ export async function executeTool(
           });
           flow?.step("book:ops log written");
 
+          // Best-effort: this booking may be exactly what an earlier waitlist entry was waiting
+          // for — close it out so it doesn't sit around looking actionable to staff. Never allowed
+          // to affect the booking result itself.
+          if (clientRecord?.id) {
+            await closeMatchingWaitlistEntries(clientRecord.id, apptData.treatment, appt.id).catch(
+              (e) => console.error("[agent/book] waitlist close failed:", e),
+            );
+          }
+
           // Completion link is a voice-only concept — chat already collected everything inline
           // (validateBookAppointment required it above), so there's nothing left to complete and
           // no link should ever be created for chat/Discord bookings.
@@ -581,6 +592,77 @@ export async function executeTool(
         } catch (err) {
           const error = err instanceof Error ? err.message : "Booking failed";
           flow?.step("book:failed", { error });
+          return { result: { error } };
+        }
+      }
+
+      case "add_to_waitlist": {
+        const guardError = validateWaitlistEntry(input);
+        if (guardError) {
+          flow?.step("waitlist:validation failed", { error: guardError });
+          return { result: { error: guardError } };
+        }
+        flow?.step("waitlist:validation passed");
+
+        try {
+          const practitionerName = await sanitizePractitionerFilter(
+            input.preferred_practitioner_name as string | undefined,
+            input.treatment as string | undefined,
+          );
+
+          const phone = String(input.client_contact ?? "").trim();
+          const clientName = String(input.client_name ?? "").trim() || "Waitlist client";
+          await upsertClient({
+            name: clientName,
+            phone: phone || undefined,
+            email: normalizeEmail(input.client_email) || undefined,
+          }).catch(() => undefined);
+          const clientRecord = await lookupClient({ phone }).catch(() => null);
+          if (!clientRecord?.id) {
+            const error = "Could not save this client's record — check the phone number.";
+            flow?.step("waitlist:client lookup failed", { phone });
+            return { result: { error } };
+          }
+
+          const source =
+            context.platform === "discord"
+              ? "discord"
+              : context.platform === "voice"
+                ? "voice"
+                : "chat";
+
+          const entry = await createWaitlistEntry({
+            clientId: clientRecord.id,
+            clientName,
+            treatment: input.treatment as string,
+            preferredDate: input.preferred_date as string,
+            preferredTimeStart: parsePreferredTimeKey(input.preferred_time as string | undefined),
+            preferredTimeEnd: parsePreferredTimeKey(input.preferred_time_end as string | undefined),
+            preferredPractitionerName: practitionerName ?? null,
+            flexibility: (input.flexibility as string | undefined) || null,
+            notes: (input.notes as string | undefined) || null,
+            source,
+          });
+          flow?.step("waitlist:created", { id: entry.id, status: entry.status });
+
+          await logEvent(
+            "waitlist",
+            clientName,
+            `Waitlisted for ${entry.treatment} on ${entry.preferredDate}`,
+            { clientId: clientRecord.id, phone, platform: context.platform },
+          ).catch((e) => console.error("[agent/waitlist] ops log failed:", e));
+
+          return {
+            result: {
+              waitlist_id: entry.id,
+              status: entry.status,
+              message:
+                "Saved to the waitlist. Let the client know staff will reach out if that slot (or something close to it) opens up.",
+            },
+          };
+        } catch (err) {
+          const error = err instanceof Error ? err.message : "Failed to add to waitlist";
+          flow?.step("waitlist:failed", { error });
           return { result: { error } };
         }
       }

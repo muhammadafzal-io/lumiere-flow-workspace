@@ -63,6 +63,7 @@ const MODULE_LABELS: Record<string, string> = {
   pending_bookings: "Pending Bookings",
   customers: "Customers",
   forms: "Forms",
+  waitlist: "Waitlist",
   rules: "Rules",
   campaigns: "Campaigns",
   activity: "Activity Log",

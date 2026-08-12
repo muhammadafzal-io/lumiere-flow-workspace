@@ -178,6 +178,31 @@ export async function validateBookAppointment(
   return error;
 }
 
+/**
+ * Waitlist gate — deliberately lighter than validateBookAppointment: a waitlist entry never
+ * creates a real commitment (no calendar write, no client-facing confirmation), so it only needs
+ * enough to be contactable and matchable later — treatment, the date they wanted, and a phone
+ * number. Name/email are accepted if given but never required.
+ */
+export function validateWaitlistEntry(input: Record<string, unknown>): string | null {
+  logFlowStep("waitlist:validateWaitlistEntry:start", {
+    treatment: input.treatment,
+    preferred_date: input.preferred_date,
+  });
+  const missing: string[] = [];
+  if (!String(input.treatment ?? "").trim()) missing.push("treatment");
+  if (!String(input.preferred_date ?? "").trim()) missing.push("preferred_date");
+  if (!String(input.client_contact ?? "").trim()) missing.push("client_contact (phone)");
+
+  if (missing.length === 0) {
+    logFlowStep("waitlist:validateWaitlistEntry:passed");
+    return null;
+  }
+  const error = `Cannot add to waitlist: missing required fields: ${missing.join(", ")}.`;
+  logFlowStep("waitlist:validateWaitlistEntry:failed", { error, missing });
+  return error;
+}
+
 export function validatePortalBooking(input: {
   clientName?: string;
   clientContact?: string;

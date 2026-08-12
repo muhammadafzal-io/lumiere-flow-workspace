@@ -12,6 +12,7 @@ export const BOOKING_FLOW_TOOLS = new Set([
   "check_availability",
   "find_earliest_availability",
   "book_appointment",
+  "add_to_waitlist",
   "lookup_client",
   "upsert_client",
   "find_upcoming_appointment",
