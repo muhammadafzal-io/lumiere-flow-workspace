@@ -283,7 +283,7 @@ export default function WaitlistPage() {
               <th className="px-4 py-3">Treatment</th>
               <th className="px-4 py-3">Preferred</th>
               <th className="px-4 py-3">Practitioner</th>
-              <th className="px-4 py-3">Flexibility</th>
+              <th className="px-4 py-3">Flexibility notes</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Actions</th>
             </tr>
@@ -310,7 +310,13 @@ export default function WaitlistPage() {
                 <td className="px-4 py-3">{formatPreferred(entry)}</td>
                 <td className="px-4 py-3">{entry.preferredPractitionerName || "No preference"}</td>
                 <td className="px-4 py-3 max-w-[220px] truncate" title={entry.flexibility ?? ""}>
-                  {entry.flexibility || "—"}
+                  {entry.flexibility ? (
+                    <span className="italic text-muted-foreground">
+                      &ldquo;{entry.flexibility}&rdquo;
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <span className={statusPillClass(entry.status)}>{entry.status}</span>
