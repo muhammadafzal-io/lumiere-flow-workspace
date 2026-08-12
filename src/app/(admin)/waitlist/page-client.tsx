@@ -236,7 +236,7 @@ export default function WaitlistPage() {
 
   if (accessDenied) {
     return (
-      <div className="space-y-5 max-w-5xl">
+      <div className="space-y-5 max-w-7xl">
         <h1 className="text-2xl font-semibold tracking-tight">Waitlist</h1>
         <AccessGate status={accessDenied} />
       </div>
@@ -244,7 +244,7 @@ export default function WaitlistPage() {
   }
 
   return (
-    <div className="space-y-5 max-w-5xl">
+    <div className="space-y-5 max-w-7xl">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Waitlist</h1>
@@ -275,7 +275,7 @@ export default function WaitlistPage() {
         </SelectContent>
       </Select>
 
-      <div className="rounded-lg border bg-card overflow-hidden">
+      <div className="rounded-lg border bg-card overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-muted text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
