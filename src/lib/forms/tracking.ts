@@ -1,12 +1,11 @@
 /**
- * Unified, per-booking, per-form completion tracking — sits on top of both of this app's form
- * systems (ServiceFormLinks external URLs, and Forms/FormResponses in-house forms) without
- * merging or refactoring either. See migrations/create_required_form_tracking.sql for why a
- * single table is needed: neither source system carries "list everything required for booking
- * X" state on its own.
+ * Per-booking, per-form completion tracking for in-house Forms/FormResponses — the single list
+ * staff and the reminder cron read for "what's required for this booking." See
+ * migrations/create_required_form_tracking.sql / migrations/remove_external_forms.sql: this app
+ * only supports forms built inside it, never externally-hosted links.
  */
 import { getSupabase } from "@/lib/supabase";
-import type { ServiceFormLink, InHouseFormLink } from "@/lib/booking/recipe";
+import type { InHouseFormLink } from "@/lib/booking/recipe";
 
 const TABLE = "RequiredFormTracking";
 
@@ -14,7 +13,8 @@ export interface RequiredFormTrackingRecord {
   id: string;
   eventId: string;
   serviceId: string | null;
-  source: "external" | "inhouse";
+  clientId: string | null;
+  source: "inhouse";
   formName: string;
   url: string;
   status: "PENDING" | "COMPLETED";
@@ -27,6 +27,7 @@ function mapRow(r: any): RequiredFormTrackingRecord {
     id: r.id,
     eventId: r.event_id,
     serviceId: r.service_id,
+    clientId: r.client_id,
     source: r.form_source,
     formName: r.form_name,
     url: r.form_url,
@@ -37,41 +38,29 @@ function mapRow(r: any): RequiredFormTrackingRecord {
 }
 
 /**
- * Creates one PENDING tracking row per required form (both external and in-house) for a booking
- * that just had its confirmation email sent. Never throws — the caller (confirmation-email.ts)
- * guards this the same way it already guards the two link-resolution calls, since tracking-row
- * creation must never block the confirmation email itself.
+ * Creates one PENDING tracking row per required in-house form for a booking that just had its
+ * confirmation email sent. Never throws — the caller (confirmation-email.ts) guards this the same
+ * way it already guards the link-resolution call, since tracking-row creation must never block
+ * the confirmation email itself.
  */
 export async function trackRequiredForms(opts: {
   eventId: string;
   serviceId: string | null;
-  externalLinks: ServiceFormLink[];
+  clientId: string | null;
   inHouseLinks: InHouseFormLink[];
 }): Promise<void> {
-  if (opts.externalLinks.length === 0 && opts.inHouseLinks.length === 0) return;
+  if (opts.inHouseLinks.length === 0) return;
 
-  const rows = [
-    ...opts.externalLinks.map((l) => ({
-      event_id: opts.eventId,
-      service_id: opts.serviceId,
-      form_source: "external" as const,
-      form_name: l.label,
-      form_url: l.url,
-      service_form_link_id: l.id,
-      form_response_id: null,
-      status: "PENDING" as const,
-    })),
-    ...opts.inHouseLinks.map((l) => ({
-      event_id: opts.eventId,
-      service_id: opts.serviceId,
-      form_source: "inhouse" as const,
-      form_name: l.formName,
-      form_url: l.url,
-      service_form_link_id: null,
-      form_response_id: l.formResponseId,
-      status: "PENDING" as const,
-    })),
-  ];
+  const rows = opts.inHouseLinks.map((l) => ({
+    event_id: opts.eventId,
+    service_id: opts.serviceId,
+    client_id: opts.clientId,
+    form_source: "inhouse" as const,
+    form_name: l.formName,
+    form_url: l.url,
+    form_response_id: l.formResponseId,
+    status: "PENDING" as const,
+  }));
 
   const sb = getSupabase();
   const { error } = await sb.from(TABLE).insert(rows);

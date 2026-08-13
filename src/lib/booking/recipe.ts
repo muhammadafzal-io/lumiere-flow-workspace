@@ -276,40 +276,8 @@ export async function findInactiveService(serviceIdOrName: string): Promise<Serv
   return mapServiceRow(serviceRow);
 }
 
-export interface ServiceFormLink {
-  id: string;
-  label: string;
-  url: string;
-}
-
-/**
- * Hosted form links attached to a Service (by id or case-insensitive name), ordered by
- * sort_order. Used by the booking-confirmation email. Never throws — returns [] for any
- * failure (no matching service, table error, etc.), since this is a non-critical enhancement
- * layered onto a critical send path.
- */
-export async function getServiceFormLinks(treatmentNameOrId: string): Promise<ServiceFormLink[]> {
-  if (!treatmentNameOrId?.trim()) return [];
-  try {
-    const sb = getSupabase();
-    const serviceId = await resolveServiceId(sb, treatmentNameOrId);
-    if (!serviceId) return [];
-
-    const { data: linkRows, error } = await sb
-      .from("ServiceFormLinks")
-      .select("id, label, url")
-      .eq("service_id", serviceId)
-      .order("sort_order", { ascending: true });
-    if (error || !linkRows) return [];
-
-    return linkRows.map((r: any) => ({ id: String(r.id), label: r.label, url: r.url }));
-  } catch {
-    return [];
-  }
-}
-
 /** Resolves a Service's id from either a UUID or a name (exact match, falling back to a
- * substring-containment match) — shared by getServiceFormLinks and getInHouseFormLinks. */
+ * substring-containment match) — shared by getInHouseFormLinks and src/lib/waitlist/store.ts. */
 export async function resolveServiceId(
   sb: ReturnType<typeof getSupabase>,
   treatmentNameOrId: string,
@@ -354,17 +322,6 @@ async function matchServiceByNameContainedIn(
   return matches[0]?.id ?? null;
 }
 
-/** Renders the "Required forms" block as plain-text lines, or [] when there are none —
- * callers must not emit a bare section header with nothing under it. */
-export function formatRequiredFormsLines(links: ServiceFormLink[]): string[] {
-  if (links.length === 0) return [];
-  return [
-    "",
-    "Required forms — please complete before your visit:",
-    ...links.map((l) => `${l.label}: ${l.url}`),
-  ];
-}
-
 export interface InHouseFormLink {
   formName: string;
   url: string;
@@ -374,8 +331,8 @@ export interface InHouseFormLink {
 /**
  * Mints a fresh single-use fill-out link (src/lib/forms/response-link.ts) for every Active
  * in-house Form attached to a Service via ServiceFormAssignments. Used by the booking-
- * confirmation email, alongside (never replacing) getServiceFormLinks' external links. Never
- * throws — returns [] on any failure, same non-critical-enhancement philosophy.
+ * confirmation email. Never throws — returns [] on any failure, since this is a non-critical
+ * enhancement layered onto a critical send path.
  */
 export async function getInHouseFormLinks(
   treatmentNameOrId: string,
@@ -383,6 +340,7 @@ export async function getInHouseFormLinks(
   appointmentStartTime: string,
   phone: string,
   clientName?: string,
+  clientId?: string | null,
 ): Promise<InHouseFormLink[]> {
   if (!treatmentNameOrId?.trim() || !eventId) return [];
   try {
@@ -412,6 +370,7 @@ export async function getInHouseFormLinks(
           eventId,
           phone,
           clientName,
+          clientId,
           appointmentStartTime,
         });
         return { formName: f.name, url, formResponseId: id };
@@ -422,9 +381,7 @@ export async function getInHouseFormLinks(
   }
 }
 
-/** Renders the in-house-forms block as plain-text lines, or [] when there are none — distinct
- * wording from formatRequiredFormsLines so a booking with both kinds shows two clearly separate
- * sections rather than a redundant-sounding duplicate. */
+/** Renders the in-house-forms block as plain-text lines, or [] when there are none. */
 export function formatInHouseFormLinks(links: InHouseFormLink[]): string[] {
   if (links.length === 0) return [];
   return ["", "Please complete before your visit:", ...links.map((l) => `${l.formName}: ${l.url}`)];

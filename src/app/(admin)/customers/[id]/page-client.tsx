@@ -104,15 +104,11 @@ function RequiredFormRow({
   form,
   treatment,
   startTime,
-  marking,
-  onMarkComplete,
   onViewResponse,
 }: {
   form: RequiredFormStatus;
   treatment: string;
   startTime: string;
-  marking: boolean;
-  onMarkComplete: (formId: string) => void;
   onViewResponse: (formId: string) => void;
 }) {
   const completed = form.status === "COMPLETED";
@@ -135,18 +131,7 @@ function RequiredFormRow({
               <Hourglass className="h-3.5 w-3.5" /> Pending
             </span>
           )}
-          {!completed && form.source === "external" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              disabled={marking}
-              onClick={() => onMarkComplete(form.id)}
-            >
-              {marking ? <Loader2 className="h-3 w-3 animate-spin" /> : "Mark as completed"}
-            </Button>
-          )}
-          {completed && form.source === "inhouse" && (
+          {completed && (
             <Button
               variant="outline"
               size="sm"
@@ -179,7 +164,6 @@ export default function CustomerProfilePage() {
   const [editMode, setEditMode] = useState(false);
   const [form, setForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
-  const [markingFormId, setMarkingFormId] = useState<string | null>(null);
   const [viewingResponseId, setViewingResponseId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -247,20 +231,6 @@ export default function CustomerProfilePage() {
       toast.error("Failed to save changes");
     } finally {
       setSaving(false);
-    }
-  };
-
-  const markFormComplete = async (formId: string) => {
-    setMarkingFormId(formId);
-    try {
-      const res = await fetch(`/api/required-forms/${formId}/complete`, { method: "PATCH" });
-      if (!res.ok) throw new Error();
-      toast.success("Form marked as completed");
-      void load();
-    } catch {
-      toast.error("Failed to update form status");
-    } finally {
-      setMarkingFormId(null);
     }
   };
 
@@ -590,8 +560,6 @@ export default function CustomerProfilePage() {
                     form={form}
                     treatment={appointment.treatment}
                     startTime={appointment.startTime}
-                    marking={markingFormId === form.id}
-                    onMarkComplete={markFormComplete}
                     onViewResponse={setViewingResponseId}
                   />
                 ))}

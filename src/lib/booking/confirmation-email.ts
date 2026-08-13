@@ -5,12 +5,9 @@ import { getClinicConfig } from "@/lib/clinic-config";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 import { getSupabase } from "@/lib/supabase";
 import {
-  getServiceFormLinks,
-  formatRequiredFormsLines,
   getInHouseFormLinks,
   formatInHouseFormLinks,
   resolveServiceId,
-  type ServiceFormLink,
   type InHouseFormLink,
 } from "@/lib/booking/recipe";
 import { trackRequiredForms } from "@/lib/forms/tracking";
@@ -39,7 +36,6 @@ export async function sendBookingConfirmationEmail(opts: {
     timeZoneName: "short",
   });
   const businessHoursLabel = describeClinicHours(await getClinicBusinessHours());
-  const formLinks = await getServiceFormLinks(opts.treatment).catch(() => [] as ServiceFormLink[]);
   const inHouseLinks = opts.eventId
     ? await getInHouseFormLinks(
         opts.treatment,
@@ -47,15 +43,16 @@ export async function sendBookingConfirmationEmail(opts: {
         opts.startTime,
         opts.phone ?? "",
         opts.clientName,
+        opts.clientId ?? null,
       ).catch(() => [] as InHouseFormLink[])
     : ([] as InHouseFormLink[]);
 
-  if (opts.eventId && (formLinks.length > 0 || inHouseLinks.length > 0)) {
+  if (opts.eventId && inHouseLinks.length > 0) {
     const serviceId = await resolveServiceId(getSupabase(), opts.treatment).catch(() => null);
     await trackRequiredForms({
       eventId: opts.eventId,
       serviceId,
-      externalLinks: formLinks,
+      clientId: opts.clientId ?? null,
       inHouseLinks,
     }).catch((err) => console.error("[trackRequiredForms] failed:", err));
   }
@@ -85,7 +82,6 @@ export async function sendBookingConfirmationEmail(opts: {
       `Practitioner: ${opts.practitionerName}`,
       `Location: ${clinic.address}`,
       opts.notes ? `Notes: ${opts.notes}` : "",
-      ...formatRequiredFormsLines(formLinks),
       ...formatInHouseFormLinks(inHouseLinks),
       ``,
       `Need to change anything? Reply to this email or contact us ${businessHoursLabel}.`,

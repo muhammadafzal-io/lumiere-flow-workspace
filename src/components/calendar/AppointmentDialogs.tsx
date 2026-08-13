@@ -120,7 +120,6 @@ export function AppointmentSlideOver({
   const open = !!appointment;
   const [completing, setCompleting] = useState(false);
   const [forms, setForms] = useState<RequiredFormStatus[]>([]);
-  const [markingFormId, setMarkingFormId] = useState<string | null>(null);
   const [viewingResponseId, setViewingResponseId] = useState<string | null>(null);
   useEffect(() => {
     setForms(appointment?.requiredForms ?? []);
@@ -136,26 +135,6 @@ export function AppointmentSlideOver({
   const end = new Date(a.end_time);
   const prac = practitionerById(practitioners, a.practitioner_id);
   const isPast = isAppointmentPast(a.end_time);
-
-  const markFormComplete = async (formId: string) => {
-    setMarkingFormId(formId);
-    try {
-      const res = await fetch(`/api/required-forms/${formId}/complete`, { method: "PATCH" });
-      if (!res.ok) throw new Error();
-      setForms((prev) =>
-        prev.map((f) =>
-          f.id === formId
-            ? { ...f, status: "COMPLETED", completedAt: new Date().toISOString() }
-            : f,
-        ),
-      );
-      toast.success("Form marked as completed");
-    } catch {
-      toast.error("Failed to update form status");
-    } finally {
-      setMarkingFormId(null);
-    }
-  };
 
   const markComplete = async () => {
     if (!customer) {
@@ -448,13 +427,7 @@ export function AppointmentSlideOver({
                 </h3>
                 <div className="rounded-lg border bg-card divide-y">
                   {forms.map((f) => (
-                    <RequiredFormRow
-                      key={f.id}
-                      form={f}
-                      marking={markingFormId === f.id}
-                      onMarkComplete={markFormComplete}
-                      onViewResponse={setViewingResponseId}
-                    />
+                    <RequiredFormRow key={f.id} form={f} onViewResponse={setViewingResponseId} />
                   ))}
                 </div>
               </section>
@@ -580,13 +553,9 @@ function fmtShortDateTime(iso: string): string {
 
 function RequiredFormRow({
   form,
-  marking,
-  onMarkComplete,
   onViewResponse,
 }: {
   form: RequiredFormStatus;
-  marking: boolean;
-  onMarkComplete: (formId: string) => void;
   onViewResponse: (formId: string) => void;
 }) {
   const completed = form.status === "COMPLETED";
@@ -604,18 +573,7 @@ function RequiredFormRow({
               <Hourglass className="h-3.5 w-3.5" /> Pending
             </span>
           )}
-          {!completed && form.source === "external" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              disabled={marking}
-              onClick={() => onMarkComplete(form.id)}
-            >
-              {marking ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : "Mark as completed"}
-            </Button>
-          )}
-          {completed && form.source === "inhouse" && (
+          {completed && (
             <Button
               variant="outline"
               size="sm"

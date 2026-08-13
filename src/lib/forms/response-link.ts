@@ -25,6 +25,7 @@ export interface FormResponseRecord {
   eventId: string;
   phone: string;
   clientName: string | null;
+  clientId: string | null;
   status: "pending" | "completed" | "expired";
   expiresAt: string;
   createdAt: string;
@@ -40,6 +41,7 @@ function mapFormResponseRow(r: any): FormResponseRecord {
     eventId: r.event_id,
     phone: r.phone,
     clientName: r.client_name,
+    clientId: r.client_id,
     status: expired ? "expired" : r.status,
     expiresAt: r.expires_at,
     createdAt: r.created_at,
@@ -61,6 +63,7 @@ export async function createFormResponseLink(opts: {
   eventId: string;
   phone: string;
   clientName?: string;
+  clientId?: string | null;
   appointmentStartTime: string;
 }): Promise<{ id: string; token: string; url: string }> {
   const token = crypto.randomBytes(32).toString("base64url");
@@ -76,6 +79,7 @@ export async function createFormResponseLink(opts: {
       event_id: opts.eventId,
       phone: opts.phone,
       client_name: opts.clientName ?? null,
+      client_id: opts.clientId ?? null,
       expires_at: expiresAt,
     })
     .select("id")
