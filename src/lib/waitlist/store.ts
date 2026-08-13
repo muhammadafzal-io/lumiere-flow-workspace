@@ -138,18 +138,12 @@ export async function createWaitlistEntry(input: CreateWaitlistEntryInput): Prom
   return mapRow(data, clientContact);
 }
 
-export async function listWaitlistEntries(filters?: {
-  status?: WaitlistStatus;
-  clientId?: string;
-}): Promise<WaitlistEntry[]> {
+/** Batch-attaches client phone/email to raw Waitlist rows — the same Clients-table batch lookup
+ * listWaitlistEntries already does, extracted so other query shapes (e.g. the waitlist-matching
+ * candidate search, which needs its own filters) can reuse it without duplicating the lookup. */
+async function attachClientContact(rows: any[]): Promise<WaitlistEntry[]> {
+  if (rows.length === 0) return [];
   const sb = getSupabase();
-  let query = sb.from(TABLE).select("*").order("preferred_date", { ascending: true });
-  if (filters?.status) query = query.eq("status", filters.status);
-  if (filters?.clientId) query = query.eq("client_id", filters.clientId);
-  const { data, error } = await query;
-  if (error) throw new Error(`listWaitlistEntries: ${error.message}`);
-  const rows = data ?? [];
-
   const clientIds = [...new Set(rows.map((r) => r.client_id))];
   const contactByClientId = new Map<string, { phone: string | null; email: string | null }>();
   if (clientIds.length > 0) {
@@ -161,8 +155,53 @@ export async function listWaitlistEntries(filters?: {
       contactByClientId.set(c.id, { phone: c.Phone ?? null, email: c.Email ?? null });
     }
   }
-
   return rows.map((r) => mapRow(r, contactByClientId.get(r.client_id)));
+}
+
+export async function listWaitlistEntries(filters?: {
+  status?: WaitlistStatus;
+  clientId?: string;
+}): Promise<WaitlistEntry[]> {
+  const sb = getSupabase();
+  let query = sb.from(TABLE).select("*").order("preferred_date", { ascending: true });
+  if (filters?.status) query = query.eq("status", filters.status);
+  if (filters?.clientId) query = query.eq("client_id", filters.clientId);
+  const { data, error } = await query;
+  if (error) throw new Error(`listWaitlistEntries: ${error.message}`);
+  return attachClientContact(data ?? []);
+}
+
+/** Same client-contact-attach step as listWaitlistEntries, but for a caller-supplied set of raw
+ * rows — used by waitlist/matching.ts, which needs its own filter shape (status + preferred_date
+ * + id exclusion) that doesn't fit listWaitlistEntries' filter set. */
+export async function attachClientContactToRows(rows: any[]): Promise<WaitlistEntry[]> {
+  return attachClientContact(rows);
+}
+
+export async function getWaitlistEntryById(id: string): Promise<WaitlistEntry | null> {
+  const sb = getSupabase();
+  const { data, error } = await sb.from(TABLE).select("*").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  const [entry] = await attachClientContact([data]);
+  return entry;
+}
+
+/** Marks one specific waitlist entry Booked — unlike closeMatchingWaitlistEntries (which closes
+ * every open entry matching a client+treatment pair), this targets the exact entry a
+ * WaitlistOffer was created for, since acceptWaitlistOffer already knows precisely which row. */
+export async function markWaitlistBooked(
+  id: string,
+  bookedEventId: string,
+): Promise<WaitlistEntry> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from(TABLE)
+    .update({ status: "Booked", booked_event_id: bookedEventId })
+    .eq("id", id)
+    .select("*")
+    .single();
+  if (error) throw new Error(`markWaitlistBooked: ${error.message}`);
+  return mapRow(data);
 }
 
 export async function updateWaitlistStatus(

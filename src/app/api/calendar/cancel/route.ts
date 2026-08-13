@@ -3,11 +3,14 @@ import { google } from "googleapis";
 import { lookupClient } from "@/lib/integrations/airtable";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
-import { invalidateEventsRangeCache } from "@/lib/integrations/google-calendar";
+import { invalidateEventsRangeCache, parseDesc } from "@/lib/integrations/google-calendar";
 import { getWidgetUrl, widgetLinkLine } from "@/lib/client-channels";
 import { getClinicConfig } from "@/lib/clinic-config";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import { resolveServiceId } from "@/lib/booking/recipe";
+import { getSupabase } from "@/lib/supabase";
+import { offerSlotToWaitlist } from "@/lib/waitlist/matching";
 import {
   isAppointmentPast,
   PAST_APPOINTMENT_ERROR_CODE,
@@ -153,6 +156,35 @@ export async function DELETE(req: NextRequest) {
         );
       } catch (err) {
         console.error(`[cancel] cancellation email failed:`, err);
+      }
+    })();
+
+    // Best-effort, independent of the cancellation email above — a failure here must never
+    // affect the cancel response, which has already succeeded by this point.
+    (async () => {
+      try {
+        if (!event.start?.dateTime || !event.end?.dateTime) return;
+        const description = event.description ?? "";
+        const parsed = parseDesc(description);
+        const treatment =
+          parseField(description, "Treatment") || event.summary?.split(" — ")[0] || "";
+        if (!treatment) return;
+
+        const sb = getSupabase();
+        const serviceId = await resolveServiceId(sb, treatment).catch(() => null);
+
+        await offerSlotToWaitlist({
+          treatment,
+          serviceId,
+          startTime: event.start.dateTime,
+          endTime: event.end.dateTime,
+          practitionerName: parsed.practitioner,
+          room: parsed.room,
+          equipment: parsed.equipment,
+          sourceEventId: eventId,
+        });
+      } catch (err) {
+        console.error("[cancel] waitlist offer failed:", err);
       }
     })();
 

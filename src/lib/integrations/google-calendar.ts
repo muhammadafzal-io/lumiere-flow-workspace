@@ -190,7 +190,7 @@ function resolveEventClient(
   };
 }
 
-function parseDesc(description: string): {
+export function parseDesc(description: string): {
   room: string | null;
   practitioner: string | null;
   equipment: string[];

@@ -6,6 +6,7 @@ import {
   listWaitlistEntries,
   type WaitlistStatus,
 } from "@/lib/waitlist/store";
+import { listLatestOffersForWaitlistIds } from "@/lib/waitlist/matching";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,21 @@ export async function GET(req: NextRequest) {
     const entries = await listWaitlistEntries({
       status: (statusParam as WaitlistStatus) || undefined,
     });
-    return NextResponse.json({ entries });
+    const latestOffers = await listLatestOffersForWaitlistIds(entries.map((e) => e.id));
+    const entriesWithOffer = entries.map((e) => {
+      const offer = latestOffers.get(e.id);
+      // Same lazy-expiry computation as the customer-facing accept page — a still-"pending"
+      // row past its expires_at hasn't been swept yet, but staff shouldn't see it as live.
+      const isLazilyExpired =
+        offer?.status === "pending" && new Date(offer.expiresAt).getTime() < Date.now();
+      return {
+        ...e,
+        latestOffer: offer
+          ? { status: isLazilyExpired ? "expired" : offer.status, expiresAt: offer.expiresAt }
+          : null,
+      };
+    });
+    return NextResponse.json({ entries: entriesWithOffer });
   } catch (err) {
     console.error("GET /api/waitlist error:", err);
     return NextResponse.json({ error: "Failed to load waitlist" }, { status: 500 });

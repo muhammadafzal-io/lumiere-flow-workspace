@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,8 @@ import { AccessGate } from "@/components/rbac/AccessGate";
 
 type WaitlistStatus = "Waiting" | "Contacted" | "Booked" | "Cancelled";
 
+type WaitlistOfferStatus = "pending" | "accepted" | "declined" | "expired" | "superseded";
+
 interface WaitlistEntry {
   id: string;
   clientName: string;
@@ -39,7 +41,18 @@ interface WaitlistEntry {
   status: WaitlistStatus;
   notes: string | null;
   createdAt: string;
+  /** Most recent automated slot offer for this entry, if any — see
+   * src/lib/waitlist/matching.ts's listLatestOffersForWaitlistIds. */
+  latestOffer: { status: WaitlistOfferStatus; expiresAt: string } | null;
 }
+
+const OFFER_LABEL: Record<WaitlistOfferStatus, string> = {
+  pending: "Offer sent",
+  accepted: "Offer accepted",
+  declined: "Offer declined",
+  expired: "Offer expired",
+  superseded: "Slot taken before response",
+};
 
 const STATUS_OPTIONS: WaitlistStatus[] = ["Waiting", "Contacted", "Booked", "Cancelled"];
 
@@ -52,6 +65,31 @@ const STATUS_PILL: Record<WaitlistStatus, string> = {
 
 function statusPillClass(status: WaitlistStatus): string {
   return `inline-flex px-2 py-0.5 text-[11px] font-medium rounded-md border ${STATUS_PILL[status]}`;
+}
+
+function StatTile({
+  label,
+  value,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg border bg-card p-4 text-left transition-colors hover:border-foreground/30 ${
+        active ? "border-foreground/60 ring-1 ring-foreground/20" : ""
+      }`}
+    >
+      <div className="text-xs text-muted-foreground font-medium">{label}</div>
+      <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+    </button>
+  );
 }
 
 function formatDate(iso: string): string {
@@ -107,6 +145,9 @@ const BLANK_FORM: AddForm = {
 };
 
 export default function WaitlistPage() {
+  // Always holds every entry regardless of the active filter — the status filter below is a
+  // client-side view over this one dataset, not a re-fetch, so the stat tiles' counts (which need
+  // every status's total, not just the currently-selected one) never need a second request.
   const [entries, setEntries] = useState<WaitlistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [accessDenied, setAccessDenied] = useState<401 | 403 | null>(null);
@@ -117,12 +158,11 @@ export default function WaitlistPage() {
   const [form, setForm] = useState<AddForm>(BLANK_FORM);
   const [saving, setSaving] = useState(false);
 
-  const fetchEntries = useCallback(async (status: WaitlistStatus | "all") => {
+  const fetchEntries = useCallback(async () => {
     setLoading(true);
     setAccessDenied(null);
     try {
-      const url = status === "all" ? "/api/waitlist" : `/api/waitlist?status=${status}`;
-      const res = await fetch(url);
+      const res = await fetch("/api/waitlist");
       if (res.status === 401 || res.status === 403) {
         setAccessDenied(res.status);
         return;
@@ -138,8 +178,19 @@ export default function WaitlistPage() {
   }, []);
 
   useEffect(() => {
-    void fetchEntries(statusFilter);
-  }, [fetchEntries, statusFilter]);
+    void fetchEntries();
+  }, [fetchEntries]);
+
+  const counts = useMemo(() => {
+    const c: Record<WaitlistStatus, number> = { Waiting: 0, Contacted: 0, Booked: 0, Cancelled: 0 };
+    for (const e of entries) c[e.status]++;
+    return c;
+  }, [entries]);
+
+  const visibleEntries = useMemo(
+    () => (statusFilter === "all" ? entries : entries.filter((e) => e.status === statusFilter)),
+    [entries, statusFilter],
+  );
 
   const changeStatus = async (id: string, status: WaitlistStatus) => {
     try {
@@ -150,7 +201,7 @@ export default function WaitlistPage() {
       });
       if (!res.ok) throw new Error();
       toast.success(`Marked ${status}`);
-      void fetchEntries(statusFilter);
+      void fetchEntries();
     } catch {
       toast.error("Failed to update status");
     }
@@ -226,7 +277,7 @@ export default function WaitlistPage() {
       }
       toast.success("Added to waitlist");
       setDialogOpen(false);
-      void fetchEntries(statusFilter);
+      void fetchEntries();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to add to waitlist");
     } finally {
@@ -258,22 +309,23 @@ export default function WaitlistPage() {
         </Button>
       </div>
 
-      <Select
-        value={statusFilter}
-        onValueChange={(v) => setStatusFilter(v as WaitlistStatus | "all")}
-      >
-        <SelectTrigger className="w-48">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {STATUS_OPTIONS.map((s) => (
-            <SelectItem key={s} value={s}>
-              {s}
-            </SelectItem>
-          ))}
-          <SelectItem value="all">All</SelectItem>
-        </SelectContent>
-      </Select>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <StatTile
+          label="Total"
+          value={entries.length}
+          active={statusFilter === "all"}
+          onClick={() => setStatusFilter("all")}
+        />
+        {STATUS_OPTIONS.map((s) => (
+          <StatTile
+            key={s}
+            label={s}
+            value={counts[s]}
+            active={statusFilter === s}
+            onClick={() => setStatusFilter(s)}
+          />
+        ))}
+      </div>
 
       <div className="rounded-lg border bg-card overflow-x-auto">
         <table className="min-w-full text-sm">
@@ -289,7 +341,7 @@ export default function WaitlistPage() {
             </tr>
           </thead>
           <tbody>
-            {entries.map((entry) => (
+            {visibleEntries.map((entry) => (
               <tr key={entry.id} className="border-t align-top">
                 <td className="px-4 py-3">
                   <div className="font-medium">{entry.clientName}</div>
@@ -320,6 +372,13 @@ export default function WaitlistPage() {
                 </td>
                 <td className="px-4 py-3">
                   <span className={statusPillClass(entry.status)}>{entry.status}</span>
+                  {entry.latestOffer && (
+                    <div className="text-[11px] text-muted-foreground mt-1">
+                      {OFFER_LABEL[entry.latestOffer.status]}
+                      {entry.latestOffer.status === "pending" &&
+                        ` — expires ${new Date(entry.latestOffer.expiresAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
@@ -356,7 +415,7 @@ export default function WaitlistPage() {
                 </td>
               </tr>
             ))}
-            {!loading && entries.length === 0 && (
+            {!loading && visibleEntries.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                   No waitlist entries for this filter.

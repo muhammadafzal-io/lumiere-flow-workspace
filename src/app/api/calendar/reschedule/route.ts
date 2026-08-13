@@ -19,6 +19,10 @@ import {
   PAST_APPOINTMENT_ERROR_CODE,
   PAST_APPOINTMENT_LOCK_MESSAGE,
 } from "@/lib/appointment-lock";
+import { parseDesc } from "@/lib/integrations/google-calendar";
+import { resolveServiceId } from "@/lib/booking/recipe";
+import { getSupabase } from "@/lib/supabase";
+import { offerSlotToWaitlist } from "@/lib/waitlist/matching";
 
 function getCalendarClient() {
   const raw = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -226,6 +230,37 @@ export async function PATCH(req: NextRequest) {
         );
       } catch (err) {
         console.error(`[reschedule] reschedule email failed:`, err);
+      }
+    })();
+
+    // Best-effort, independent of the reschedule email above — the OLD (room, practitioner,
+    // equipment, time) combo this event vacated is now available, same as a cancellation freeing
+    // one. Never allowed to affect the reschedule response, which has already succeeded.
+    (async () => {
+      try {
+        const oldEndTime = event.end?.dateTime;
+        if (!oldStartTime || !oldEndTime) return;
+        const description = event.description ?? "";
+        const parsed = parseDesc(description);
+        const treatmentName =
+          parseField(description, "Treatment") || event.summary?.split(" — ")[0] || "";
+        if (!treatmentName) return;
+
+        const sb = getSupabase();
+        const serviceId = await resolveServiceId(sb, treatmentName).catch(() => null);
+
+        await offerSlotToWaitlist({
+          treatment: treatmentName,
+          serviceId,
+          startTime: oldStartTime,
+          endTime: oldEndTime,
+          practitionerName: parsed.practitioner,
+          room: parsed.room,
+          equipment: parsed.equipment,
+          sourceEventId: eventId,
+        });
+      } catch (err) {
+        console.error("[reschedule] waitlist offer failed:", err);
       }
     })();
 

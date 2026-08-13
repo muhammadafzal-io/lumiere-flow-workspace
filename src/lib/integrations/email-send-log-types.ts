@@ -9,7 +9,8 @@ export type EmailSendCategory =
   | "cancellation"
   | "reschedule"
   | "general"
-  | "followup";
+  | "followup"
+  | "waitlist";
 
 export type EmailSendTrigger = "cron" | "manual" | "system";
 
