@@ -38,6 +38,7 @@ import {
   Lock,
   ClipboardList,
   Hourglass,
+  Inbox,
 } from "lucide-react";
 import { toast } from "sonner";
 import type { Appointment, Practitioner, Customer, AppointmentStatus } from "@/lib/types";
@@ -61,6 +62,7 @@ import {
 import { useCurrentUser } from "@/lib/current-user-context";
 import { isAppointmentPast } from "@/lib/appointment-lock";
 import { FormResponseDialog } from "@/components/forms/FormResponseDialog";
+import { StaffFillFormDialog } from "@/components/forms/StaffFillFormDialog";
 
 function statusPill(s: AppointmentStatus) {
   const map: Record<AppointmentStatus, string> = {
@@ -121,6 +123,8 @@ export function AppointmentSlideOver({
   const [completing, setCompleting] = useState(false);
   const [forms, setForms] = useState<RequiredFormStatus[]>([]);
   const [viewingResponseId, setViewingResponseId] = useState<string | null>(null);
+  const [markingFormId, setMarkingFormId] = useState<string | null>(null);
+  const [fillingFormId, setFillingFormId] = useState<string | null>(null);
   useEffect(() => {
     setForms(appointment?.requiredForms ?? []);
   }, [appointment?.id, appointment?.requiredForms]);
@@ -135,6 +139,33 @@ export function AppointmentSlideOver({
   const end = new Date(a.end_time);
   const prac = practitionerById(practitioners, a.practitioner_id);
   const isPast = isAppointmentPast(a.end_time);
+
+  const markFormComplete = async (formId: string) => {
+    setMarkingFormId(formId);
+    try {
+      const res = await fetch(`/api/required-forms/${formId}/complete`, { method: "PATCH" });
+      if (!res.ok) throw new Error();
+      setForms((prev) =>
+        prev.map((f) =>
+          f.id === formId
+            ? { ...f, status: "COMPLETED", completedAt: new Date().toISOString() }
+            : f,
+        ),
+      );
+      toast.success("Form marked as completed");
+    } catch {
+      toast.error("Failed to update form status");
+    } finally {
+      setMarkingFormId(null);
+    }
+  };
+
+  const handleFilledOnBehalf = (formId: string, submittedAt: string) => {
+    setForms((prev) =>
+      prev.map((f) => (f.id === formId ? { ...f, status: "SUBMITTED", submittedAt } : f)),
+    );
+    toast.success("Form submitted on the client's behalf");
+  };
 
   const markComplete = async () => {
     if (!customer) {
@@ -427,7 +458,14 @@ export function AppointmentSlideOver({
                 </h3>
                 <div className="rounded-lg border bg-card divide-y">
                   {forms.map((f) => (
-                    <RequiredFormRow key={f.id} form={f} onViewResponse={setViewingResponseId} />
+                    <RequiredFormRow
+                      key={f.id}
+                      form={f}
+                      marking={markingFormId === f.id}
+                      onViewResponse={setViewingResponseId}
+                      onMarkComplete={markFormComplete}
+                      onFillOnBehalf={setFillingFormId}
+                    />
                   ))}
                 </div>
               </section>
@@ -486,6 +524,11 @@ export function AppointmentSlideOver({
       <FormResponseDialog
         trackingId={viewingResponseId}
         onClose={() => setViewingResponseId(null)}
+      />
+      <StaffFillFormDialog
+        trackingId={fillingFormId}
+        onClose={() => setFillingFormId(null)}
+        onSubmitted={handleFilledOnBehalf}
       />
     </>
   );
@@ -553,27 +596,48 @@ function fmtShortDateTime(iso: string): string {
 
 function RequiredFormRow({
   form,
+  marking,
   onViewResponse,
+  onMarkComplete,
+  onFillOnBehalf,
 }: {
   form: RequiredFormStatus;
+  marking: boolean;
   onViewResponse: (formId: string) => void;
+  onMarkComplete: (formId: string) => void;
+  onFillOnBehalf: (formId: string) => void;
 }) {
-  const completed = form.status === "COMPLETED";
   return (
     <div className="px-4 py-2.5 text-sm">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 truncate">{form.formName}</div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {completed ? (
+          {form.status === "COMPLETED" && (
             <span className="text-xs text-success flex items-center gap-1">
               <CheckCheck className="h-3.5 w-3.5" /> Completed
             </span>
-          ) : (
+          )}
+          {form.status === "SUBMITTED" && (
+            <span className="text-xs text-info flex items-center gap-1">
+              <Inbox className="h-3.5 w-3.5" /> Submitted
+            </span>
+          )}
+          {form.status === "PENDING" && (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Hourglass className="h-3.5 w-3.5" /> Pending
             </span>
           )}
-          {completed && (
+          {form.status === "PENDING" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => onFillOnBehalf(form.id)}
+            >
+              Fill on Behalf
+            </Button>
+          )}
+          {form.status !== "PENDING" && (
             <Button
               variant="outline"
               size="sm"
@@ -583,10 +647,21 @@ function RequiredFormRow({
               View Response
             </Button>
           )}
+          {form.status === "SUBMITTED" && (
+            <Button
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              disabled={marking}
+              onClick={() => onMarkComplete(form.id)}
+            >
+              {marking ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : "Mark Complete"}
+            </Button>
+          )}
         </div>
       </div>
       <div className="text-xs text-muted-foreground mt-0.5">
         {form.sentAt && <>Sent {fmtShortDateTime(form.sentAt)}</>}
+        {form.submittedAt && <> · Submitted {fmtShortDateTime(form.submittedAt)}</>}
         {form.completedAt && <> · Completed {fmtShortDateTime(form.completedAt)}</>}
       </div>
     </div>

@@ -7,7 +7,15 @@ import { FormRenderer } from "@/components/forms/FormRenderer";
 import { validateFormAnswers } from "@/lib/forms/validate";
 import type { FormField } from "@/lib/forms/types";
 
-export function FormFillForm({ token, fields }: { token: string; fields: FormField[] }) {
+export function FormFillForm({
+  token,
+  fields,
+  onSubmitted,
+}: {
+  token: string;
+  fields: FormField[];
+  onSubmitted?: () => void;
+}) {
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -38,6 +46,7 @@ export function FormFillForm({ token, fields }: { token: string; fields: FormFie
       }
 
       setDone(true);
+      onSubmitted?.();
     } catch {
       setFormError("Network error — please check your connection and try again.");
     } finally {

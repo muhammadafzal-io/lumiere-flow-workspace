@@ -75,6 +75,7 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
           source: f.source,
           status: f.status,
           sentAt: f.sentAt,
+          submittedAt: f.submittedAt,
           completedAt: f.completedAt,
         })),
       }));

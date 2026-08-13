@@ -17,8 +17,10 @@ export interface RequiredFormTrackingRecord {
   source: "inhouse";
   formName: string;
   url: string;
-  status: "PENDING" | "COMPLETED";
+  formResponseId: string | null;
+  status: "PENDING" | "SUBMITTED" | "COMPLETED";
   sentAt: string | null;
+  submittedAt: string | null;
   completedAt: string | null;
 }
 
@@ -31,8 +33,10 @@ function mapRow(r: any): RequiredFormTrackingRecord {
     source: r.form_source,
     formName: r.form_name,
     url: r.form_url,
+    formResponseId: r.form_response_id,
     status: r.status,
     sentAt: r.sent_at,
+    submittedAt: r.submitted_at,
     completedAt: r.completed_at,
   };
 }
@@ -93,4 +97,16 @@ export async function listRequiredFormsForEvent(
 ): Promise<RequiredFormTrackingRecord[]> {
   const grouped = await listRequiredFormsForEvents([eventId]);
   return grouped.get(eventId) ?? [];
+}
+
+/** Single-row lookup by the tracking row's own id — backs the staff "Fill on Behalf" flow,
+ * which needs to resolve a specific required form (and its form_response_id) before it can
+ * load that form's fields or accept a submission for it. */
+export async function getRequiredFormTrackingById(
+  id: string,
+): Promise<RequiredFormTrackingRecord | null> {
+  const sb = getSupabase();
+  const { data, error } = await sb.from(TABLE).select("*").eq("id", id).maybeSingle();
+  if (error || !data) return null;
+  return mapRow(data);
 }

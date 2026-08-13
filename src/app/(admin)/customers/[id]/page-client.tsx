@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ArrowLeft, Loader2, Pencil, CheckCheck, Hourglass } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, CheckCheck, Hourglass, Inbox } from "lucide-react";
 import { toast } from "sonner";
 import type { Customer } from "@/lib/types";
 import type { CalendarEvent, RequiredFormStatus } from "@/types";
@@ -32,6 +32,7 @@ import { statusPillClass } from "@/lib/customers/status-pill";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import { useCurrentUser } from "@/lib/current-user-context";
 import { FormResponseDialog } from "@/components/forms/FormResponseDialog";
+import { StaffFillFormDialog } from "@/components/forms/StaffFillFormDialog";
 
 interface CustomerProfileResponse {
   customer: Customer;
@@ -100,18 +101,29 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
+const FORM_STATUS_PRIORITY: Record<RequiredFormStatus["status"], number> = {
+  PENDING: 0,
+  SUBMITTED: 1,
+  COMPLETED: 2,
+};
+
 function RequiredFormRow({
   form,
   treatment,
   startTime,
+  marking,
   onViewResponse,
+  onMarkComplete,
+  onFillOnBehalf,
 }: {
   form: RequiredFormStatus;
   treatment: string;
   startTime: string;
+  marking: boolean;
   onViewResponse: (formId: string) => void;
+  onMarkComplete: (formId: string) => void;
+  onFillOnBehalf: (formId: string) => void;
 }) {
-  const completed = form.status === "COMPLETED";
   return (
     <div className="px-3 py-2.5">
       <div className="flex items-center justify-between gap-3">
@@ -122,16 +134,32 @@ function RequiredFormRow({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          {completed ? (
+          {form.status === "COMPLETED" && (
             <span className="text-xs text-success flex items-center gap-1">
               <CheckCheck className="h-3.5 w-3.5" /> Completed
             </span>
-          ) : (
+          )}
+          {form.status === "SUBMITTED" && (
+            <span className="text-xs text-info flex items-center gap-1">
+              <Inbox className="h-3.5 w-3.5" /> Submitted
+            </span>
+          )}
+          {form.status === "PENDING" && (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
               <Hourglass className="h-3.5 w-3.5" /> Pending
             </span>
           )}
-          {completed && (
+          {form.status === "PENDING" && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              onClick={() => onFillOnBehalf(form.id)}
+            >
+              Fill on Behalf
+            </Button>
+          )}
+          {form.status !== "PENDING" && (
             <Button
               variant="outline"
               size="sm"
@@ -141,10 +169,21 @@ function RequiredFormRow({
               View Response
             </Button>
           )}
+          {form.status === "SUBMITTED" && (
+            <Button
+              size="sm"
+              className="h-6 px-2 text-[11px]"
+              disabled={marking}
+              onClick={() => onMarkComplete(form.id)}
+            >
+              {marking ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : "Mark Complete"}
+            </Button>
+          )}
         </div>
       </div>
       <div className="text-muted-foreground text-xs mt-1">
         {form.sentAt && <>Sent {formatDateTime(form.sentAt)}</>}
+        {form.submittedAt && <> · Submitted {formatDateTime(form.submittedAt)}</>}
         {form.completedAt && <> · Completed {formatDateTime(form.completedAt)}</>}
       </div>
     </div>
@@ -165,6 +204,8 @@ export default function CustomerProfilePage() {
   const [form, setForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
   const [viewingResponseId, setViewingResponseId] = useState<string | null>(null);
+  const [markingFormId, setMarkingFormId] = useState<string | null>(null);
+  const [fillingFormId, setFillingFormId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -234,6 +275,60 @@ export default function CustomerProfilePage() {
     }
   };
 
+  const markFormComplete = async (formId: string) => {
+    setMarkingFormId(formId);
+    try {
+      const res = await fetch(`/api/required-forms/${formId}/complete`, { method: "PATCH" });
+      if (!res.ok) throw new Error();
+      const completedAt = new Date().toISOString();
+      setProfile((prev) => {
+        if (!prev) return prev;
+        const patch = (events: typeof prev.appointments.upcoming) =>
+          events.map((e) => ({
+            ...e,
+            requiredForms: (e.requiredForms ?? []).map((f) =>
+              f.id === formId ? { ...f, status: "COMPLETED" as const, completedAt } : f,
+            ),
+          }));
+        return {
+          ...prev,
+          appointments: {
+            ...prev.appointments,
+            upcoming: patch(prev.appointments.upcoming),
+            past: patch(prev.appointments.past),
+          },
+        };
+      });
+      toast.success("Form marked as completed");
+    } catch {
+      toast.error("Failed to update form status");
+    } finally {
+      setMarkingFormId(null);
+    }
+  };
+
+  const handleFilledOnBehalf = (formId: string, submittedAt: string) => {
+    setProfile((prev) => {
+      if (!prev) return prev;
+      const patch = (events: typeof prev.appointments.upcoming) =>
+        events.map((e) => ({
+          ...e,
+          requiredForms: (e.requiredForms ?? []).map((f) =>
+            f.id === formId ? { ...f, status: "SUBMITTED" as const, submittedAt } : f,
+          ),
+        }));
+      return {
+        ...prev,
+        appointments: {
+          ...prev.appointments,
+          upcoming: patch(prev.appointments.upcoming),
+          past: patch(prev.appointments.past),
+        },
+      };
+    });
+    toast.success("Form submitted on the client's behalf");
+  };
+
   if (accessDenied) {
     return (
       <div className="space-y-5">
@@ -286,7 +381,8 @@ export default function CustomerProfilePage() {
   const requiredFormsFlat = [...appointments.upcoming, ...appointments.past]
     .flatMap((a) => (a.requiredForms ?? []).map((f) => ({ appointment: a, form: f })))
     .sort((a, b) => {
-      if (a.form.status !== b.form.status) return a.form.status === "PENDING" ? -1 : 1;
+      const priority = FORM_STATUS_PRIORITY[a.form.status] - FORM_STATUS_PRIORITY[b.form.status];
+      if (priority !== 0) return priority;
       return (
         new Date(b.appointment.startTime).getTime() - new Date(a.appointment.startTime).getTime()
       );
@@ -560,7 +656,10 @@ export default function CustomerProfilePage() {
                     form={form}
                     treatment={appointment.treatment}
                     startTime={appointment.startTime}
+                    marking={markingFormId === form.id}
                     onViewResponse={setViewingResponseId}
+                    onMarkComplete={markFormComplete}
+                    onFillOnBehalf={setFillingFormId}
                   />
                 ))}
               </div>
@@ -694,6 +793,11 @@ export default function CustomerProfilePage() {
       <FormResponseDialog
         trackingId={viewingResponseId}
         onClose={() => setViewingResponseId(null)}
+      />
+      <StaffFillFormDialog
+        trackingId={fillingFormId}
+        onClose={() => setFillingFormId(null)}
+        onSubmitted={handleFilledOnBehalf}
       />
     </>
   );

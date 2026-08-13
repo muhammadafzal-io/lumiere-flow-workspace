@@ -56,6 +56,7 @@ export async function GET(req: NextRequest) {
         source: f.source,
         status: f.status,
         sentAt: f.sentAt,
+        submittedAt: f.submittedAt,
         completedAt: f.completedAt,
       })),
     }));
