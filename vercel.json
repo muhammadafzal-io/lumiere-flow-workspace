@@ -22,7 +22,7 @@
     },
     {
       "path": "/api/cron/waitlist-sweep",
-      "schedule": "*/15 * * * *"
+      "schedule": "30 1 * * *"
     }
   ]
 }
