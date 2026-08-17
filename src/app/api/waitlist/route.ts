@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/waitlist
- * Body: { clientName, phone, email?, treatment, preferredDate, preferredTimeStart?,
+ * Body: { clientName, phone, email, treatment, preferredDate, preferredTimeStart?,
  *         preferredTimeEnd?, preferredPractitionerName?, flexibility?, notes? }
  *
  * Manual staff entry — same underlying createWaitlistEntry (and its dedupe behavior) the AI
@@ -68,12 +68,16 @@ export async function POST(req: NextRequest) {
 
   const clientName = String(body.clientName ?? "").trim();
   const phone = String(body.phone ?? "").trim();
+  const email = String(body.email ?? "").trim();
   const treatment = String(body.treatment ?? "").trim();
   const preferredDate = String(body.preferredDate ?? "").trim();
 
   const missing: string[] = [];
   if (!clientName) missing.push("clientName");
   if (!phone) missing.push("phone");
+  // Email is required, not optional — it's the only channel sendWaitlistOfferNotification can
+  // use to tell this client when a matching slot opens up; skipping it silently strands them.
+  if (!email) missing.push("email");
   if (!treatment) missing.push("treatment");
   if (!preferredDate) missing.push("preferredDate");
   if (missing.length > 0) {
@@ -87,7 +91,7 @@ export async function POST(req: NextRequest) {
     await upsertClient({
       name: clientName,
       phone,
-      email: typeof body.email === "string" ? body.email : undefined,
+      email,
     }).catch(() => undefined);
     const clientRecord = await lookupClient({ phone });
     if (!clientRecord?.id) {

@@ -615,7 +615,7 @@ export async function executeTool(
           );
 
           const phone = String(input.client_contact ?? "").trim();
-          const clientName = String(input.client_name ?? "").trim() || "Waitlist client";
+          const clientName = String(input.client_name ?? "").trim();
           await upsertClient({
             name: clientName,
             phone: phone || undefined,

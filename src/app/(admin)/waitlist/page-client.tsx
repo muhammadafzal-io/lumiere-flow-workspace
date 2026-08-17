@@ -332,10 +332,11 @@ export default function WaitlistPage() {
     if (
       !form.clientName.trim() ||
       !form.phone.trim() ||
+      !form.email.trim() ||
       !form.treatment.trim() ||
       !form.preferredDate
     ) {
-      toast.error("Client name, phone, treatment, and preferred date are required");
+      toast.error("Client name, phone, email, treatment, and preferred date are required");
       return;
     }
     setSaving(true);
@@ -346,7 +347,7 @@ export default function WaitlistPage() {
         body: JSON.stringify({
           clientName: form.clientName.trim(),
           phone: form.phone.trim(),
-          email: form.email.trim() || undefined,
+          email: form.email.trim(),
           treatment: form.treatment.trim(),
           preferredDate: form.preferredDate,
           preferredTimeStart: form.preferredTimeStart || undefined,
@@ -579,7 +580,7 @@ export default function WaitlistPage() {
                   </div>
                 </div>
                 <div>
-                  <Label className="text-xs">Email (optional)</Label>
+                  <Label className="text-xs">Email</Label>
                   <Input value={form.email} onChange={field("email")} className="mt-1" />
                 </div>
               </>

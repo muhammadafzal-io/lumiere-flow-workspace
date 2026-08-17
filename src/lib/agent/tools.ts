@@ -191,7 +191,7 @@ export const TOOLS: ChatCompletionTool[] = [
     function: {
       name: "add_to_waitlist",
       description:
-        "Save the client's preferred slot to the waitlist instead of losing the booking opportunity. Call this ONLY after check_availability shows their preferred time/date isn't open AND you've offered alternatives AND the client doesn't want any of them (and doesn't want to try a different date either). Do NOT call this before offering alternatives — always try check_availability and present real open slots first.",
+        "Save the client's preferred slot to the waitlist instead of losing the booking opportunity. Call this ONLY after check_availability shows their preferred time/date isn't open AND you've offered alternatives AND the client doesn't want any of them (and doesn't want to try a different date either). Do NOT call this before offering alternatives — always try check_availability and present real open slots first. Before calling, you MUST collect the client's full name, phone, AND email — ask for all three if you don't already have them. Email is REQUIRED (not optional) because it's the only way we can notify them the instant a matching slot opens up; a waitlist entry with no email is useless. Tell the client you need their name and email so you can email them the moment a spot frees up.",
       parameters: {
         type: "object",
         properties: {
@@ -203,9 +203,13 @@ export const TOOLS: ChatCompletionTool[] = [
           client_contact: { type: "string", description: "Client phone number or Discord ID" },
           client_name: {
             type: "string",
-            description: "Client's name if given — casual first name is fine, don't ask for more.",
+            description: "REQUIRED — client's full first and last name. Ask if not already given.",
           },
-          client_email: { type: "string", description: "Client's email if given — optional." },
+          client_email: {
+            type: "string",
+            description:
+              "REQUIRED — client's email. Ask if not already given; this is how they'll be notified when a slot opens up.",
+          },
           preferred_time: {
             type: "string",
             description:
@@ -231,7 +235,7 @@ export const TOOLS: ChatCompletionTool[] = [
             description: "Any other relevant context worth passing to staff.",
           },
         },
-        required: ["treatment", "preferred_date", "client_contact"],
+        required: ["treatment", "preferred_date", "client_contact", "client_name", "client_email"],
       },
     },
   },

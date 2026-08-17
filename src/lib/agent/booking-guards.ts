@@ -179,26 +179,37 @@ export async function validateBookAppointment(
 }
 
 /**
- * Waitlist gate — deliberately lighter than validateBookAppointment: a waitlist entry never
- * creates a real commitment (no calendar write, no client-facing confirmation), so it only needs
- * enough to be contactable and matchable later — treatment, the date they wanted, and a phone
- * number. Name/email are accepted if given but never required.
+ * Waitlist gate — a waitlist entry never creates a real calendar commitment, but the entire
+ * point of waitlisting is that the client gets notified the instant a matching slot opens up
+ * (sendWaitlistOfferNotification), and that notification can only reach them by email. Skipping
+ * email collection here silently strands the client with no way to ever hear back, so full name,
+ * phone, AND a valid email are all required before an entry is created — no exceptions per
+ * channel, since a waitlist entry with no email is functionally useless regardless of how it was
+ * collected.
  */
 export function validateWaitlistEntry(input: Record<string, unknown>): string | null {
   logFlowStep("waitlist:validateWaitlistEntry:start", {
     treatment: input.treatment,
     preferred_date: input.preferred_date,
   });
+  const clientName = String(input.client_name ?? "").trim();
+
   const missing: string[] = [];
+  if (!clientName) missing.push("client_name (full first and last name)");
+  else if (!isFullName(clientName)) missing.push("client_name (full first and last name)");
   if (!String(input.treatment ?? "").trim()) missing.push("treatment");
   if (!String(input.preferred_date ?? "").trim()) missing.push("preferred_date");
   if (!String(input.client_contact ?? "").trim()) missing.push("client_contact (phone)");
+  if (!normalizeEmail(input.client_email)) missing.push("client_email");
 
   if (missing.length === 0) {
     logFlowStep("waitlist:validateWaitlistEntry:passed");
     return null;
   }
-  const error = `Cannot add to waitlist: missing required fields: ${missing.join(", ")}.`;
+  const error =
+    clientName && !isFullName(clientName)
+      ? `${fullNameValidationError("client_name")} ${missing.length > 1 ? `Also missing: ${missing.filter((m) => !m.startsWith("client_name")).join(", ")}.` : ""}`
+      : `Cannot add to waitlist: missing required fields: ${missing.join(", ")}. Collect full name, phone, and email BEFORE adding to the waitlist — email is how we notify them the moment a matching slot opens up.`;
   logFlowStep("waitlist:validateWaitlistEntry:failed", { error, missing });
   return error;
 }
