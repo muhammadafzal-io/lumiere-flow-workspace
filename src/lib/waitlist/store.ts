@@ -7,10 +7,12 @@
 import { getSupabase } from "@/lib/supabase";
 import { resolveServiceId } from "@/lib/booking/recipe";
 import { getClientById } from "@/lib/integrations/airtable";
+import { getClinicTimezone } from "@/lib/clinic-config";
+import { todayInTz } from "@/lib/booking/dates";
 
 const TABLE = "Waitlist";
 
-export type WaitlistStatus = "Waiting" | "Contacted" | "Booked" | "Cancelled";
+export type WaitlistStatus = "Waiting" | "Contacted" | "Booked" | "Cancelled" | "Expired";
 export type WaitlistSource = "voice" | "chat" | "discord" | "admin";
 
 export interface WaitlistEntry {
@@ -80,11 +82,63 @@ export interface CreateWaitlistEntryInput {
 
 const OPEN_STATUSES: WaitlistStatus[] = ["Waiting", "Contacted"];
 
+/** How many open (Waiting/Contacted) entries the same treatment+date combination can carry
+ * before new sign-ups are turned away — prevents one popular slot from collecting an unbounded
+ * queue where most people have no realistic chance of ever being matched. A plain constant
+ * (matching SLOT_BUFFER_MINUTES/WAITLIST_OFFER_CLAIM_WINDOW_MS's tunable-constant convention)
+ * rather than a Settings-table field — bump this directly if the clinic wants a different limit. */
+export const MAX_WAITLIST_PER_SLOT = 5;
+
+/** Count of open (Waiting/Contacted) entries for a given treatment+date — backs both the cap
+ * check in createWaitlistEntry and informational queue-size reporting ("you're one of N people
+ * waiting"). Deliberately not a strict rank-in-line: a dedupe-refresh of an existing entry keeps
+ * its original created_at, so "total open count" is accurate queue size but not necessarily this
+ * specific entry's position — reporting size avoids that ambiguity while still being useful. */
+export async function countOpenWaitlistForSlot(
+  treatment: string,
+  preferredDate: string,
+  excludeId?: string,
+): Promise<number> {
+  const sb = getSupabase();
+  let query = sb
+    .from(TABLE)
+    .select("id", { count: "exact", head: true })
+    .eq("treatment", treatment)
+    .eq("preferred_date", preferredDate)
+    .in("status", OPEN_STATUSES);
+  if (excludeId) query = query.neq("id", excludeId);
+  const { count, error } = await query;
+  if (error) throw new Error(`countOpenWaitlistForSlot: ${error.message}`);
+  return count ?? 0;
+}
+
+/** Resolves the waitlist cap that applies to a given service — the Service's own WaitlistCap
+ * override when staff have set one (Settings → Services), otherwise MAX_WAITLIST_PER_SLOT.
+ * serviceId can be null (treatment didn't resolve to a known Service), which just falls back
+ * to the flat default rather than failing the whole waitlist flow. */
+async function waitlistCapForService(
+  sb: ReturnType<typeof getSupabase>,
+  serviceId: string | null,
+): Promise<number> {
+  if (!serviceId) return MAX_WAITLIST_PER_SLOT;
+  const { data } = await sb
+    .from("Services")
+    .select("WaitlistCap")
+    .eq("id", serviceId)
+    .maybeSingle();
+  const cap = data?.["WaitlistCap"];
+  return typeof cap === "number" && cap > 0 ? cap : MAX_WAITLIST_PER_SLOT;
+}
+
 /**
  * Creates a new waitlist entry, unless an open (Waiting/Contacted) entry already exists for the
  * same client + treatment + preferred date — in which case that existing row is refreshed in
  * place instead of creating a duplicate. Mirrors the dedupe-before-insert pattern
  * findOpenCompletionByPhone already establishes for duplicate-pending-booking detection.
+ *
+ * A genuinely new entry (no dedupe match) is rejected once the treatment+date combination is
+ * already at MAX_WAITLIST_PER_SLOT — refreshing your own existing entry is never blocked by the
+ * cap, since that isn't adding a new person to the queue.
  */
 export async function createWaitlistEntry(input: CreateWaitlistEntryInput): Promise<WaitlistEntry> {
   const sb = getSupabase();
@@ -121,6 +175,14 @@ export async function createWaitlistEntry(input: CreateWaitlistEntryInput): Prom
       .single();
     if (error) throw new Error(`createWaitlistEntry (update): ${error.message}`);
     return mapRow(data, clientContact);
+  }
+
+  const cap = await waitlistCapForService(sb, serviceId);
+  const openCount = await countOpenWaitlistForSlot(input.treatment, input.preferredDate);
+  if (openCount >= cap) {
+    throw new Error(
+      `This slot's waitlist is already full (${cap} waiting for ${input.treatment} on ${input.preferredDate}) — try a different date or time.`,
+    );
   }
 
   const { data, error } = await sb
@@ -217,6 +279,84 @@ export async function updateWaitlistStatus(
   return mapRow(data);
 }
 
+export interface UpdateWaitlistEntryInput {
+  treatment?: string;
+  preferredDate?: string;
+  preferredTimeStart?: string | null;
+  preferredTimeEnd?: string | null;
+  preferredPractitionerName?: string | null;
+  flexibility?: string | null;
+  notes?: string | null;
+}
+
+/**
+ * Edits an existing entry's preferences — distinct from updateWaitlistStatus, which only ever
+ * changes status. If treatment or preferred date actually changes while the entry is still open,
+ * re-checks MAX_WAITLIST_PER_SLOT against the new slot (excluding this entry itself, since
+ * moving an existing person isn't adding a new one) and re-resolves service_id for a new
+ * treatment string.
+ *
+ * An Expired entry whose date is moved to today-or-later is revived back to Waiting — the whole
+ * point of editing a stale entry's date is to give it another shot, and matching only ever
+ * considers status = 'Waiting'. A Cancelled entry is left alone: that status reflects a deliberate
+ * decision (staff or client), not something an unrelated date correction should silently undo.
+ */
+export async function updateWaitlistEntry(
+  id: string,
+  input: UpdateWaitlistEntryInput,
+): Promise<WaitlistEntry> {
+  const sb = getSupabase();
+  const { data: current, error: fetchError } = await sb
+    .from(TABLE)
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchError) throw new Error(`updateWaitlistEntry: ${fetchError.message}`);
+  if (!current) throw new Error("Waitlist entry not found");
+
+  const nextTreatment = input.treatment ?? current.treatment;
+  const nextDate = input.preferredDate ?? current.preferred_date;
+  const slotChanged = nextTreatment !== current.treatment || nextDate !== current.preferred_date;
+
+  const nextServiceId =
+    input.treatment !== undefined
+      ? await resolveServiceId(sb, input.treatment).catch(() => null)
+      : current.service_id;
+
+  if (slotChanged && OPEN_STATUSES.includes(current.status)) {
+    const cap = await waitlistCapForService(sb, nextServiceId);
+    const openCount = await countOpenWaitlistForSlot(nextTreatment, nextDate, id);
+    if (openCount >= cap) {
+      throw new Error(
+        `This slot's waitlist is already full (${cap} waiting for ${nextTreatment} on ${nextDate}) — try a different date or time.`,
+      );
+    }
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (input.treatment !== undefined) {
+    patch.treatment = input.treatment;
+    patch.service_id = nextServiceId;
+  }
+  if (input.preferredDate !== undefined) patch.preferred_date = input.preferredDate;
+  if (input.preferredTimeStart !== undefined) patch.preferred_time_start = input.preferredTimeStart;
+  if (input.preferredTimeEnd !== undefined) patch.preferred_time_end = input.preferredTimeEnd;
+  if (input.preferredPractitionerName !== undefined) {
+    patch.preferred_practitioner_name = input.preferredPractitionerName;
+  }
+  if (input.flexibility !== undefined) patch.flexibility = input.flexibility;
+  if (input.notes !== undefined) patch.notes = input.notes;
+
+  if (current.status === "Expired" && input.preferredDate !== undefined) {
+    const tz = await getClinicTimezone();
+    if (input.preferredDate >= todayInTz(tz)) patch.status = "Waiting";
+  }
+
+  const { data, error } = await sb.from(TABLE).update(patch).eq("id", id).select("*").single();
+  if (error) throw new Error(`updateWaitlistEntry: ${error.message}`);
+  return mapRow(data);
+}
+
 /**
  * Called right after a booking succeeds to close out any open waitlist entries the same client
  * had for the same treatment. Throws on failure — the caller (book_appointment's handler) is
@@ -236,4 +376,32 @@ export async function closeMatchingWaitlistEntries(
     .eq("treatment", treatment)
     .in("status", OPEN_STATUSES);
   if (error) throw new Error(`closeMatchingWaitlistEntries: ${error.message}`);
+}
+
+/**
+ * Retires every open (Waiting/Contacted) entry whose preferred_date has already passed — without
+ * this, an unmatched entry sits forever, since matching only ever considers newly-freed slots on
+ * or after today. Called daily by runWaitlistExpirySweepFlow (src/lib/waitlist/sweep.ts).
+ * Returns the number of entries expired.
+ */
+export async function expirePastDateWaitlistEntries(todayDateStr: string): Promise<number> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from(TABLE)
+    .update({ status: "Expired" })
+    .in("status", OPEN_STATUSES)
+    .lt("preferred_date", todayDateStr)
+    .select("id");
+  if (error) throw new Error(`expirePastDateWaitlistEntries: ${error.message}`);
+  return data?.length ?? 0;
+}
+
+/** Permanently removes a waitlist entry — e.g. a duplicate, a mistaken entry, or one a staff
+ * member no longer wants cluttering the list. WaitlistOffers rows referencing this entry are
+ * removed automatically (ON DELETE CASCADE, see migrations/create_waitlist_offers.sql), so no
+ * separate cleanup is needed here. */
+export async function deleteWaitlistEntry(id: string): Promise<void> {
+  const sb = getSupabase();
+  const { error } = await sb.from(TABLE).delete().eq("id", id);
+  if (error) throw new Error(`deleteWaitlistEntry: ${error.message}`);
 }

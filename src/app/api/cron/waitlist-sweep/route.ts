@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runWaitlistOfferSweepFlow } from "@/lib/waitlist/sweep";
+import { runWaitlistOfferSweepFlow, runWaitlistExpirySweepFlow } from "@/lib/waitlist/sweep";
 
 function isAuthorised(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -11,8 +11,12 @@ export async function POST(req: NextRequest) {
   if (!isAuthorised(req)) return NextResponse.json({ ok: false }, { status: 401 });
 
   try {
-    const result = await runWaitlistOfferSweepFlow();
-    return NextResponse.json({ ok: true, ...result });
+    // Sequential, not parallel: this cron only runs once/day (Vercel Hobby-plan limit), so
+    // there's no throughput reason to race them, and keeping them sequential makes a failure in
+    // one easy to attribute without the other's errors interleaving in the response.
+    const offers = await runWaitlistOfferSweepFlow();
+    const expiry = await runWaitlistExpirySweepFlow();
+    return NextResponse.json({ ok: true, offers, expiry });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }

@@ -7,9 +7,11 @@
  */
 import { getSupabase } from "@/lib/supabase";
 import { logEvent } from "@/lib/integrations/activity-log";
-import { getWaitlistEntryById } from "@/lib/waitlist/store";
+import { getWaitlistEntryById, expirePastDateWaitlistEntries } from "@/lib/waitlist/store";
 import { mapOfferRow } from "@/lib/waitlist/offer-types";
 import { offerSlotToWaitlist, type FreedSlot } from "@/lib/waitlist/matching";
+import { getClinicTimezone } from "@/lib/clinic-config";
+import { todayInTz } from "@/lib/booking/dates";
 import type { RetentionResult } from "@/types";
 
 const TABLE = "WaitlistOffers";
@@ -74,4 +76,26 @@ export async function runWaitlistOfferSweepFlow(): Promise<RetentionResult> {
   }
 
   return result;
+}
+
+/**
+ * Retires Waiting/Contacted entries whose preferred_date has already passed — without this, an
+ * unmatched entry sits forever, since matching only ever considers newly-freed slots on or after
+ * today. Runs daily alongside runWaitlistOfferSweepFlow from the same cron route.
+ */
+export async function runWaitlistExpirySweepFlow(): Promise<RetentionResult> {
+  const tz = await getClinicTimezone();
+  const today = todayInTz(tz);
+  const expiredCount = await expirePastDateWaitlistEntries(today);
+
+  if (expiredCount > 0) {
+    await logEvent(
+      "waitlist",
+      "—",
+      `Expired ${expiredCount} waitlist ${expiredCount === 1 ? "entry" : "entries"} with a preferred date before ${today}`,
+      {},
+    ).catch(() => undefined);
+  }
+
+  return { sent: expiredCount, skipped: 0, failed: 0, details: [] };
 }

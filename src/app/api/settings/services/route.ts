@@ -20,6 +20,7 @@ function mapService(r: any) {
     requiresConsultation: r["RequiresConsultation"] ?? false,
     minNoticeHours: r["MinNoticeHours"] ?? 0,
     maxAdvanceDays: r["MaxAdvanceDays"] ?? 365,
+    waitlistCap: r["WaitlistCap"] ?? null,
     status: r["Status"] ?? "Active",
     created_at: r.created_at,
   };
@@ -84,6 +85,7 @@ export async function POST(req: Request) {
       RequiresConsultation,
       MinNoticeHours,
       MaxAdvanceDays,
+      WaitlistCap,
       Status,
       requirements,
       attachedFormIds,
@@ -98,6 +100,16 @@ export async function POST(req: Request) {
     ) {
       return NextResponse.json(
         { error: "Duration must be a positive number of minutes" },
+        { status: 400 },
+      );
+    }
+    if (
+      WaitlistCap !== undefined &&
+      WaitlistCap !== null &&
+      (typeof WaitlistCap !== "number" || WaitlistCap <= 0)
+    ) {
+      return NextResponse.json(
+        { error: "Waitlist cap must be a positive number, or left blank for the default" },
         { status: 400 },
       );
     }
@@ -118,6 +130,7 @@ export async function POST(req: Request) {
         RequiresConsultation: RequiresConsultation ?? false,
         MinNoticeHours: MinNoticeHours ?? 0,
         MaxAdvanceDays: MaxAdvanceDays ?? 365,
+        WaitlistCap: WaitlistCap ?? null,
         Status: Status ?? "Active",
       })
       .select()
@@ -172,6 +185,16 @@ export async function PATCH(req: Request) {
         { status: 400 },
       );
     }
+    if (
+      body.WaitlistCap !== undefined &&
+      body.WaitlistCap !== null &&
+      (typeof body.WaitlistCap !== "number" || body.WaitlistCap <= 0)
+    ) {
+      return NextResponse.json(
+        { error: "Waitlist cap must be a positive number, or left blank for the default" },
+        { status: 400 },
+      );
+    }
     if (typeof body.Name === "string" && body.Name.trim()) {
       const { data: existing } = await sb
         .from(SERVICES)
@@ -194,6 +217,7 @@ export async function PATCH(req: Request) {
       fields["RequiresConsultation"] = body.RequiresConsultation;
     if (body.MinNoticeHours !== undefined) fields["MinNoticeHours"] = body.MinNoticeHours;
     if (body.MaxAdvanceDays !== undefined) fields["MaxAdvanceDays"] = body.MaxAdvanceDays;
+    if (body.WaitlistCap !== undefined) fields["WaitlistCap"] = body.WaitlistCap;
     if (body.Status !== undefined) fields["Status"] = body.Status;
 
     const { data: svc, error } = await sb

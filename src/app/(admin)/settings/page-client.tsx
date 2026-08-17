@@ -115,6 +115,7 @@ interface ServiceItem {
   requiresConsultation: boolean;
   minNoticeHours: number;
   maxAdvanceDays: number;
+  waitlistCap: number | null;
   status: string;
   requirements: ServiceRequirement[];
   attachedFormIds: string[];
@@ -1604,6 +1605,7 @@ function ServicesTab({
     requiresConsultation: false,
     minNoticeHours: 0,
     maxAdvanceDays: 365,
+    waitlistCap: null,
     status: "Active",
   });
   const [roomRequirement, setRoomRequirement] = useState<RoomRequirementRule | null>(null);
@@ -1686,6 +1688,7 @@ function ServicesTab({
         RequiresConsultation: form.requiresConsultation ?? false,
         MinNoticeHours: form.minNoticeHours ?? 0,
         MaxAdvanceDays: form.maxAdvanceDays ?? 365,
+        WaitlistCap: form.waitlistCap ?? null,
         Status: form.status ?? "Active",
         requirements,
         attachedFormIds,
@@ -1837,6 +1840,24 @@ function ServicesTab({
                   }
                   className="mt-1.5"
                 />
+              </div>
+              <div>
+                <Label>Waitlist cap</Label>
+                <Input
+                  type="number"
+                  placeholder="Default (5)"
+                  value={form.waitlistCap == null ? "" : String(form.waitlistCap)}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      waitlistCap: e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                  className="mt-1.5"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Max people waiting per date for this service. Leave blank for the default.
+                </p>
               </div>
               <div className="flex items-center justify-between rounded-md border px-3 h-9">
                 <Label className="mb-0">Online bookable</Label>

@@ -10,7 +10,7 @@ import { listLatestOffersForWaitlistIds } from "@/lib/waitlist/matching";
 
 export const dynamic = "force-dynamic";
 
-const VALID_STATUSES: WaitlistStatus[] = ["Waiting", "Contacted", "Booked", "Cancelled"];
+const VALID_STATUSES: WaitlistStatus[] = ["Waiting", "Contacted", "Booked", "Cancelled", "Expired"];
 
 export async function GET(req: NextRequest) {
   const check = await requireApiPermission("waitlist", "View");
@@ -108,7 +108,14 @@ export async function POST(req: NextRequest) {
     });
     return NextResponse.json({ entry });
   } catch (err) {
+    const message = err instanceof Error ? err.message : "Failed to add to waitlist";
+    // createWaitlistEntry throws this exact message when MAX_WAITLIST_PER_SLOT is hit — a real
+    // conflict (409), not a server error, so the staff UI's toast reads as "list is full" rather
+    // than "something broke."
+    if (message.includes("waitlist is already full")) {
+      return NextResponse.json({ error: message }, { status: 409 });
+    }
     console.error("POST /api/waitlist error:", err);
-    return NextResponse.json({ error: "Failed to add to waitlist" }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

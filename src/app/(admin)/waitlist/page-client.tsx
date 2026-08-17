@@ -13,17 +13,34 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Loader2, CalendarSearch, Phone, Mail } from "lucide-react";
+import {
+  Plus,
+  Loader2,
+  CalendarSearch,
+  Phone,
+  Mail,
+  Pencil,
+  Trash2,
+  TriangleAlert,
+} from "lucide-react";
 import { toast } from "sonner";
 import { AccessGate } from "@/components/rbac/AccessGate";
 
-type WaitlistStatus = "Waiting" | "Contacted" | "Booked" | "Cancelled";
+type WaitlistStatus = "Waiting" | "Contacted" | "Booked" | "Cancelled" | "Expired";
 
 type WaitlistOfferStatus = "pending" | "accepted" | "declined" | "expired" | "superseded";
 
@@ -54,13 +71,14 @@ const OFFER_LABEL: Record<WaitlistOfferStatus, string> = {
   superseded: "Slot taken before response",
 };
 
-const STATUS_OPTIONS: WaitlistStatus[] = ["Waiting", "Contacted", "Booked", "Cancelled"];
+const STATUS_OPTIONS: WaitlistStatus[] = ["Waiting", "Contacted", "Booked", "Cancelled", "Expired"];
 
 const STATUS_PILL: Record<WaitlistStatus, string> = {
   Waiting: "bg-warning/15 text-warning-foreground border-warning/30",
   Contacted: "bg-info/10 text-info border-info/20",
   Booked: "bg-success/10 text-success border-success/20",
   Cancelled: "bg-muted text-muted-foreground border-border",
+  Expired: "bg-muted/60 text-muted-foreground border-dashed border-border",
 };
 
 function statusPillClass(status: WaitlistStatus): string {
@@ -157,6 +175,12 @@ export default function WaitlistPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState<AddForm>(BLANK_FORM);
   const [saving, setSaving] = useState(false);
+  // null while adding a new entry; set to an entry's id while editing its date/time/treatment/
+  // practitioner/notes — save() branches on this to POST (new) vs PATCH (edit) the same dialog.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingClientName, setEditingClientName] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<WaitlistEntry | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const fetchEntries = useCallback(async () => {
     setLoading(true);
@@ -182,7 +206,13 @@ export default function WaitlistPage() {
   }, [fetchEntries]);
 
   const counts = useMemo(() => {
-    const c: Record<WaitlistStatus, number> = { Waiting: 0, Contacted: 0, Booked: 0, Cancelled: 0 };
+    const c: Record<WaitlistStatus, number> = {
+      Waiting: 0,
+      Contacted: 0,
+      Booked: 0,
+      Cancelled: 0,
+      Expired: 0,
+    };
     for (const e of entries) c[e.status]++;
     return c;
   }, [entries]);
@@ -235,7 +265,26 @@ export default function WaitlistPage() {
   };
 
   const startAdd = () => {
+    setEditingId(null);
     setForm(BLANK_FORM);
+    setDialogOpen(true);
+  };
+
+  const startEdit = (entry: WaitlistEntry) => {
+    setEditingId(entry.id);
+    setEditingClientName(entry.clientName);
+    setForm({
+      clientName: entry.clientName,
+      phone: entry.clientPhone ?? "",
+      email: entry.clientEmail ?? "",
+      treatment: entry.treatment,
+      preferredDate: entry.preferredDate,
+      preferredTimeStart: entry.preferredTimeStart ?? "",
+      preferredTimeEnd: entry.preferredTimeEnd ?? "",
+      preferredPractitionerName: entry.preferredPractitionerName ?? "",
+      flexibility: entry.flexibility ?? "",
+      notes: entry.notes ?? "",
+    });
     setDialogOpen(true);
   };
 
@@ -244,6 +293,42 @@ export default function WaitlistPage() {
       setForm((f) => ({ ...f, [key]: e.target.value }));
 
   const save = async () => {
+    if (editingId) {
+      if (!form.treatment.trim() || !form.preferredDate) {
+        toast.error("Treatment and preferred date are required");
+        return;
+      }
+      setSaving(true);
+      try {
+        const res = await fetch(`/api/waitlist/${editingId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            treatment: form.treatment.trim(),
+            preferredDate: form.preferredDate,
+            preferredTimeStart: form.preferredTimeStart || null,
+            preferredTimeEnd: form.preferredTimeEnd || null,
+            preferredPractitionerName: form.preferredPractitionerName.trim() || null,
+            flexibility: form.flexibility.trim() || null,
+            notes: form.notes.trim() || null,
+          }),
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => null);
+          throw new Error(body?.error || "Failed to update waitlist entry");
+        }
+        toast.success("Waitlist entry updated");
+        setDialogOpen(false);
+        setEditingId(null);
+        void fetchEntries();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Failed to update waitlist entry");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (
       !form.clientName.trim() ||
       !form.phone.trim() ||
@@ -285,6 +370,22 @@ export default function WaitlistPage() {
     }
   };
 
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/waitlist/${pendingDelete.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error();
+      setEntries((prev) => prev.filter((e) => e.id !== pendingDelete.id));
+      toast.success("Waitlist entry deleted");
+      setPendingDelete(null);
+    } catch {
+      toast.error("Failed to delete waitlist entry");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   if (accessDenied) {
     return (
       <div className="space-y-5 max-w-7xl">
@@ -309,7 +410,7 @@ export default function WaitlistPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <StatTile
           label="Total"
           value={entries.length}
@@ -386,6 +487,15 @@ export default function WaitlistPage() {
                       variant="outline"
                       size="sm"
                       className="h-7 px-2 text-[11px]"
+                      onClick={() => startEdit(entry)}
+                    >
+                      <Pencil className="h-3 w-3 mr-1" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-[11px]"
                       disabled={checkingId === entry.id}
                       onClick={() => checkNow(entry)}
                     >
@@ -411,6 +521,14 @@ export default function WaitlistPage() {
                         ))}
                       </SelectContent>
                     </Select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                      onClick={() => setPendingDelete(entry)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
                   </div>
                 </td>
               </tr>
@@ -426,27 +544,46 @@ export default function WaitlistPage() {
         </table>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(o) => {
+          setDialogOpen(o);
+          if (!o) setEditingId(null);
+        }}
+      >
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add to waitlist</DialogTitle>
+            <DialogTitle>{editingId ? "Edit waitlist entry" : "Add to waitlist"}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label className="text-xs">Full name</Label>
-                <Input value={form.clientName} onChange={field("clientName")} className="mt-1" />
+            {editingId ? (
+              <div className="text-sm">
+                <span className="text-muted-foreground">Client: </span>
+                <span className="font-medium">{editingClientName}</span>
               </div>
-              <div>
-                <Label className="text-xs">Phone</Label>
-                <Input value={form.phone} onChange={field("phone")} className="mt-1" />
-              </div>
-            </div>
-            <div>
-              <Label className="text-xs">Email (optional)</Label>
-              <Input value={form.email} onChange={field("email")} className="mt-1" />
-            </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Full name</Label>
+                    <Input
+                      value={form.clientName}
+                      onChange={field("clientName")}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Phone</Label>
+                    <Input value={form.phone} onChange={field("phone")} className="mt-1" />
+                  </div>
+                </div>
+                <div>
+                  <Label className="text-xs">Email (optional)</Label>
+                  <Input value={form.email} onChange={field("email")} className="mt-1" />
+                </div>
+              </>
+            )}
             <div>
               <Label className="text-xs">Treatment</Label>
               <Input value={form.treatment} onChange={field("treatment")} className="mt-1" />
@@ -505,16 +642,53 @@ export default function WaitlistPage() {
           </div>
 
           <DialogFooter className="mt-2">
-            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={saving}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDialogOpen(false);
+                setEditingId(null);
+              }}
+              disabled={saving}
+            >
               Cancel
             </Button>
             <Button onClick={save} disabled={saving}>
               {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Add to waitlist
+              {editingId ? "Save changes" : "Add to waitlist"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => !o && !deleting && setPendingDelete(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="mx-auto sm:mx-0 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+              <TriangleAlert className="h-6 w-6 text-destructive" />
+            </div>
+            <AlertDialogTitle className="text-center sm:text-left">
+              Delete {pendingDelete?.clientName}&apos;s waitlist entry?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center sm:text-left">
+              This permanently removes this waitlist entry
+              {pendingDelete?.treatment ? ` for ${pendingDelete.treatment}` : ""}. If a slot offer
+              is currently pending for it, that offer is removed too. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button variant="outline" onClick={() => setPendingDelete(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Delete entry
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

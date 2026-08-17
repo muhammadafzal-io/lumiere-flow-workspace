@@ -37,7 +37,11 @@ import {
   normalizeEmail,
   sanitizeBookingEmails,
 } from "@/lib/agent/booking-guards";
-import { createWaitlistEntry, closeMatchingWaitlistEntries } from "@/lib/waitlist/store";
+import {
+  createWaitlistEntry,
+  closeMatchingWaitlistEntries,
+  countOpenWaitlistForSlot,
+} from "@/lib/waitlist/store";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import {
   dateOfBirthNotPromoCodeError,
@@ -652,12 +656,23 @@ export async function executeTool(
             { clientId: clientRecord.id, phone, platform: context.platform },
           ).catch((e) => console.error("[agent/waitlist] ops log failed:", e));
 
+          // Informational queue size, not a strict line position — accurate for both a fresh
+          // sign-up and a dedupe-refresh of an existing entry without needing to track exact
+          // rank-in-line (see countOpenWaitlistForSlot's doc comment).
+          const openCount = await countOpenWaitlistForSlot(
+            entry.treatment,
+            entry.preferredDate,
+          ).catch(() => null);
+          const queueNote =
+            openCount && openCount > 1
+              ? ` You're one of ${openCount} people currently waiting for this slot.`
+              : "";
+
           return {
             result: {
               waitlist_id: entry.id,
               status: entry.status,
-              message:
-                "Saved to the waitlist. Let the client know staff will reach out if that slot (or something close to it) opens up.",
+              message: `Saved to the waitlist.${queueNote} Let the client know staff will reach out if that slot (or something close to it) opens up.`,
             },
           };
         } catch (err) {
