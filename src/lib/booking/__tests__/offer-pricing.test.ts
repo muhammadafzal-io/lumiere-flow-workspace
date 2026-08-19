@@ -69,7 +69,11 @@ describe("resolvePricing", () => {
   });
 
   it("returns the active offer applied to the current Rate Card price", () => {
-    const result = resolvePricing(150, [offer({ discountType: "percentage", discountValue: 20 })], NOW);
+    const result = resolvePricing(
+      150,
+      [offer({ discountType: "percentage", discountValue: 20 })],
+      NOW,
+    );
     expect(result.finalPrice).toBe(120);
     expect(result.offer?.name).toBe("Summer Special");
   });
@@ -81,21 +85,13 @@ describe("resolvePricing", () => {
   });
 
   it("an expired offer (ends_at in the past) is excluded", () => {
-    const result = resolvePricing(
-      150,
-      [offer({ endsAt: "2026-08-01T00:00:00Z" })],
-      NOW,
-    );
+    const result = resolvePricing(150, [offer({ endsAt: "2026-08-01T00:00:00Z" })], NOW);
     expect(result.offer).toBeNull();
     expect(result.finalPrice).toBe(150);
   });
 
   it("an offer that hasn't started yet (starts_at in the future) is excluded", () => {
-    const result = resolvePricing(
-      150,
-      [offer({ startsAt: "2026-09-01T00:00:00Z" })],
-      NOW,
-    );
+    const result = resolvePricing(150, [offer({ startsAt: "2026-09-01T00:00:00Z" })], NOW);
     expect(result.offer).toBeNull();
     expect(result.finalPrice).toBe(150);
   });
@@ -147,8 +143,6 @@ describe("formatOfferForNotes", () => {
 
   it("shows the discounted price with offer details when an offer applied", () => {
     const pricing = resolvePricing(150, [offer({ name: "20% OFF", discountValue: 20 })], NOW);
-    expect(formatOfferForNotes(pricing)).toBe(
-      "Price: $120 (20% OFF, 20% off rate card $150)",
-    );
+    expect(formatOfferForNotes(pricing)).toBe("Price: $120 (20% OFF, 20% off rate card $150)");
   });
 });
