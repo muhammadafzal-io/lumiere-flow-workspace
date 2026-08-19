@@ -67,6 +67,10 @@ export interface BookingRequest {
    * and the reasons are recorded on the calendar event for an audit trail.
    */
   force?: boolean;
+  /** Extra minutes for accepted add-ons — added on top of the Service's own authoritative
+   * duration when recomputing endTime below, same reasoning as AvailabilityRequest's field of
+   * the same name. */
+  addonDurationMinutes?: number;
 }
 
 /**
@@ -103,6 +107,11 @@ export interface AvailabilityRequest {
   equipment?: string[];
   /** Service name (or id) to resolve a recipe for — when it matches a configured Service, room/practitioner/equipment candidates and cleanup buffers come from that Service's requirements instead of the caller-supplied lists. */
   treatment?: string;
+  /** Extra minutes for accepted add-ons (src/lib/booking/addon-selection.ts), added ON TOP of the
+   * Service's own authoritative duration — kept as a separate field rather than folded into
+   * durationMinutes so it survives the "Service's own duration wins over a caller guess" rule
+   * just below instead of being silently discarded along with it. */
+  addonDurationMinutes?: number;
   /** Clinic's configured IANA timezone; fetched automatically when omitted. Pass explicitly when a caller (e.g. bookAppointment) needs to guarantee the same value is used across several sub-calls in one logical operation. */
   timezone?: string;
 }
@@ -294,6 +303,7 @@ export async function resolveRequestedSlot(request: {
   preferredRoom?: string;
   treatment?: string;
   date?: string;
+  addonDurationMinutes?: number;
 }): Promise<{
   slot: AvailableSlot;
   practitioner: string;
@@ -308,6 +318,7 @@ export async function resolveRequestedSlot(request: {
       const availability = await checkAvailability({
         date,
         durationMinutes: request.durationMinutes,
+        addonDurationMinutes: request.addonDurationMinutes,
         practitionerName: request.preferredPractitioner,
         room: request.preferredRoom,
         treatment: request.treatment,
@@ -367,7 +378,11 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
   const recipe = request.treatment ? await resolveServiceRecipe(request.treatment) : null;
   // A Service's own duration is authoritative once matched — don't trust a caller-supplied
   // guess (e.g. the AI agent) over what the clinic owner configured for this treatment.
-  const effectiveDuration = recipe ? recipe.service.durationMinutes : durationMinutes;
+  // addonDurationMinutes is added on top either way — it's server-validated extra time for
+  // accepted add-ons (src/lib/agent/index.ts's resolveAddonDurationBoost), not a guess.
+  const effectiveDuration =
+    (recipe ? recipe.service.durationMinutes : durationMinutes) +
+    (request.addonDurationMinutes ?? 0);
 
   // A Service that exists but is Inactive must not fall through to the legacy freeform path
   // below — that path has no recipe to enforce, so a deactivated service would otherwise stay
@@ -557,10 +572,14 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
   }
 
   // A Service's own duration is authoritative once matched — recompute endTime from it rather
-  // than trusting whatever the caller (e.g. the AI agent) guessed.
+  // than trusting whatever the caller (e.g. the AI agent) guessed. addonDurationMinutes is added
+  // on top either way — server-validated extra time for accepted add-ons, not a guess. When no
+  // recipe matches (legacy freeform treatment), the caller's own endTime already accounts for any
+  // add-on time (see resolveAddonDurationBoost in agent/index.ts), so it's used as-is.
   const endTime = recipe
     ? new Date(
-        new Date(request.startTime).getTime() + recipe.service.durationMinutes * 60_000,
+        new Date(request.startTime).getTime() +
+          (recipe.service.durationMinutes + (request.addonDurationMinutes ?? 0)) * 60_000,
       ).toISOString()
     : request.endTime;
 
@@ -618,10 +637,17 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
   const duration = Math.round(
     (new Date(endTime).getTime() - new Date(request.startTime).getTime()) / 60000,
   );
+  // `duration` (from the already-addon-boosted endTime above) is the true total either way, but
+  // checkAvailability's own recipe branch always recomputes as recipe duration + addonDurationMinutes
+  // and ignores durationMinutes entirely when a recipe matches — so the boost has to be handed
+  // over via addonDurationMinutes specifically, not folded into durationMinutes, or a recipe match
+  // here would silently drop back to the base duration alone.
+  const addonMinutesForRecheck = recipe ? duration - recipe.service.durationMinutes : 0;
 
   const availability = await checkAvailability({
     date,
     durationMinutes: duration,
+    addonDurationMinutes: addonMinutesForRecheck,
     practitionerName: request.practitionerName,
     room: request.room,
     treatment: request.treatment,
@@ -734,6 +760,7 @@ export async function suggestSlot(request: {
   preferredPractitioner?: string;
   preferredRoom?: string;
   treatment?: string;
+  addonDurationMinutes?: number;
 }): Promise<{
   slot: AvailableSlot;
   practitioner: string;
@@ -743,6 +770,7 @@ export async function suggestSlot(request: {
   const availability = await checkAvailability({
     date: request.date,
     durationMinutes: request.durationMinutes,
+    addonDurationMinutes: request.addonDurationMinutes,
     practitionerName: request.preferredPractitioner,
     room: request.preferredRoom,
     treatment: request.treatment,
@@ -793,6 +821,7 @@ export async function findEarliestAvailability(request: {
   room?: string;
   maxDaysAhead?: number;
   treatment?: string;
+  addonDurationMinutes?: number;
 }): Promise<{
   slots: AvailableSlot[];
   earliestDate: string | null;
@@ -822,6 +851,7 @@ export async function findEarliestAvailability(request: {
     const day = await checkAvailability({
       date,
       durationMinutes,
+      addonDurationMinutes: request.addonDurationMinutes,
       practitionerName: request.practitionerName,
       room: request.room,
       treatment: request.treatment,

@@ -42,6 +42,25 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "get_addons",
+      description:
+        "Look up the optional add-ons configured for a specific service (e.g. LED Light Therapy on a HydraFacial), with each add-on's price and extra duration. Call this right after get_services, once you know the treatment, and BEFORE check_availability — so if the client accepts an add-on you check availability for the combined duration. If it returns no add-ons, say nothing about add-ons and continue the normal booking flow.",
+      parameters: {
+        type: "object",
+        properties: {
+          treatment: {
+            type: "string",
+            description: "The service name the client is booking (from get_services).",
+          },
+        },
+        required: ["treatment"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
       name: "check_availability",
       description:
         "Check available appointment slots in the clinic's Google Calendar for a given date, considering both room and practitioner availability. Returns available time slots and which rooms/practitioners are free. ALWAYS call this before suggesting any time to a client.",
@@ -60,7 +79,13 @@ export const TOOLS: ChatCompletionTool[] = [
           duration_minutes: {
             type: "number",
             description:
-              "Duration of the treatment in minutes (from get_services). Defaults to 60 if unknown.",
+              "Duration of the BASE treatment in minutes (from get_services). Defaults to 60 if unknown. If the client accepted add-ons, pass them via selected_addons instead of adding their time here — it's added automatically.",
+          },
+          selected_addons: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Names of any add-ons the client has already accepted for this booking (exactly as returned by get_services' addOns) — their duration is added automatically so the slots shown are actually long enough. Omit if none accepted yet.",
           },
           preferred_practitioner: {
             type: "string",
@@ -105,7 +130,13 @@ export const TOOLS: ChatCompletionTool[] = [
           duration_minutes: {
             type: "number",
             description:
-              "Duration of the treatment in minutes (from get_services). Defaults to 60 if unknown.",
+              "Duration of the BASE treatment in minutes (from get_services). Defaults to 60 if unknown. If the client accepted add-ons, pass them via selected_addons instead of adding their time here — it's added automatically.",
+          },
+          selected_addons: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Names of any add-ons the client has already accepted for this booking (exactly as returned by get_services' addOns) — their duration is added automatically so the slots shown are actually long enough. Omit if none accepted yet.",
           },
           preferred_practitioner: {
             type: "string",
@@ -149,7 +180,17 @@ export const TOOLS: ChatCompletionTool[] = [
             description:
               "Appointment date YYYY-MM-DD (Austin). Pass with date_time when the client confirmed a day (e.g. tomorrow).",
           },
-          duration_minutes: { type: "number", description: "Duration in minutes" },
+          duration_minutes: {
+            type: "number",
+            description:
+              "Duration in minutes for the base treatment ONLY (from get_services) — do NOT add accepted add-ons' duration yourself, pass them via selected_addons instead and their time is added automatically.",
+          },
+          selected_addons: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "Names of add-ons (exactly as returned by get_addons) the client accepted for this booking. Omit entirely, or pass [], if none were offered or none were accepted — never invent an add-on that wasn't returned by get_addons.",
+          },
           client_contact: { type: "string", description: "Client phone number or Discord ID" },
           client_email: {
             type: "string",

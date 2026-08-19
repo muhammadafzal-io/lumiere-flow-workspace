@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { applyDiscount } from "@/lib/booking/offer-pricing";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -101,6 +102,25 @@ interface EquipmentRequirementRule {
   equipmentIds: string[];
 }
 
+interface ServiceAddon {
+  id?: string;
+  name: string;
+  description: string | null;
+  price: number | null;
+  durationMinutes: number;
+  status: string;
+}
+
+interface ServiceOffer {
+  id?: string;
+  name: string;
+  discountType: "percentage" | "fixed";
+  discountValue: number;
+  enabled: boolean;
+  startsAt: string | null;
+  endsAt: string | null;
+}
+
 interface ServiceRequirement {
   id: string;
   kind: string;
@@ -116,9 +136,13 @@ interface ServiceItem {
   minNoticeHours: number;
   maxAdvanceDays: number;
   waitlistCap: number | null;
+  price: number | null;
   status: string;
   requirements: ServiceRequirement[];
   attachedFormIds: string[];
+  addOns: ServiceAddon[];
+  offers: ServiceOffer[];
+  offerPrice: number | null;
 }
 
 interface AttachableForm {
@@ -1606,6 +1630,7 @@ function ServicesTab({
     minNoticeHours: 0,
     maxAdvanceDays: 365,
     waitlistCap: null,
+    price: null,
     status: "Active",
   });
   const [roomRequirement, setRoomRequirement] = useState<RoomRequirementRule | null>(null);
@@ -1614,6 +1639,8 @@ function ServicesTab({
   );
   const [attachedFormIds, setAttachedFormIds] = useState<string[]>([]);
   const [availableForms, setAvailableForms] = useState<AttachableForm[]>([]);
+  const [addOns, setAddOns] = useState<ServiceAddon[]>([]);
+  const [offers, setOffers] = useState<ServiceOffer[]>([]);
 
   useEffect(() => {
     fetch("/api/forms")
@@ -1637,6 +1664,8 @@ function ServicesTab({
           .map((r) => r.rule as EquipmentRequirementRule),
       );
       setAttachedFormIds(active.attachedFormIds ?? []);
+      setAddOns(active.addOns ?? []);
+      setOffers(active.offers ?? []);
     } else {
       setForm({
         durationMinutes: 60,
@@ -1644,11 +1673,15 @@ function ServicesTab({
         requiresConsultation: false,
         minNoticeHours: 0,
         maxAdvanceDays: 365,
+        waitlistCap: null,
+        price: null,
         status: "Active",
       });
       setRoomRequirement(null);
       setEquipmentRequirements([]);
       setAttachedFormIds([]);
+      setAddOns([]);
+      setOffers([]);
     }
   }, [active]);
 
@@ -1689,9 +1722,12 @@ function ServicesTab({
         MinNoticeHours: form.minNoticeHours ?? 0,
         MaxAdvanceDays: form.maxAdvanceDays ?? 365,
         WaitlistCap: form.waitlistCap ?? null,
+        Price: form.price ?? null,
         Status: form.status ?? "Active",
         requirements,
         attachedFormIds,
+        addOns: addOns.filter((a) => a.name.trim()),
+        offers: offers.filter((o) => o.name.trim()),
       } as any;
 
       const method = active ? "PATCH" : "POST";
@@ -1758,6 +1794,8 @@ function ServicesTab({
             <tr>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Duration</th>
+              <th className="px-4 py-3">Price</th>
+              <th className="px-4 py-3">Offer</th>
               <th className="px-4 py-3">Requirements</th>
               <th className="px-4 py-3">Forms</th>
               <th className="px-4 py-3">Status</th>
@@ -1769,6 +1807,14 @@ function ServicesTab({
               <tr key={item.id} className="border-t">
                 <td className="px-4 py-3">{item.name}</td>
                 <td className="px-4 py-3">{item.durationMinutes} min</td>
+                <td className="px-4 py-3">{item.price != null ? `$${item.price}` : "—"}</td>
+                <td className="px-4 py-3">
+                  {item.offerPrice != null ? (
+                    <span className="text-primary font-medium">${item.offerPrice}</span>
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 <td className="px-4 py-3">{item.requirements?.length ?? 0}</td>
                 <td className="px-4 py-3">{item.attachedFormIds?.length ?? 0}</td>
                 <td className="px-4 py-3">{item.status}</td>
@@ -1784,7 +1830,7 @@ function ServicesTab({
             ))}
             {services.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                   No services configured yet.
                 </td>
               </tr>
@@ -1857,6 +1903,24 @@ function ServicesTab({
                 />
                 <p className="text-xs text-muted-foreground mt-1">
                   Max people waiting per date for this service. Leave blank for the default.
+                </p>
+              </div>
+              <div>
+                <Label>Price ($)</Label>
+                <Input
+                  type="number"
+                  placeholder="Not set"
+                  value={form.price == null ? "" : String(form.price)}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      price: e.target.value === "" ? null : Number(e.target.value),
+                    }))
+                  }
+                  className="mt-1.5"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Rate Card price — the base price offers below discount from.
                 </p>
               </div>
               <div className="flex items-center justify-between rounded-md border px-3 h-9">
@@ -2108,6 +2172,296 @@ function ServicesTab({
                 {availableForms.length === 0 && (
                   <p className="text-xs text-muted-foreground col-span-2">
                     No forms created yet — add some in the Forms section.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <Label>Add-ons</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Optional upsells the AI can offer when a client books this service (e.g. "LED
+                    Light Therapy").
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setAddOns((rows) => [
+                      ...rows,
+                      {
+                        name: "",
+                        description: null,
+                        price: null,
+                        durationMinutes: 0,
+                        status: "Active",
+                      },
+                    ])
+                  }
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {addOns.map((addon, i) => (
+                  <div key={addon.id ?? i} className="rounded-md border p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex-1 grid grid-cols-2 gap-2">
+                        <Input
+                          placeholder="Add-on name"
+                          value={addon.name}
+                          onChange={(e) =>
+                            setAddOns((rows) =>
+                              rows.map((r, idx) =>
+                                idx === i ? { ...r, name: e.target.value } : r,
+                              ),
+                            )
+                          }
+                        />
+                        <Input
+                          placeholder="Description (optional)"
+                          value={addon.description ?? ""}
+                          onChange={(e) =>
+                            setAddOns((rows) =>
+                              rows.map((r, idx) =>
+                                idx === i ? { ...r, description: e.target.value || null } : r,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 ml-2"
+                        onClick={() => setAddOns((rows) => rows.filter((_, idx) => idx !== i))}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 items-end">
+                      <div>
+                        <Label className="text-xs">Price ($)</Label>
+                        <Input
+                          type="number"
+                          placeholder="Optional"
+                          value={addon.price ?? ""}
+                          onChange={(e) =>
+                            setAddOns((rows) =>
+                              rows.map((r, idx) =>
+                                idx === i
+                                  ? {
+                                      ...r,
+                                      price: e.target.value === "" ? null : Number(e.target.value),
+                                    }
+                                  : r,
+                              ),
+                            )
+                          }
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Extra duration (min)</Label>
+                        <Input
+                          type="number"
+                          value={String(addon.durationMinutes ?? 0)}
+                          onChange={(e) =>
+                            setAddOns((rows) =>
+                              rows.map((r, idx) =>
+                                idx === i ? { ...r, durationMinutes: Number(e.target.value) } : r,
+                              ),
+                            )
+                          }
+                          className="mt-1"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between rounded-md border px-3 h-9">
+                        <Label className="mb-0 text-xs">Active</Label>
+                        <Switch
+                          checked={addon.status !== "Inactive"}
+                          onCheckedChange={(checked) =>
+                            setAddOns((rows) =>
+                              rows.map((r, idx) =>
+                                idx === i ? { ...r, status: checked ? "Active" : "Inactive" } : r,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                {addOns.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No add-ons configured for this service.
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <Label>Offers</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Discounts off this service&apos;s Rate Card price above. The AI only mentions an
+                    offer while it&apos;s ON and within its scheduled window, if set.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setOffers((rows) => [
+                      ...rows,
+                      {
+                        name: "",
+                        discountType: "percentage",
+                        discountValue: 0,
+                        enabled: true,
+                        startsAt: null,
+                        endsAt: null,
+                      },
+                    ])
+                  }
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {offers.map((offerRow, i) => {
+                  const preview =
+                    form.price != null
+                      ? applyDiscount(form.price, offerRow.discountType, offerRow.discountValue)
+                      : null;
+                  return (
+                    <div key={offerRow.id ?? i} className="rounded-md border p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Input
+                          placeholder="Offer name (e.g. Summer Special)"
+                          value={offerRow.name}
+                          onChange={(e) =>
+                            setOffers((rows) =>
+                              rows.map((r, idx) =>
+                                idx === i ? { ...r, name: e.target.value } : r,
+                              ),
+                            )
+                          }
+                          className="flex-1"
+                        />
+                        <div className="flex items-center gap-2 ml-2">
+                          <Switch
+                            checked={offerRow.enabled}
+                            onCheckedChange={(checked) =>
+                              setOffers((rows) =>
+                                rows.map((r, idx) => (idx === i ? { ...r, enabled: checked } : r)),
+                              )
+                            }
+                          />
+                          <span className="text-xs text-muted-foreground w-6">
+                            {offerRow.enabled ? "ON" : "OFF"}
+                          </span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            onClick={() => setOffers((rows) => rows.filter((_, idx) => idx !== i))}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 items-end">
+                        <div>
+                          <Label className="text-xs">Discount type</Label>
+                          <Select
+                            value={offerRow.discountType}
+                            onValueChange={(value) =>
+                              setOffers((rows) =>
+                                rows.map((r, idx) =>
+                                  idx === i
+                                    ? { ...r, discountType: value as "percentage" | "fixed" }
+                                    : r,
+                                ),
+                              )
+                            }
+                          >
+                            <SelectTrigger className="w-full h-9 mt-1">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="percentage">Percentage</SelectItem>
+                              <SelectItem value="fixed">Fixed ($)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div>
+                          <Label className="text-xs">
+                            {offerRow.discountType === "percentage"
+                              ? "Discount (%)"
+                              : "Discount ($)"}
+                          </Label>
+                          <Input
+                            type="number"
+                            value={String(offerRow.discountValue)}
+                            onChange={(e) =>
+                              setOffers((rows) =>
+                                rows.map((r, idx) =>
+                                  idx === i ? { ...r, discountValue: Number(e.target.value) } : r,
+                                ),
+                              )
+                            }
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Starts (optional)</Label>
+                          <Input
+                            type="datetime-local"
+                            value={offerRow.startsAt ?? ""}
+                            onChange={(e) =>
+                              setOffers((rows) =>
+                                rows.map((r, idx) =>
+                                  idx === i ? { ...r, startsAt: e.target.value || null } : r,
+                                ),
+                              )
+                            }
+                            className="mt-1"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Ends (optional)</Label>
+                          <Input
+                            type="datetime-local"
+                            value={offerRow.endsAt ?? ""}
+                            onChange={(e) =>
+                              setOffers((rows) =>
+                                rows.map((r, idx) =>
+                                  idx === i ? { ...r, endsAt: e.target.value || null } : r,
+                                ),
+                              )
+                            }
+                            className="mt-1"
+                          />
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {form.price == null
+                          ? "Set a Price above to preview the offer price."
+                          : `Offer price: $${preview} (rate card $${form.price})`}
+                      </p>
+                    </div>
+                  );
+                })}
+                {offers.length === 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    No offers configured for this service.
                   </p>
                 )}
               </div>

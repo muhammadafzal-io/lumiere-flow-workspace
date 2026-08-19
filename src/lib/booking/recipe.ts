@@ -16,6 +16,7 @@ import {
   type ClinicHoursSchedule,
 } from "@/lib/booking/clinic-hours";
 import { createFormResponseLink } from "@/lib/forms/response-link";
+import type { ServiceOfferRow } from "@/lib/booking/offer-pricing";
 
 export interface ClosedTimeEntry {
   start: string;
@@ -81,6 +82,8 @@ export interface ServiceRow {
   minNoticeHours: number;
   maxAdvanceDays: number;
   status: string;
+  /** Rate Card price — null when not yet configured. */
+  price: number | null;
 }
 
 export interface ResolvedRecipe {
@@ -147,6 +150,7 @@ function mapServiceRow(r: any): ServiceRow {
     minNoticeHours: r["MinNoticeHours"] ?? 0,
     maxAdvanceDays: r["MaxAdvanceDays"] ?? 365,
     status: r["Status"] ?? "Active",
+    price: r["Price"] === null || r["Price"] === undefined ? null : Number(r["Price"]),
   };
 }
 
@@ -164,6 +168,106 @@ export async function listActiveServices(query?: string): Promise<ServiceRow[]> 
   if (!query) return all;
   const term = query.toLowerCase();
   return all.filter((s) => s.name.toLowerCase().includes(term));
+}
+
+export interface ServiceAddonRow {
+  id: string;
+  serviceId: string;
+  name: string;
+  description: string | null;
+  price: number | null;
+  durationMinutes: number;
+  status: string;
+}
+
+function mapAddonRow(r: any): ServiceAddonRow {
+  return {
+    id: r.id,
+    serviceId: r.service_id,
+    name: String(r.name ?? "").trim(),
+    description: r.description ?? null,
+    price: r.price === null || r.price === undefined ? null : Number(r.price),
+    durationMinutes: r.duration_minutes ?? 0,
+    status: r.status ?? "Active",
+  };
+}
+
+/**
+ * Lists the Active add-ons configured for a Service (by id or name) — the ServiceAddons child
+ * table, same one-service-to-many-config-rows shape as ServiceRequirements/ServiceFormAssignments.
+ * Returns [] (never throws) when the treatment doesn't resolve to a configured Service, or the
+ * Service has no add-ons — both are normal "nothing to offer" cases the AI booking flow should
+ * just continue past, not error states.
+ */
+export async function listActiveAddonsForService(
+  serviceIdOrName: string,
+): Promise<ServiceAddonRow[]> {
+  if (!serviceIdOrName?.trim()) return [];
+  const sb = getSupabase();
+  const serviceId = await resolveServiceId(sb, serviceIdOrName);
+  if (!serviceId) return [];
+
+  const { data, error } = await sb
+    .from("ServiceAddons")
+    .select("*")
+    .eq("service_id", serviceId)
+    .eq("status", "Active");
+  if (error) throw new Error(`listActiveAddonsForService: ${error.message}`);
+  return (data ?? []).map(mapAddonRow);
+}
+
+function mapOfferRow(r: any): ServiceOfferRow {
+  return {
+    id: r.id,
+    serviceId: r.service_id,
+    name: String(r.name ?? "").trim(),
+    discountType: r.discount_type === "fixed" ? "fixed" : "percentage",
+    discountValue: Number(r.discount_value),
+    enabled: r.enabled ?? true,
+    startsAt: r.starts_at ?? null,
+    endsAt: r.ends_at ?? null,
+  };
+}
+
+/**
+ * Lists ALL offers configured for a Service (by id or name) — enabled and disabled alike, unlike
+ * listActiveAddonsForService's Active-only filter. Settings needs to show/toggle disabled offers
+ * too; "is this offer valid to apply right now" is decided separately by
+ * src/lib/booking/offer-pricing.ts's resolvePricing, which every consumer (AI booking, Settings
+ * preview) shares — so this stays a plain, unfiltered read.
+ */
+export async function listServiceOffers(serviceIdOrName: string): Promise<ServiceOfferRow[]> {
+  if (!serviceIdOrName?.trim()) return [];
+  const sb = getSupabase();
+  const serviceId = await resolveServiceId(sb, serviceIdOrName);
+  if (!serviceId) return [];
+
+  const { data, error } = await sb.from("ServiceOffers").select("*").eq("service_id", serviceId);
+  if (error) throw new Error(`listServiceOffers: ${error.message}`);
+  return (data ?? []).map(mapOfferRow);
+}
+
+/**
+ * Fetches a Service's Rate Card price and its offers together — used at the moment of booking to
+ * independently (re)resolve what the client should actually be charged, rather than trusting
+ * whatever the AI said earlier in the conversation. Returns a null price and no offers when the
+ * treatment doesn't resolve to a configured Service, same "nothing to quote" convention as the
+ * rest of this file's Service lookups.
+ */
+export async function getServiceRateCardPricing(
+  serviceIdOrName: string,
+): Promise<{ price: number | null; offers: ServiceOfferRow[] }> {
+  if (!serviceIdOrName?.trim()) return { price: null, offers: [] };
+  const sb = getSupabase();
+  const serviceId = await resolveServiceId(sb, serviceIdOrName);
+  if (!serviceId) return { price: null, offers: [] };
+
+  const [{ data: serviceRow }, offers] = await Promise.all([
+    sb.from("Services").select("Price").eq("id", serviceId).maybeSingle(),
+    listServiceOffers(serviceId),
+  ]);
+  const price = serviceRow?.["Price"];
+  return { price: price === null || price === undefined ? null : Number(price), offers };
 }
 
 function resolveRoomCandidates(rule: RoomRequirementRule | null, rooms: RoomRow[]): RoomRow[] {

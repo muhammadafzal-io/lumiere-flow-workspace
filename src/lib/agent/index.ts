@@ -25,7 +25,14 @@ import {
   createAppointmentRecord,
   getPractitioners,
 } from "@/lib/integrations/airtable";
-import { listActiveServices } from "@/lib/booking/recipe";
+import {
+  listActiveServices,
+  listActiveAddonsForService,
+  listServiceOffers,
+  getServiceRateCardPricing,
+} from "@/lib/booking/recipe";
+import { resolveSelectedAddons, formatAddonsForNotes } from "@/lib/booking/addon-selection";
+import { resolvePricing, formatOfferForNotes } from "@/lib/booking/offer-pricing";
 import { validatePromoCode } from "@/lib/credits/validate-code";
 import {
   validateBookAppointment,
@@ -158,6 +165,29 @@ async function deliverCompletionLink(opts: {
   };
 }
 
+/**
+ * Resolves a tool call's `selected_addons` (if any) against the currently active add-ons for
+ * `input.treatment`, into extra minutes to add on top of whatever duration_minutes the AI passed.
+ * Shared by check_availability, find_earliest_availability, and book_appointment so accepted
+ * add-ons extend the SAME duration at every stage of the flow — never trusts the AI to have
+ * already folded add-on time into duration_minutes itself, since that's cheap for the model to
+ * get wrong and expensive to get wrong (a real calendar slot too short for what was promised).
+ */
+async function resolveAddonDurationBoost(
+  input: Record<string, unknown>,
+): Promise<ReturnType<typeof resolveSelectedAddons>> {
+  const rawSelectedAddons = Array.isArray(input.selected_addons)
+    ? (input.selected_addons as unknown[]).filter((n): n is string => typeof n === "string")
+    : [];
+  if (rawSelectedAddons.length === 0 || !input.treatment) {
+    return { matched: [], unavailable: [], extraDurationMinutes: 0, extraPrice: 0 };
+  }
+  const candidateAddons = await listActiveAddonsForService(input.treatment as string).catch(
+    () => [],
+  );
+  return resolveSelectedAddons(candidateAddons, rawSelectedAddons);
+}
+
 export async function executeTool(
   toolName: string,
   input: Record<string, unknown>,
@@ -199,18 +229,62 @@ export async function executeTool(
       case "get_services": {
         try {
           const services = await listActiveServices(input.query as string | undefined);
+          // Add-ons and pricing/offers are embedded directly here (rather than relying on
+          // separate tool calls) because get_services is already called unconditionally on every
+          // booking — piggybacking on that guarantees the AI always sees what's offered instead
+          // of depending on it remembering to make another, easily-skipped tool call.
+          const [addOnsByService, offersByService] = await Promise.all([
+            Promise.all(services.map((s) => listActiveAddonsForService(s.id).catch(() => []))),
+            Promise.all(services.map((s) => listServiceOffers(s.id).catch(() => []))),
+          ]);
+          const pricingByService = services.map((s, i) =>
+            resolvePricing(s.price, offersByService[i]),
+          );
+
+          // Directives tied to this specific result (like the "no match" note below) rather than
+          // static system-prompt paragraphs — tool-result-level instructions have proven far more
+          // reliable at actually being followed than general prompt rules buried among many others.
+          const notes: string[] = [];
+          if (services.length === 1) {
+            const addOns = addOnsByService[0];
+            if (addOns.length > 0) {
+              const list = addOns
+                .map((a) => `${a.name}${a.price != null ? ` ($${a.price})` : ""}`)
+                .join(", ");
+              notes.push(
+                `Before asking about date/time, offer these add-on(s) for ${services[0].name} in your very next message and wait for the client's answer: ${list}. Do not proceed to date/practitioner/availability until you've asked.`,
+              );
+            }
+            const pricing = pricingByService[0];
+            if (pricing.offer) {
+              notes.push(
+                `Mention this current offer for ${services[0].name} naturally in your next message: normally $${pricing.basePrice}, currently $${pricing.finalPrice} with "${pricing.offer.name}". Never mention a price or offer that isn't in this result.`,
+              );
+            }
+          }
+
           return {
             result: {
-              services: services.map((s) => ({
+              services: services.map((s, i) => ({
                 name: s.name,
                 durationMinutes: s.durationMinutes,
                 onlineBookable: s.onlineBookable,
                 requiresConsultation: s.requiresConsultation,
+                price: pricingByService[i].basePrice ?? undefined,
+                offerPrice:
+                  pricingByService[i].offer != null ? pricingByService[i].finalPrice : undefined,
+                offerName: pricingByService[i].offer?.name,
+                addOns: addOnsByService[i].map((a) => ({
+                  name: a.name,
+                  description: a.description ?? undefined,
+                  price: a.price ?? undefined,
+                  durationMinutes: a.durationMinutes,
+                })),
               })),
               note:
                 services.length === 0
                   ? "No configured service matched — use the knowledge base's description and a reasonable duration estimate instead."
-                  : undefined,
+                  : notes.join(" ") || undefined,
             },
           };
         } catch (err) {
@@ -218,6 +292,35 @@ export async function executeTool(
             result: {
               services: [],
               note: "Service list unavailable — use the knowledge base's treatment descriptions and durations instead.",
+              error: err instanceof Error ? err.message : String(err),
+            },
+          };
+        }
+      }
+
+      case "get_addons": {
+        try {
+          const addons = await listActiveAddonsForService(input.treatment as string);
+          return {
+            result: {
+              addons: addons.map((a) => ({
+                name: a.name,
+                description: a.description ?? undefined,
+                price: a.price ?? undefined,
+                durationMinutes: a.durationMinutes,
+              })),
+              note:
+                addons.length === 0
+                  ? "No add-ons configured for this service — don't mention add-ons, continue the normal booking flow."
+                  : undefined,
+            },
+          };
+        } catch (err) {
+          // Best-effort: an add-on offer is an enhancement, never a reason to block booking.
+          return {
+            result: {
+              addons: [],
+              note: "Add-ons unavailable — continue the normal booking flow without mentioning them.",
               error: err instanceof Error ? err.message : String(err),
             },
           };
@@ -244,10 +347,12 @@ export async function executeTool(
               (input.practitioner_name as string | undefined),
             input.treatment as string | undefined,
           );
+          const addonBoost = await resolveAddonDurationBoost(input);
           const availability = await checkAvailability({
             date: input.date as string,
             treatment: input.treatment as string | undefined,
             durationMinutes: (input.duration_minutes as number) ?? 60,
+            addonDurationMinutes: addonBoost.extraDurationMinutes,
             practitionerName,
             room: input.preferred_room as string | undefined,
           });
@@ -311,9 +416,11 @@ export async function executeTool(
               (input.practitioner_name as string | undefined),
             input.treatment as string | undefined,
           );
+          const addonBoost = await resolveAddonDurationBoost(input);
           const result = await findEarliestAvailability({
             treatment: input.treatment as string | undefined,
             durationMinutes: (input.duration_minutes as number) ?? 60,
+            addonDurationMinutes: addonBoost.extraDurationMinutes,
             practitionerName,
             room: input.preferred_room as string | undefined,
           });
@@ -367,7 +474,20 @@ export async function executeTool(
           }
         }
 
-        const durationMin = (input.duration_minutes as number) ?? 60;
+        // Resolve accepted add-ons against what's currently still active for this service — not
+        // just what the AI was shown earlier — so one that was deactivated or renamed between
+        // being offered and the client confirming is caught here rather than silently booked.
+        const addonSelection = await resolveAddonDurationBoost(input);
+        if (addonSelection.matched.length > 0 || addonSelection.unavailable.length > 0) {
+          flow?.step("book:addons resolved", {
+            matched: addonSelection.matched.map((a) => a.name),
+            unavailable: addonSelection.unavailable,
+            extraDurationMinutes: addonSelection.extraDurationMinutes,
+          });
+        }
+
+        const durationMin =
+          ((input.duration_minutes as number) ?? 60) + addonSelection.extraDurationMinutes;
         const bookingDate =
           (input.date as string | undefined) || (input.booking_date as string | undefined);
         let startTime = input.date_time as string;
@@ -380,7 +500,8 @@ export async function executeTool(
           flow?.step("book:resolve slot", { startTime, durationMin, practitioner, bookingDate });
           const resolved = await resolveRequestedSlot({
             startTime,
-            durationMinutes: durationMin,
+            durationMinutes: (input.duration_minutes as number) ?? 60,
+            addonDurationMinutes: addonSelection.extraDurationMinutes,
             preferredPractitioner: practitioner,
             preferredRoom: room,
             treatment: input.treatment as string | undefined,
@@ -398,7 +519,8 @@ export async function executeTool(
           try {
             const suggestion = await suggestSlot({
               date: startTime.split("T")[0],
-              durationMinutes: durationMin,
+              durationMinutes: (input.duration_minutes as number) ?? 60,
+              addonDurationMinutes: addonSelection.extraDurationMinutes,
               preferredPractitioner: practitioner,
               preferredRoom: room,
               treatment: input.treatment as string,
@@ -419,6 +541,18 @@ export async function executeTool(
         const resolvedClientName =
           rawClientName || (isVoice ? PENDING_NAME_PLACEHOLDER : rawClientName);
 
+        const addonsNote = formatAddonsForNotes(addonSelection.matched);
+        // Re-resolved fresh right now, independent of anything the AI said earlier in the
+        // conversation — this is the price actually charged, stamped onto the booking as static
+        // text so a later Rate Card change never retroactively alters what this booking recorded.
+        const { price: currentPrice, offers: currentOffers } = await getServiceRateCardPricing(
+          (input.treatment as string) ?? "",
+        ).catch(() => ({ price: null, offers: [] }));
+        const pricingNote = formatOfferForNotes(resolvePricing(currentPrice, currentOffers));
+        const combinedNotes = [input.notes as string | undefined, addonsNote, pricingNote]
+          .filter(Boolean)
+          .join(" | ");
+
         const apptData = {
           clientName: resolvedClientName,
           clientContact: input.client_contact as string,
@@ -429,8 +563,9 @@ export async function executeTool(
           practitionerName: practitioner!,
           room: room!,
           bookingDate,
-          notes: input.notes as string | undefined,
+          notes: combinedNotes || undefined,
           source: "bot" as const,
+          addonDurationMinutes: addonSelection.extraDurationMinutes,
         };
         flow?.step("book:calendar create", {
           clientEmail: apptData.clientEmail,
@@ -590,6 +725,22 @@ export async function executeTool(
                   note: completionLink.note,
                 }
               : undefined,
+            addons_booked:
+              addonSelection.matched.length > 0
+                ? addonSelection.matched.map((a) => a.name)
+                : undefined,
+            addons_unavailable:
+              addonSelection.unavailable.length > 0
+                ? {
+                    names: addonSelection.unavailable,
+                    note: "These selected add-ons are no longer available and were NOT included — let the client know.",
+                  }
+                : undefined,
+            price_charged:
+              currentPrice != null
+                ? resolvePricing(currentPrice, currentOffers).finalPrice
+                : undefined,
+            rate_card_price: currentPrice ?? undefined,
           };
           flow?.step("book:complete", { result: summarizeForFlowLog(result) });
           return { result, booked: true };
