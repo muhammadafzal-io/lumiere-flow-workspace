@@ -14,6 +14,14 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+} from "@/components/ui/alert-dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -21,7 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Check, X, RefreshCw, Loader2, Plus, Pencil, Trash2 } from "lucide-react";
+import { Check, X, RefreshCw, Loader2, Plus, Pencil, Trash2, TriangleAlert } from "lucide-react";
 import { ClientChannelsDashboard } from "@/components/ClientChannelsPanel";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import { toast } from "sonner";
@@ -1641,6 +1649,9 @@ function ServicesTab({
   const [availableForms, setAvailableForms] = useState<AttachableForm[]>([]);
   const [addOns, setAddOns] = useState<ServiceAddon[]>([]);
   const [offers, setOffers] = useState<ServiceOffer[]>([]);
+  const [pendingDelete, setPendingDelete] = useState<ServiceItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [orphanWarning, setOrphanWarning] = useState<{ upcomingCount: number } | null>(null);
 
   useEffect(() => {
     fetch("/api/forms")
@@ -1762,15 +1773,37 @@ function ServicesTab({
     }
   };
 
-  const removeItem = async (item: ServiceItem) => {
-    if (!window.confirm(`Delete ${item.name}?`)) return;
+  const startDelete = (item: ServiceItem) => {
+    setOrphanWarning(null);
+    setPendingDelete(item);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      const res = await fetch(`/api/settings/services?id=${item.id}`, { method: "DELETE" });
+      const force = orphanWarning !== null;
+      const res = await fetch(
+        `/api/settings/services?id=${pendingDelete.id}${force ? "&force=true" : ""}`,
+        { method: "DELETE" },
+      );
+      if (res.status === 409) {
+        const body = await res.json().catch(() => null);
+        if (body?.code === "WOULD_ORPHAN_APPOINTMENTS") {
+          setOrphanWarning({ upcomingCount: body.upcomingCount });
+          return;
+        }
+        throw new Error(body?.error);
+      }
       if (!res.ok) throw new Error();
-      onSaved(services.filter((svc) => svc.id !== item.id));
+      onSaved(services.filter((svc) => svc.id !== pendingDelete.id));
       toast.success("Service deleted");
+      setPendingDelete(null);
+      setOrphanWarning(null);
     } catch {
       toast.error("Failed to delete service");
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -1822,7 +1855,7 @@ function ServicesTab({
                   <Button variant="ghost" size="sm" onClick={() => editItem(item)}>
                     <Pencil className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => removeItem(item)}>
+                  <Button variant="ghost" size="sm" onClick={() => startDelete(item)}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </td>
@@ -2478,6 +2511,60 @@ function ServicesTab({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(o) => {
+          if (!o && !deleting) {
+            setPendingDelete(null);
+            setOrphanWarning(null);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <div className="mx-auto sm:mx-0 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+              <TriangleAlert className="h-6 w-6 text-destructive" />
+            </div>
+            <AlertDialogTitle className="text-center sm:text-left">
+              {orphanWarning
+                ? `${pendingDelete?.name} has ${orphanWarning.upcomingCount} upcoming appointment(s)`
+                : `Delete ${pendingDelete?.name}?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-center sm:text-left">
+              {orphanWarning ? (
+                <>
+                  Deleting it now would leave those appointments pointing at a service that no
+                  longer exists — future rescheduling or lookups for them will break. Delete anyway
+                  only if you&apos;re sure, e.g. the appointments are being moved to a replacement
+                  service.
+                </>
+              ) : (
+                <>
+                  This permanently removes the service, including its room/equipment requirements,
+                  attached forms, add-ons, and offers. This cannot be undone.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPendingDelete(null);
+                setOrphanWarning(null);
+              }}
+              disabled={deleting}
+            >
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={deleting}>
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {orphanWarning ? "Delete anyway" : "Delete service"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
