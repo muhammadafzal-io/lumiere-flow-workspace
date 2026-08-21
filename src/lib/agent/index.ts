@@ -11,6 +11,7 @@ import {
   sanitizePractitionerFilter,
   selectPresentableSlots,
   parsePreferredTimeKey,
+  canExtendAppointment,
 } from "@/lib/services/booking-service";
 import {
   cancelCalendarEvent,
@@ -30,9 +31,17 @@ import {
   listActiveAddonsForService,
   listServiceOffers,
   getServiceRateCardPricing,
+  resolveServiceId,
 } from "@/lib/booking/recipe";
 import { resolveSelectedAddons, formatAddonsForNotes } from "@/lib/booking/addon-selection";
 import { resolvePricing, formatOfferForNotes } from "@/lib/booking/offer-pricing";
+import {
+  logOfferPresented,
+  findOfferEvent,
+  recordOfferResponse,
+  computePostBookingOffers,
+} from "@/lib/booking/offer-events";
+import { getSupabase } from "@/lib/supabase";
 import { validatePromoCode } from "@/lib/credits/validate-code";
 import {
   validateBookAppointment,
@@ -229,10 +238,11 @@ export async function executeTool(
       case "get_services": {
         try {
           const services = await listActiveServices(input.query as string | undefined);
-          // Add-ons and pricing/offers are embedded directly here (rather than relying on
-          // separate tool calls) because get_services is already called unconditionally on every
-          // booking — piggybacking on that guarantees the AI always sees what's offered instead
-          // of depending on it remembering to make another, easily-skipped tool call.
+          // Add-ons and pricing/offers are embedded here purely as DATA (e.g. so the AI can
+          // answer "how much is X" if asked, or pass along an add-on/offer the client brings up
+          // unprompted) — NOT as a directive to proactively pitch them. Cross-sell/upsell offers
+          // are only ever proactively presented post-booking, once required forms are sent (see
+          // book_appointment's result) — never during the booking flow itself.
           const [addOnsByService, offersByService] = await Promise.all([
             Promise.all(services.map((s) => listActiveAddonsForService(s.id).catch(() => []))),
             Promise.all(services.map((s) => listServiceOffers(s.id).catch(() => []))),
@@ -240,28 +250,6 @@ export async function executeTool(
           const pricingByService = services.map((s, i) =>
             resolvePricing(s.price, offersByService[i]),
           );
-
-          // Directives tied to this specific result (like the "no match" note below) rather than
-          // static system-prompt paragraphs — tool-result-level instructions have proven far more
-          // reliable at actually being followed than general prompt rules buried among many others.
-          const notes: string[] = [];
-          if (services.length === 1) {
-            const addOns = addOnsByService[0];
-            if (addOns.length > 0) {
-              const list = addOns
-                .map((a) => `${a.name}${a.price != null ? ` ($${a.price})` : ""}`)
-                .join(", ");
-              notes.push(
-                `Before asking about date/time, offer these add-on(s) for ${services[0].name} in your very next message and wait for the client's answer: ${list}. Do not proceed to date/practitioner/availability until you've asked.`,
-              );
-            }
-            const pricing = pricingByService[0];
-            if (pricing.offer) {
-              notes.push(
-                `Mention this current offer for ${services[0].name} naturally in your next message: normally $${pricing.basePrice}, currently $${pricing.finalPrice} with "${pricing.offer.name}". Never mention a price or offer that isn't in this result.`,
-              );
-            }
-          }
 
           return {
             result: {
@@ -274,6 +262,7 @@ export async function executeTool(
                 offerPrice:
                   pricingByService[i].offer != null ? pricingByService[i].finalPrice : undefined,
                 offerName: pricingByService[i].offer?.name,
+                offerId: pricingByService[i].offer?.id,
                 addOns: addOnsByService[i].map((a) => ({
                   name: a.name,
                   description: a.description ?? undefined,
@@ -284,7 +273,7 @@ export async function executeTool(
               note:
                 services.length === 0
                   ? "No configured service matched — use the knowledge base's description and a reasonable duration estimate instead."
-                  : notes.join(" ") || undefined,
+                  : undefined,
             },
           };
         } catch (err) {
@@ -548,7 +537,18 @@ export async function executeTool(
         const { price: currentPrice, offers: currentOffers } = await getServiceRateCardPricing(
           (input.treatment as string) ?? "",
         ).catch(() => ({ price: null, offers: [] }));
-        const pricingNote = formatOfferForNotes(resolvePricing(currentPrice, currentOffers));
+        // An offer is only ever applied when the client explicitly accepted it (accepted_offer_id
+        // matches a currently active offer) — never auto-applied just because one exists. An
+        // offer_id that's missing, stale, disabled, or expired all fall through to the plain
+        // Rate Card price, same as a genuine decline.
+        const acceptedOfferId = input.accepted_offer_id as string | undefined;
+        const acceptedOfferCandidate = acceptedOfferId
+          ? currentOffers.find((o) => o.id === acceptedOfferId)
+          : undefined;
+        const appliedPricing = acceptedOfferCandidate
+          ? resolvePricing(currentPrice, [acceptedOfferCandidate])
+          : { basePrice: currentPrice, offer: null, finalPrice: currentPrice };
+        const pricingNote = formatOfferForNotes(appliedPricing);
         const combinedNotes = [input.notes as string | undefined, addonsNote, pricingNote]
           .filter(Boolean)
           .join(" | ");
@@ -659,6 +659,92 @@ export async function executeTool(
             flow?.step("book:no email to send");
           }
 
+          // Cross-sell/upsell is presented HERE — once the booking is confirmed and required
+          // forms have been sent — and never during the booking flow itself. Only the add-ons/
+          // offer not already taken care of at booking time are worth mentioning again (see
+          // computePostBookingOffers). Scoped to confirmationEmailSent since that's the one
+          // concrete "forms were just sent" moment this architecture has; voice bookings defer
+          // everything to their own completion-link flow and aren't in scope here.
+          let postBookingOffer:
+            | {
+                cross_sell?: Array<{ offer_id: string; name: string; price: number | null }>;
+                upsell?: {
+                  offer_id: string;
+                  name: string;
+                  base_price: number;
+                  offer_price: number;
+                };
+              }
+            | undefined;
+          if (confirmationEmailSent) {
+            const bookedServiceId = await resolveServiceId(getSupabase(), apptData.treatment).catch(
+              () => null,
+            );
+            const bookedAddOns = bookedServiceId
+              ? await listActiveAddonsForService(bookedServiceId).catch(() => [])
+              : [];
+            const naturalPricing = resolvePricing(currentPrice, currentOffers);
+            const post = computePostBookingOffers(
+              bookedAddOns,
+              addonSelection.matched.map((a) => a.id),
+              naturalPricing.offer,
+              acceptedOfferCandidate?.id,
+            );
+
+            if (post.crossSell.length > 0) {
+              postBookingOffer = {
+                ...postBookingOffer,
+                cross_sell: post.crossSell.map((a) => ({
+                  offer_id: a.id,
+                  name: a.name,
+                  price: a.price,
+                })),
+              };
+              for (const a of post.crossSell) {
+                void logOfferPresented({
+                  chatId: context.chatId,
+                  eventId: appt.id,
+                  clientId: clientRecord?.id,
+                  clientName: apptData.clientName,
+                  clientContact: apptData.clientContact,
+                  serviceId: bookedServiceId,
+                  offerId: a.id,
+                  offerType: "CROSS_SELL",
+                  offerName: a.name,
+                  offeredPrice: a.price,
+                  basePrice: null,
+                  platform: context.platform,
+                });
+              }
+            }
+            if (post.upsell) {
+              const upsellPrice = resolvePricing(currentPrice, [post.upsell]).finalPrice;
+              postBookingOffer = {
+                ...postBookingOffer,
+                upsell: {
+                  offer_id: post.upsell.id,
+                  name: post.upsell.name,
+                  base_price: currentPrice as number,
+                  offer_price: upsellPrice as number,
+                },
+              };
+              void logOfferPresented({
+                chatId: context.chatId,
+                eventId: appt.id,
+                clientId: clientRecord?.id,
+                clientName: apptData.clientName,
+                clientContact: apptData.clientContact,
+                serviceId: bookedServiceId,
+                offerId: post.upsell.id,
+                offerType: "UPSELL",
+                offerName: post.upsell.name,
+                offeredPrice: upsellPrice,
+                basePrice: currentPrice,
+                platform: context.platform,
+              });
+            }
+          }
+
           await logEvent(
             "booking",
             apptData.clientName,
@@ -736,18 +822,163 @@ export async function executeTool(
                     note: "These selected add-ons are no longer available and were NOT included — let the client know.",
                   }
                 : undefined,
-            price_charged:
-              currentPrice != null
-                ? resolvePricing(currentPrice, currentOffers).finalPrice
-                : undefined,
+            price_charged: currentPrice != null ? appliedPricing.finalPrice : undefined,
             rate_card_price: currentPrice ?? undefined,
+            post_booking_offer: postBookingOffer,
+            post_booking_offer_note: postBookingOffer
+              ? (() => {
+                  const items = [
+                    ...(postBookingOffer.cross_sell ?? []).map(
+                      (a) => `${a.name} for $${a.price} (add-on)`,
+                    ),
+                    ...(postBookingOffer.upsell
+                      ? [
+                          `${postBookingOffer.upsell.name}: ${postBookingOffer.upsell.base_price} → $${postBookingOffer.upsell.offer_price} (offer)`,
+                        ]
+                      : []),
+                  ];
+                  return `Now that the booking is confirmed and the forms are sent, mention ALL ${items.length} of these in your VERY NEXT message — do not drop any of them — along with (not instead of) the confirmation/form message: ${items.join("; ")}. Ask about each one (a client can accept one, both, or neither) and wait for their answer(s) before calling anything. For each one they respond to, call apply_post_booking_offer with event_id "${appt.id}", the matching offer_id, offer_type, and accepted: true or false based on what they actually said. If they don't respond to a given one, don't ask again — leave it. Never invent an offer that isn't in this list.`;
+                })()
+              : undefined,
           };
           flow?.step("book:complete", { result: summarizeForFlowLog(result) });
+
           return { result, booked: true };
         } catch (err) {
           const error = err instanceof Error ? err.message : "Booking failed";
           flow?.step("book:failed", { error });
           return { result: { error } };
+        }
+      }
+
+      /**
+       * Records the client's explicit response to a post-booking cross-sell/upsell offer
+       * (book_appointment's post_booking_offer field) and, only on acceptance, actually applies
+       * it to the already-confirmed booking. Never invoked speculatively — the AI calls this
+       * exactly once per offer, with accepted true or false, based on what the client actually
+       * said.
+       */
+      case "apply_post_booking_offer": {
+        const eventId = String(input.event_id ?? "").trim();
+        const offerId = String(input.offer_id ?? "").trim();
+        const offerType = input.offer_type as "CROSS_SELL" | "UPSELL" | undefined;
+        const accepted = input.accepted === true;
+
+        if (!eventId || !offerId || (offerType !== "CROSS_SELL" && offerType !== "UPSELL")) {
+          return {
+            result: {
+              error: "event_id, offer_id, and offer_type (CROSS_SELL or UPSELL) are all required.",
+            },
+          };
+        }
+
+        const offerEvent = await findOfferEvent(eventId, offerId).catch(() => null);
+        if (!offerEvent || offerEvent.status !== "PRESENTED") {
+          return {
+            result: {
+              error:
+                "This offer isn't open for this booking anymore (already responded to, or never presented) — do not add anything to the booking.",
+            },
+          };
+        }
+
+        if (!accepted) {
+          await recordOfferResponse(eventId, offerId, false).catch(() => undefined);
+          return {
+            result: { status: "DECLINED", message: "Recorded — the booking is unchanged." },
+          };
+        }
+
+        try {
+          const booking = await getCalendarBookingDetails(eventId);
+
+          if (offerType === "CROSS_SELL") {
+            const addOns = await listActiveAddonsForService(booking.treatment).catch(() => []);
+            const addon = addOns.find((a) => a.id === offerId);
+            if (!addon) {
+              return {
+                result: {
+                  error:
+                    "This add-on is no longer available (inactive or removed) — it was NOT added. Let the client know.",
+                },
+              };
+            }
+
+            const newEndTime = new Date(
+              new Date(booking.endTime).getTime() + addon.durationMinutes * 60_000,
+            ).toISOString();
+            const conflict = await canExtendAppointment({
+              eventId,
+              date: booking.startTime.split("T")[0],
+              startTime: booking.startTime,
+              newEndTime,
+              room: booking.room,
+              practitionerName: booking.practitionerName,
+            });
+            if (!conflict.ok) {
+              // Left PRESENTED, not DECLINED — the client still wants it, the exact slot just
+              // can't fit it. A reschedule (existing check_reschedule_availability /
+              // reschedule_appointment flow) could still make it work.
+              return {
+                result: {
+                  error: `Can't add ${addon.name} to this exact appointment — ${conflict.reason} It was NOT added. Tell the client, and offer to check reschedule availability if they still want it.`,
+                },
+              };
+            }
+
+            await rescheduleCalendarEvent(eventId, booking.startTime, newEndTime);
+            const newNotes = [booking.notes, formatAddonsForNotes([addon])]
+              .filter(Boolean)
+              .join(" | ");
+            await patchCalendarBookingFields(eventId, { notes: newNotes });
+            await recordOfferResponse(eventId, offerId, true);
+
+            return {
+              result: {
+                status: "ACCEPTED",
+                added: addon.name,
+                price: addon.price ?? undefined,
+                new_end_time: newEndTime,
+                message: `${addon.name} added to the appointment${addon.price != null ? ` for $${addon.price}` : ""}.`,
+              },
+            };
+          }
+
+          // UPSELL
+          const offers = await listServiceOffers(booking.treatment).catch(() => []);
+          const offer = offers.find((o) => o.id === offerId);
+          const { price: basePrice } = await getServiceRateCardPricing(booking.treatment).catch(
+            () => ({ price: null, offers: [] }),
+          );
+          const pricing = offer ? resolvePricing(basePrice, [offer]) : null;
+          if (!offer || !pricing?.offer) {
+            return {
+              result: {
+                error:
+                  "This offer is no longer available (disabled or expired) — it was NOT applied. Let the client know they'll be charged the regular price.",
+              },
+            };
+          }
+
+          const newNotes = [booking.notes, formatOfferForNotes(pricing)]
+            .filter(Boolean)
+            .join(" | ");
+          await patchCalendarBookingFields(eventId, { notes: newNotes });
+          await recordOfferResponse(eventId, offerId, true);
+
+          return {
+            result: {
+              status: "ACCEPTED",
+              offer: offer.name,
+              new_price: pricing.finalPrice ?? undefined,
+              base_price: pricing.basePrice ?? undefined,
+              message: `${offer.name} applied — new price $${pricing.finalPrice} (was $${pricing.basePrice}).`,
+            },
+          };
+        } catch (err) {
+          return {
+            result: { error: err instanceof Error ? err.message : "Failed to apply the offer." },
+          };
         }
       }
 

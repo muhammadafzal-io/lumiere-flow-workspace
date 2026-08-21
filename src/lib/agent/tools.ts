@@ -191,6 +191,11 @@ export const TOOLS: ChatCompletionTool[] = [
             description:
               "Names of add-ons (exactly as returned by get_addons) the client accepted for this booking. Omit entirely, or pass [], if none were offered or none were accepted — never invent an add-on that wasn't returned by get_addons.",
           },
+          accepted_offer_id: {
+            type: "string",
+            description:
+              "The offerId (exactly as returned by get_services' offerId field) ONLY if the client explicitly agreed to take the current promotional offer. Omit entirely if no offer was mentioned, or the client didn't say yes to it — the booking is priced at the plain Rate Card price whenever this is omitted. Never invent an id.",
+          },
           client_contact: { type: "string", description: "Client phone number or Discord ID" },
           client_email: {
             type: "string",
@@ -223,6 +228,40 @@ export const TOOLS: ChatCompletionTool[] = [
           },
         },
         required: ["treatment", "date_time", "duration_minutes", "client_contact"],
+      },
+    },
+  },
+
+  {
+    type: "function",
+    function: {
+      name: "apply_post_booking_offer",
+      description:
+        "Records the client's explicit yes/no to a cross-sell add-on or upsell offer shown AFTER a booking is confirmed (from book_appointment's post_booking_offer field) and, only when accepted, adds it to the existing booking. Call this exactly once per offer per booking — do not call it again for the same offer_id once it's been answered, and do not offer the same thing twice. NEVER call with accepted: true unless the client clearly said yes.",
+      parameters: {
+        type: "object",
+        properties: {
+          event_id: {
+            type: "string",
+            description: "The booking's event_id, from book_appointment's result.",
+          },
+          offer_id: {
+            type: "string",
+            description:
+              "The exact offer_id from book_appointment's post_booking_offer (cross_sell[].offer_id or upsell.offer_id) — never invent one.",
+          },
+          offer_type: {
+            type: "string",
+            enum: ["CROSS_SELL", "UPSELL"],
+            description: "Which kind of offer this is, matching post_booking_offer's shape.",
+          },
+          accepted: {
+            type: "boolean",
+            description:
+              "true ONLY if the client clearly agreed to add this. false if they declined. Always pass one or the other — never omit — so the response gets recorded either way.",
+          },
+        },
+        required: ["event_id", "offer_id", "offer_type", "accepted"],
       },
     },
   },

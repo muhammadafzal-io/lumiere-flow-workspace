@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runWaitlistOfferSweepFlow, runWaitlistExpirySweepFlow } from "@/lib/waitlist/sweep";
+import { runOfferEventsNoResponseSweepFlow } from "@/lib/booking/offer-events";
 
 function isAuthorised(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -16,7 +17,8 @@ export async function POST(req: NextRequest) {
     // one easy to attribute without the other's errors interleaving in the response.
     const offers = await runWaitlistOfferSweepFlow();
     const expiry = await runWaitlistExpirySweepFlow();
-    return NextResponse.json({ ok: true, offers, expiry });
+    const offerEvents = await runOfferEventsNoResponseSweepFlow();
+    return NextResponse.json({ ok: true, offers, expiry, offerEvents });
   } catch (err) {
     return NextResponse.json({ ok: false, error: String(err) }, { status: 500 });
   }

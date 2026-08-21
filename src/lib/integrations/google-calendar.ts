@@ -909,7 +909,7 @@ export async function updateCalendarBookingEmail(eventId: string, email: string)
  */
 export async function patchCalendarBookingFields(
   eventId: string,
-  fields: { clientName?: string; email?: string; clientId?: string },
+  fields: { clientName?: string; email?: string; clientId?: string; notes?: string },
 ): Promise<void> {
   const calendar = getCalendarClient();
   const calId = calendarId();
@@ -924,6 +924,9 @@ export async function patchCalendarBookingFields(
   }
   if (fields.clientId) {
     description = setDescriptionField(description, "Client ID:", fields.clientId);
+  }
+  if (fields.notes !== undefined) {
+    description = setDescriptionField(description, "Notes:", fields.notes);
   }
 
   const requestBody: calendar_v3.Schema$Event = { description };

@@ -8,6 +8,7 @@ import {
   bookAdminAppointment,
   getEventsByRange,
   hasPriorAppointment,
+  zonedHourToUtc,
 } from "@/lib/integrations/google-calendar";
 import type { AvailableSlot } from "@/types";
 import {
@@ -359,6 +360,59 @@ export async function resolveRequestedSlot(request: {
     },
     request,
   );
+}
+
+/**
+ * Checks whether an already-booked appointment can extend its own end time in place — used by a
+ * post-booking cross-sell add-on, which lengthens a confirmed appointment rather than creating a
+ * new one. A plain checkAvailability call can't answer this: the appointment's own current
+ * (shorter) occupancy would show up as a conflict against itself. This instead looks at every
+ * OTHER event that day in the same room or with the same practitioner and checks for a real
+ * overlap with the proposed new end time, plus that it doesn't run past closing time.
+ */
+export async function canExtendAppointment(opts: {
+  eventId: string;
+  date: string;
+  startTime: string;
+  newEndTime: string;
+  room: string;
+  practitionerName: string;
+  timezone?: string;
+}): Promise<{ ok: true } | { ok: false; reason: string }> {
+  const tz = opts.timezone ?? (await getClinicTimezone());
+  const schedule = await getClinicBusinessHours();
+  const hours = hoursForWeekday(schedule, weekdayKeyForDateStr(opts.date));
+  if (!hours) return { ok: false, reason: `The clinic is closed on ${opts.date}.` };
+
+  const closeTime = zonedHourToUtc(opts.date, hours.endHour, tz).getTime();
+  if (new Date(opts.newEndTime).getTime() > closeTime) {
+    return {
+      ok: false,
+      reason: `Extending this appointment would run past closing time (${fractionalHourToClock(hours.endHour)}).`,
+    };
+  }
+
+  const events = await getEventsByRange(opts.date, opts.date, tz);
+  const newStart = new Date(opts.startTime).getTime();
+  const newEnd = new Date(opts.newEndTime).getTime();
+
+  for (const e of events) {
+    if (e.id === opts.eventId) continue;
+    const sharesRoom = e.room === opts.room;
+    const sharesPractitioner = e.practitioner === opts.practitionerName;
+    if (!sharesRoom && !sharesPractitioner) continue;
+
+    const eStart = new Date(e.startTime).getTime();
+    const eEnd = new Date(e.endTime).getTime();
+    if (newStart < eEnd && newEnd > eStart) {
+      return {
+        ok: false,
+        reason: `${sharesRoom ? opts.room : opts.practitionerName} has another appointment (${e.treatment} — ${e.clientName}) that overlaps the extended time.`,
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 /**

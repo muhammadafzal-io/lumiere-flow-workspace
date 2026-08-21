@@ -1622,11 +1622,13 @@ function ServicesTab({
   equipment,
   rooms,
   onSaved,
+  onRefetch,
 }: {
   services: ServiceItem[];
   equipment: EquipmentItem[];
   rooms: RoomItem[];
   onSaved: (services: ServiceItem[]) => void;
+  onRefetch: () => Promise<void>;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [active, setActive] = useState<ServiceItem | null>(null);
@@ -1753,17 +1755,14 @@ function ServicesTab({
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || "Failed to save service");
       }
-      const json = await res.json();
-      const item = json.service as ServiceItem;
-      onSaved(
-        active
-          ? services.map((svc) =>
-              svc.id === item.id ? { ...item, requirements, attachedFormIds } : svc,
-            )
-          : [...services, { ...item, requirements, attachedFormIds }].sort((a, b) =>
-              a.name.localeCompare(b.name),
-            ),
-      );
+      // POST/PATCH's response only carries base Service columns — never
+      // requirements/attachedFormIds/addOns/offers/offerPrice, which are only assembled by the
+      // GET handler's separate enrichment step (and offerPrice specifically needs freshly-saved
+      // offer rows' real ids, which the write response never returns at all). Refetching instead
+      // of hand-reconstructing the item locally guarantees the list — and the dialog, if reopened
+      // — always matches what was actually saved, rather than chasing which fields need echoing
+      // back by hand every time a new one is added to the form.
+      await onRefetch();
       setDialogOpen(false);
       toast.success(`Service ${active ? "updated" : "added"}`);
     } catch (err) {
@@ -2796,6 +2795,7 @@ export default function SettingsPage() {
               equipment={equipment}
               rooms={roomsList}
               onSaved={(servicesData) => setServices(servicesData)}
+              onRefetch={fetchServices}
             />
           )}
         </TabsContent>
