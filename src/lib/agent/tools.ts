@@ -235,40 +235,6 @@ export const TOOLS: ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "apply_post_booking_offer",
-      description:
-        "Records the client's explicit yes/no to a cross-sell add-on or upsell offer shown AFTER a booking is confirmed (from book_appointment's post_booking_offer field) and, only when accepted, adds it to the existing booking. Call this exactly once per offer per booking — do not call it again for the same offer_id once it's been answered, and do not offer the same thing twice. NEVER call with accepted: true unless the client clearly said yes.",
-      parameters: {
-        type: "object",
-        properties: {
-          event_id: {
-            type: "string",
-            description: "The booking's event_id, from book_appointment's result.",
-          },
-          offer_id: {
-            type: "string",
-            description:
-              "The exact offer_id from book_appointment's post_booking_offer (cross_sell[].offer_id or upsell.offer_id) — never invent one.",
-          },
-          offer_type: {
-            type: "string",
-            enum: ["CROSS_SELL", "UPSELL"],
-            description: "Which kind of offer this is, matching post_booking_offer's shape.",
-          },
-          accepted: {
-            type: "boolean",
-            description:
-              "true ONLY if the client clearly agreed to add this. false if they declined. Always pass one or the other — never omit — so the response gets recorded either way.",
-          },
-        },
-        required: ["event_id", "offer_id", "offer_type", "accepted"],
-      },
-    },
-  },
-
-  {
-    type: "function",
-    function: {
       name: "add_to_waitlist",
       description:
         "Save the client's preferred slot to the waitlist instead of losing the booking opportunity. Call this ONLY after check_availability shows their preferred time/date isn't open AND you've offered alternatives AND the client doesn't want any of them (and doesn't want to try a different date either). Do NOT call this before offering alternatives — always try check_availability and present real open slots first. Before calling, you MUST collect the client's full name, phone, AND email — ask for all three if you don't already have them. Email is REQUIRED (not optional) because it's the only way we can notify them the instant a matching slot opens up; a waitlist entry with no email is useless. Tell the client you need their name and email so you can email them the moment a spot frees up.",

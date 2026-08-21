@@ -8,9 +8,115 @@ import {
   getInHouseFormLinks,
   formatInHouseFormLinks,
   resolveServiceId,
+  listActiveAddonsForService,
+  listServiceOffers,
+  getServiceRateCardPricing,
   type InHouseFormLink,
 } from "@/lib/booking/recipe";
+import { resolvePricing } from "@/lib/booking/offer-pricing";
+import {
+  computePostBookingOffers,
+  logOfferPresented,
+  offerRespondUrl,
+} from "@/lib/booking/offer-events";
 import { trackRequiredForms } from "@/lib/forms/tracking";
+
+/**
+ * Cross-sell (add-ons) and upsell (Rate Card offers) are presented HERE — in this same
+ * confirmation email, right alongside the required-form links — rather than in the live chat
+ * conversation. Each offer still worth presenting (i.e. not already selected/accepted during the
+ * original booking) gets its own OfferEvents row + single-use accept/decline link, minted via
+ * logOfferPresented, so the customer can respond on their own time without a live back-and-forth.
+ * selectedAddonIds/acceptedOfferId/chatId/platform are all optional — callers that don't have
+ * that context (e.g. a resend, or the waitlist-offer acceptance flow) simply get every currently
+ * available add-on/offer presented, since nothing was already taken care of at booking time.
+ */
+async function buildPostBookingOfferLines(opts: {
+  eventId: string;
+  treatment: string;
+  chatId?: string;
+  clientId?: string;
+  clientName: string;
+  phone?: string;
+  platform?: string;
+  selectedAddonIds?: string[];
+  acceptedOfferId?: string;
+}): Promise<string[]> {
+  try {
+    const serviceId = await resolveServiceId(getSupabase(), opts.treatment).catch(() => null);
+    if (!serviceId) return [];
+
+    const [addOns, offers] = await Promise.all([
+      listActiveAddonsForService(serviceId).catch(() => []),
+      listServiceOffers(serviceId).catch(() => []),
+    ]);
+    const { price: basePrice } = await getServiceRateCardPricing(serviceId).catch(() => ({
+      price: null,
+      offers: [],
+    }));
+    const naturalPricing = resolvePricing(basePrice, offers);
+    const post = computePostBookingOffers(
+      addOns,
+      opts.selectedAddonIds ?? [],
+      naturalPricing.offer,
+      opts.acceptedOfferId,
+    );
+    if (post.crossSell.length === 0 && !post.upsell) return [];
+
+    const lines: string[] = ["", "You might also like:"];
+    const chatId = opts.chatId ?? `email:${opts.eventId}`;
+
+    for (const addon of post.crossSell) {
+      const logged = await logOfferPresented({
+        chatId,
+        eventId: opts.eventId,
+        clientId: opts.clientId,
+        clientName: opts.clientName,
+        clientContact: opts.phone,
+        serviceId,
+        offerId: addon.id,
+        offerType: "CROSS_SELL",
+        offerName: addon.name,
+        offeredPrice: addon.price,
+        basePrice: null,
+        platform: opts.platform,
+      });
+      if (logged) {
+        lines.push(
+          `${addon.name}${addon.price != null ? ` — $${addon.price}` : ""}: ${offerRespondUrl(logged.token)}`,
+        );
+      }
+    }
+
+    if (post.upsell) {
+      const upsellPrice = resolvePricing(basePrice, [post.upsell]).finalPrice;
+      const logged = await logOfferPresented({
+        chatId,
+        eventId: opts.eventId,
+        clientId: opts.clientId,
+        clientName: opts.clientName,
+        clientContact: opts.phone,
+        serviceId,
+        offerId: post.upsell.id,
+        offerType: "UPSELL",
+        offerName: post.upsell.name,
+        offeredPrice: upsellPrice,
+        basePrice,
+        platform: opts.platform,
+      });
+      if (logged) {
+        lines.push(
+          `${post.upsell.name}: normally $${basePrice}, now $${upsellPrice} — ${offerRespondUrl(logged.token)}`,
+        );
+      }
+    }
+
+    return lines.length > 2 ? lines : [];
+  } catch (err) {
+    console.error("[confirmation-email] buildPostBookingOfferLines failed:", err);
+    return [];
+  }
+}
 
 export async function sendBookingConfirmationEmail(opts: {
   to: string;
@@ -22,6 +128,10 @@ export async function sendBookingConfirmationEmail(opts: {
   clientId?: string;
   phone?: string;
   eventId?: string;
+  chatId?: string;
+  platform?: string;
+  selectedAddonIds?: string[];
+  acceptedOfferId?: string;
 }): Promise<void> {
   const clinic = await getClinicConfig();
   const displayTime = new Date(opts.startTime).toLocaleString("en-US", {
@@ -57,6 +167,20 @@ export async function sendBookingConfirmationEmail(opts: {
     }).catch((err) => console.error("[trackRequiredForms] failed:", err));
   }
 
+  const offerLines = opts.eventId
+    ? await buildPostBookingOfferLines({
+        eventId: opts.eventId,
+        treatment: opts.treatment,
+        chatId: opts.chatId,
+        clientId: opts.clientId,
+        clientName: opts.clientName,
+        phone: opts.phone,
+        platform: opts.platform,
+        selectedAddonIds: opts.selectedAddonIds,
+        acceptedOfferId: opts.acceptedOfferId,
+      })
+    : [];
+
   await sendRetentionEmail({
     to: opts.to,
     subject: `Appointment confirmed — ${opts.treatment} on ${new Date(
@@ -83,6 +207,7 @@ export async function sendBookingConfirmationEmail(opts: {
       `Location: ${clinic.address}`,
       opts.notes ? `Notes: ${opts.notes}` : "",
       ...formatInHouseFormLinks(inHouseLinks),
+      ...offerLines,
       ``,
       `Need to change anything? Reply to this email or contact us ${businessHoursLabel}.`,
       widgetLinkLine(),

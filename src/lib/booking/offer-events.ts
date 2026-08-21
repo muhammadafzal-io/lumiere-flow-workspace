@@ -1,9 +1,16 @@
+import crypto from "crypto";
 import { getSupabase } from "@/lib/supabase";
+import { getAppBaseUrl } from "@/lib/client-channels";
 import type { RetentionResult } from "@/types";
 import type { ServiceAddonRow } from "@/lib/booking/recipe";
 import type { ServiceOfferRow } from "@/lib/booking/offer-pricing";
 
 const TABLE = "OfferEvents";
+
+/** Never outlives more than a day, and never longer than this cutoff regardless — kept aligned
+ * with runOfferEventsNoResponseSweepFlow's cutoff so a token's own expiry and "when does this
+ * silently become NO_RESPONSE" always agree. */
+const OFFER_LINK_WINDOW_MS = 24 * 60 * 60_000;
 
 export type OfferEventType = "CROSS_SELL" | "UPSELL";
 export type OfferEventStatus = "PRESENTED" | "ACCEPTED" | "DECLINED" | "NO_RESPONSE";
@@ -23,11 +30,13 @@ export interface OfferEventRow {
   basePrice: number | null;
   status: OfferEventStatus;
   platform: string | null;
+  token: string | null;
+  expiresAt: string | null;
   respondedAt: string | null;
   createdAt: string;
 }
 
-function mapRow(r: any): OfferEventRow {
+export function mapOfferEventRow(r: any): OfferEventRow {
   return {
     id: r.id,
     chatId: r.chat_id,
@@ -43,6 +52,8 @@ function mapRow(r: any): OfferEventRow {
     basePrice: r.base_price === null ? null : Number(r.base_price),
     status: r.status,
     platform: r.platform ?? null,
+    token: r.token ?? null,
+    expiresAt: r.expires_at ?? null,
     respondedAt: r.responded_at ?? null,
     createdAt: r.created_at,
   };
@@ -70,12 +81,13 @@ export function computePostBookingOffers(
 }
 
 /**
- * Logs one offer as PRESENTED — called once a booking is confirmed and its required forms have
- * been sent, at the exact point book_appointment embeds the offer in its result and directs the
- * AI to relay it alongside the form-link message (see agent/index.ts's book_appointment handler).
- * Deduped on (event_id, offer_id): this booking has already seen this exact offer once, so a
- * later re-check (e.g. a resend) won't spam a duplicate PRESENTED row. Never throws — offer
- * tracking is an analytics enhancement, not a booking-blocking concern.
+ * Logs one offer as PRESENTED and mints its accept/decline link's token — called from
+ * sendBookingConfirmationEmail at the exact moment the offer is embedded in the confirmation
+ * email alongside the required-form links (see confirmation-email.ts). Deduped on
+ * (event_id, offer_id): a resend of the confirmation email reuses the SAME token/link rather than
+ * minting a new one and orphaning the old, and an offer that's already been responded to is never
+ * re-logged as open. Never throws — offer tracking is an analytics enhancement, not a
+ * booking-blocking concern; returns null on any failure or once already resolved.
  */
 export async function logOfferPresented(input: {
   chatId: string;
@@ -90,16 +102,21 @@ export async function logOfferPresented(input: {
   offeredPrice: number | null;
   basePrice: number | null;
   platform?: string;
-}): Promise<void> {
+}): Promise<{ token: string } | null> {
   try {
     const sb = getSupabase();
     const { data: existing } = await sb
       .from(TABLE)
-      .select("id")
+      .select("id, token, status")
       .eq("event_id", input.eventId)
       .eq("offer_id", input.offerId)
       .maybeSingle();
-    if (existing) return;
+    if (existing) {
+      return existing.status === "PRESENTED" && existing.token ? { token: existing.token } : null;
+    }
+
+    const token = crypto.randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + OFFER_LINK_WINDOW_MS).toISOString();
 
     const { error } = await sb.from(TABLE).insert({
       chat_id: input.chatId,
@@ -115,69 +132,35 @@ export async function logOfferPresented(input: {
       base_price: input.basePrice,
       status: "PRESENTED",
       platform: input.platform ?? null,
+      token,
+      expires_at: expiresAt,
     });
-    if (error) console.error("[offer-events] logOfferPresented failed:", error.message);
+    if (error) {
+      console.error("[offer-events] logOfferPresented failed:", error.message);
+      return null;
+    }
+    return { token };
   } catch (err) {
     console.error("[offer-events] logOfferPresented failed:", err);
+    return null;
   }
 }
 
-/** The open (PRESENTED) offer event for one specific booking + offer, if any — looked up before
- * accepting/declining so apply_post_booking_offer can confirm this was actually presented (and
- * isn't already resolved) rather than trusting the AI's say-so blindly. */
-export async function findOfferEvent(
-  eventId: string,
-  offerId: string,
-): Promise<OfferEventRow | null> {
-  const sb = getSupabase();
-  const { data, error } = await sb
-    .from(TABLE)
-    .select("*")
-    .eq("event_id", eventId)
-    .eq("offer_id", offerId)
-    .maybeSingle();
-  if (error) throw new Error(`findOfferEvent: ${error.message}`);
-  return data ? mapRow(data) : null;
+export function offerRespondUrl(token: string): string {
+  return `${getAppBaseUrl()}/offers/respond/${token}`;
 }
 
-/**
- * Records the client's explicit response to a post-booking offer — ACCEPTED or DECLINED, never
- * inferred. Only transitions a row that's still PRESENTED (an already-resolved offer can't be
- * re-answered, which is also what keeps "don't offer the same offer twice" honest at the write
- * layer, not just the presentation layer). Returns false if there was nothing open to update.
- */
-export async function recordOfferResponse(
-  eventId: string,
-  offerId: string,
-  accepted: boolean,
-): Promise<boolean> {
-  const sb = getSupabase();
-  const { data, error } = await sb
-    .from(TABLE)
-    .update({ status: accepted ? "ACCEPTED" : "DECLINED", responded_at: new Date().toISOString() })
-    .eq("event_id", eventId)
-    .eq("offer_id", offerId)
-    .eq("status", "PRESENTED")
-    .select("id")
-    .maybeSingle();
-  if (error) throw new Error(`recordOfferResponse: ${error.message}`);
-  return !!data;
-}
-
-/** Sweeps PRESENTED offer events whose conversation went quiet — rides the existing daily
+/** Sweeps PRESENTED offer events whose link has expired unanswered — rides the existing daily
  * waitlist-sweep cron (Vercel Hobby-plan only allows one cron job) rather than a new schedule,
- * same reasoning as runWaitlistExpirySweepFlow. 24h is a deliberately generous cutoff: a chat
- * session has no explicit "ended" signal, so this only fires for conversations that are very
- * unlikely to still be active. */
+ * same reasoning as runWaitlistExpirySweepFlow. */
 export async function runOfferEventsNoResponseSweepFlow(): Promise<RetentionResult> {
   const sb = getSupabase();
-  const cutoff = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
 
   const { data, error } = await sb
     .from(TABLE)
     .select("id")
     .eq("status", "PRESENTED")
-    .lt("created_at", cutoff);
+    .lt("expires_at", new Date().toISOString());
   if (error) throw new Error(`runOfferEventsNoResponseSweepFlow: ${error.message}`);
 
   const ids = (data ?? []).map((r: any) => r.id);
