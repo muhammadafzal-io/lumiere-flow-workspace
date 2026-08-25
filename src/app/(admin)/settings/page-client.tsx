@@ -117,6 +117,7 @@ interface ServiceAddon {
   price: number | null;
   durationMinutes: number;
   status: string;
+  priority: number | null;
 }
 
 interface ServiceOffer {
@@ -2214,7 +2215,7 @@ function ServicesTab({
                   <Label>Add-ons</Label>
                   <p className="text-xs text-muted-foreground">
                     Optional upsells the AI can offer when a client books this service (e.g. "LED
-                    Light Therapy").
+                    Light Therapy"). Priority ranks which one gets recommended first (1 = highest).
                   </p>
                 </div>
                 <Button
@@ -2230,6 +2231,7 @@ function ServicesTab({
                         price: null,
                         durationMinutes: 0,
                         status: "Active",
+                        priority: null,
                       },
                     ])
                   }
@@ -2275,7 +2277,7 @@ function ServicesTab({
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
-                    <div className="grid grid-cols-3 gap-2 items-end">
+                    <div className="grid grid-cols-4 gap-2 items-end">
                       <div>
                         <Label className="text-xs">Price ($)</Label>
                         <Input
@@ -2306,6 +2308,28 @@ function ServicesTab({
                             setAddOns((rows) =>
                               rows.map((r, idx) =>
                                 idx === i ? { ...r, durationMinutes: Number(e.target.value) } : r,
+                              ),
+                            )
+                          }
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Priority</Label>
+                        <Input
+                          type="number"
+                          placeholder="Unranked"
+                          value={addon.priority ?? ""}
+                          onChange={(e) =>
+                            setAddOns((rows) =>
+                              rows.map((r, idx) =>
+                                idx === i
+                                  ? {
+                                      ...r,
+                                      priority:
+                                        e.target.value === "" ? null : Number(e.target.value),
+                                    }
+                                  : r,
                               ),
                             )
                           }

@@ -146,6 +146,22 @@ export async function logOfferPresented(input: {
   }
 }
 
+/** All OfferEvents rows logged against a given appointment, regardless of status — used by the
+ * complementary-treatment recommendation to avoid re-offering something already presented (in any
+ * outcome) for this same booking. */
+export async function listOfferEventsForEvent(eventId: string): Promise<OfferEventRow[]> {
+  if (!eventId?.trim()) return [];
+  try {
+    const sb = getSupabase();
+    const { data, error } = await sb.from(TABLE).select("*").eq("event_id", eventId);
+    if (error) throw new Error(error.message);
+    return (data ?? []).map(mapOfferEventRow);
+  } catch (err) {
+    console.error("[offer-events] listOfferEventsForEvent failed:", err);
+    return [];
+  }
+}
+
 export function offerRespondUrl(token: string): string {
   return `${getAppBaseUrl()}/offers/respond/${token}`;
 }

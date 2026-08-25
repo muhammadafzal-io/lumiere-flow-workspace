@@ -11,6 +11,7 @@ function addon(overrides: Partial<ServiceAddonRow>): ServiceAddonRow {
     price: 30,
     durationMinutes: 15,
     status: "Active",
+    priority: null,
     ...overrides,
   };
 }

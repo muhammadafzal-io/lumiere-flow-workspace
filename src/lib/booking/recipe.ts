@@ -178,6 +178,9 @@ export interface ServiceAddonRow {
   price: number | null;
   durationMinutes: number;
   status: string;
+  /** Lower number = higher priority when ranking complementary-treatment recommendations; null
+   * (unranked) sorts last. See src/lib/booking/treatment-recommendation.ts. */
+  priority: number | null;
 }
 
 function mapAddonRow(r: any): ServiceAddonRow {
@@ -189,6 +192,7 @@ function mapAddonRow(r: any): ServiceAddonRow {
     price: r.price === null || r.price === undefined ? null : Number(r.price),
     durationMinutes: r.duration_minutes ?? 0,
     status: r.status ?? "Active",
+    priority: r.priority === null || r.priority === undefined ? null : Number(r.priority),
   };
 }
 
@@ -211,7 +215,8 @@ export async function listActiveAddonsForService(
     .from("ServiceAddons")
     .select("*")
     .eq("service_id", serviceId)
-    .eq("status", "Active");
+    .eq("status", "Active")
+    .order("priority", { ascending: true, nullsFirst: false });
   if (error) throw new Error(`listActiveAddonsForService: ${error.message}`);
   return (data ?? []).map(mapAddonRow);
 }

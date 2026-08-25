@@ -18,7 +18,13 @@ import {
   computePostBookingOffers,
   logOfferPresented,
   offerRespondUrl,
+  listOfferEventsForEvent,
 } from "@/lib/booking/offer-events";
+import {
+  selectComplementaryTreatment,
+  RECENT_TREATMENT_WINDOW_DAYS,
+} from "@/lib/booking/treatment-recommendation";
+import { getAppointmentHistoryForContact } from "@/lib/integrations/google-calendar";
 import { trackRequiredForms } from "@/lib/forms/tracking";
 
 /**
@@ -61,12 +67,32 @@ async function buildPostBookingOfferLines(opts: {
       naturalPricing.offer,
       opts.acceptedOfferId,
     );
-    if (post.crossSell.length === 0 && !post.upsell) return [];
+
+    const [history, offeredEvents] = await Promise.all([
+      getAppointmentHistoryForContact(
+        { id: opts.clientId, phone: opts.phone, name: opts.clientName },
+        { pastDays: RECENT_TREATMENT_WINDOW_DAYS + 7, futureDays: 0 },
+      ).catch(() => ({ past: [] })),
+      listOfferEventsForEvent(opts.eventId),
+    ]);
+    const recommendation = selectComplementaryTreatment({
+      currentTreatmentName: opts.treatment,
+      pairedCandidates: addOns,
+      history: history.past.map((e) => ({ treatment: e.treatment, date: e.startTime })),
+      selectedAddonIdsThisBooking: opts.selectedAddonIds ?? [],
+      alreadyOfferedOrAcceptedAddonIds: offeredEvents
+        .filter((o) => o.offerType === "CROSS_SELL")
+        .map((o) => o.offerId),
+      now: new Date(),
+      recentWindowDays: RECENT_TREATMENT_WINDOW_DAYS,
+    });
+
+    if (!recommendation && !post.upsell) return [];
 
     const lines: string[] = ["", "You might also like:"];
     const chatId = opts.chatId ?? `email:${opts.eventId}`;
 
-    for (const addon of post.crossSell) {
+    if (recommendation) {
       const logged = await logOfferPresented({
         chatId,
         eventId: opts.eventId,
@@ -74,16 +100,16 @@ async function buildPostBookingOfferLines(opts: {
         clientName: opts.clientName,
         clientContact: opts.phone,
         serviceId,
-        offerId: addon.id,
+        offerId: recommendation.recommendedTreatmentId,
         offerType: "CROSS_SELL",
-        offerName: addon.name,
-        offeredPrice: addon.price,
+        offerName: recommendation.recommendedTreatmentName,
+        offeredPrice: recommendation.price,
         basePrice: null,
         platform: opts.platform,
       });
       if (logged) {
         lines.push(
-          `${addon.name}${addon.price != null ? ` — $${addon.price}` : ""}: ${offerRespondUrl(logged.token)}`,
+          `${recommendation.recommendedTreatmentName}${recommendation.price != null ? ` — $${recommendation.price}` : ""}: ${offerRespondUrl(logged.token)}`,
         );
       }
     }

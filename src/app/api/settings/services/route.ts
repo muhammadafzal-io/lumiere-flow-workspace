@@ -33,6 +33,13 @@ function validateAddonsPayload(addOns: unknown): string | null {
     ) {
       return `Add-on "${a.name}" duration must be a non-negative number of minutes`;
     }
+    if (
+      a.priority !== undefined &&
+      a.priority !== null &&
+      (typeof a.priority !== "number" || !Number.isInteger(a.priority))
+    ) {
+      return `Add-on "${a.name}" priority must be a whole number`;
+    }
   }
   return null;
 }
@@ -45,6 +52,7 @@ function toAddonRows(serviceId: string, addOns: any[]) {
     price: a.price ?? null,
     duration_minutes: a.durationMinutes ?? 0,
     status: a.status === "Inactive" ? "Inactive" : "Active",
+    priority: a.priority ?? null,
   }));
 }
 
@@ -151,6 +159,7 @@ export async function GET() {
         price: a.price === null ? null : Number(a.price),
         durationMinutes: a.duration_minutes ?? 0,
         status: a.status ?? "Active",
+        priority: a.priority === null || a.priority === undefined ? null : Number(a.priority),
       });
     });
 
