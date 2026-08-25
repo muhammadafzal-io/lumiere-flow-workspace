@@ -8,6 +8,9 @@ export interface ClinicConfig {
   /** Short display location (city/country) — used in system prompts and email headers. */
   location: string;
   businessHours: string;
+  /** Clinic's Google Review link — null when unconfigured. See src/lib/retention/review-request.ts,
+   * which refuses to send a review request without this set. */
+  googleReviewUrl: string | null;
 }
 
 const FALLBACK: ClinicConfig = {
@@ -16,6 +19,7 @@ const FALLBACK: ClinicConfig = {
   address: "2847 S Lamar Blvd, Suite 120, Austin TX 78704",
   location: "Austin, Texas",
   businessHours: "Mon–Sat 9:00 AM – 7:00 PM",
+  googleReviewUrl: null,
 };
 
 let _cached: ClinicConfig | null = null;
@@ -69,6 +73,7 @@ export async function getClinicConfig(): Promise<ClinicConfig> {
         // from the real address instead of trusting it.
         location: locationFromAddress(address) || FALLBACK.location,
         businessHours: (data["Business Hours"] as string | undefined) || FALLBACK.businessHours,
+        googleReviewUrl: (data["Google Review URL"] as string | undefined)?.trim() || null,
       };
       _cachedAt = Date.now();
       return _cached;

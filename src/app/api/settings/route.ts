@@ -82,6 +82,7 @@ export async function GET() {
           businessHoursSchedule:
             (settingsRow["BusinessHoursSchedule"] as ClinicHoursSchedule | null) ||
             DEFAULT_CLINIC_HOURS,
+          googleReviewUrl: settingsRow["Google Review URL"] || "",
         }
       : null;
 
@@ -125,7 +126,15 @@ export async function PATCH(req: Request) {
   try {
     const sb = getSupabase();
     const body = await req.json();
-    const { recordId, clinicName, timezone, address, businessHours, businessHoursSchedule } = body;
+    const {
+      recordId,
+      clinicName,
+      timezone,
+      address,
+      businessHours,
+      businessHoursSchedule,
+      googleReviewUrl,
+    } = body;
 
     const fields: Record<string, unknown> = {};
     if (clinicName !== undefined) fields["Clinic Name"] = clinicName;
@@ -134,6 +143,7 @@ export async function PATCH(req: Request) {
     if (businessHours !== undefined) fields["Business Hours"] = businessHours;
     if (businessHoursSchedule !== undefined)
       fields["BusinessHoursSchedule"] = businessHoursSchedule;
+    if (googleReviewUrl !== undefined) fields["Google Review URL"] = googleReviewUrl || null;
 
     if (recordId) {
       const { data, error } = await sb

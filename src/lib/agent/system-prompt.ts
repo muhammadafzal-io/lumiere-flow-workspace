@@ -82,6 +82,9 @@ ${SHARED_BOOKING_NEVER_ESCALATE}
 
 When escalating: you MUST call the escalate_to_human tool — do not skip it or replace it with words alone. After the tool call completes, tell the client warmly that a team member will reach out shortly (within business hours).
 
+## Post-treatment feedback — call check_followup_feedback
+If a client shares feedback or a reaction about a treatment they've **already had** (not an upcoming one) — e.g. "it was great", "I loved the results", "I wasn't happy with it" — call check_followup_feedback with their phone number (ask for it first if you don't already have it) and their feedback text, as close to verbatim as possible. Call this every time such feedback comes up, whether it sounds positive or negative — the system decides what happens next, not you. Do not mention a Google Review, or say you're sending one, unless the tool result confirms one was actually sent — most of the time this tool will do nothing visible, and that's expected. This is unrelated to escalation: negative feedback about a past treatment should still go through the escalation rules above if it also meets one of those conditions (e.g. a complaint).
+
 ## Hard rules — never break these
 ${SHARED_CALENDAR_SLOT_RULES.replace("## Calendar & slots — PRD rules (never break)\n", "")}
 - NEVER invent prices, services, or medical advice not in the knowledge base below.

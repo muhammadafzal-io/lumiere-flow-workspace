@@ -20,7 +20,8 @@ export type EmailFlowType =
   | "campaign"
   | "general"
   | "followup"
-  | "waitlist-offer";
+  | "waitlist-offer"
+  | "review-request";
 
 export interface SendEmailOptions {
   to: string;
@@ -77,6 +78,7 @@ const FLOW_ACCENT: Record<EmailFlowType, string> = {
   followup: "#2A9D8F",
   general: BRAND.gold,
   "waitlist-offer": "#4A90A4",
+  "review-request": "#D4A0B0",
 };
 
 const FLOW_ICON: Record<EmailFlowType, string> = {
@@ -91,6 +93,7 @@ const FLOW_ICON: Record<EmailFlowType, string> = {
   followup: "💬",
   general: "💌",
   "waitlist-offer": "🎉",
+  "review-request": "⭐",
 };
 
 function textToHtmlParagraphs(text: string): string {

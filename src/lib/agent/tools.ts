@@ -642,4 +642,28 @@ export const TOOLS: ChatCompletionTool[] = [
       },
     },
   },
+
+  {
+    type: "function",
+    function: {
+      name: "check_followup_feedback",
+      description:
+        "Call this whenever a client shares feedback or a reaction about a PAST/already-completed treatment (not questions about an upcoming appointment) — e.g. 'it was great', 'I loved it', 'I wasn't happy with the results'. The system checks whether this client has a recent post-treatment follow-up on file and, only if their feedback reads as clearly positive, sends them a Google Review request. Call this regardless of whether the feedback sounds positive or negative — the system decides what happens, you don't need to judge that yourself. Never mention this tool or a review request unless the tool result says one was actually sent.",
+      parameters: {
+        type: "object",
+        properties: {
+          phone: {
+            type: "string",
+            description:
+              "Client's phone number — ask for it first if not already known from this conversation",
+          },
+          feedback_text: {
+            type: "string",
+            description: "The client's feedback, as close to verbatim as possible",
+          },
+        },
+        required: ["phone", "feedback_text"],
+      },
+    },
+  },
 ];

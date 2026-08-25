@@ -58,6 +58,7 @@ import {
 import { extractPhoneForLookup, phoneDigits } from "@/lib/phone";
 import { logEvent } from "@/lib/integrations/activity-log";
 import { postEscalation } from "@/lib/integrations/slack";
+import { maybeSendReviewRequest } from "@/lib/retention/review-request";
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { sendBookingConfirmationEmail } from "@/lib/booking/confirmation-email";
 import {
@@ -1489,6 +1490,15 @@ export async function executeTool(
           platform: context.platform,
         });
         return { result: { escalated: true }, escalated: true };
+      }
+
+      case "check_followup_feedback": {
+        const outcome = await maybeSendReviewRequest({
+          phone: String(input.phone).trim(),
+          feedbackText: String(input.feedback_text),
+          platform: context.platform,
+        });
+        return { result: outcome };
       }
 
       default:

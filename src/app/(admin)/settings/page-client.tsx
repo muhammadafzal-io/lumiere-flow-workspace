@@ -41,6 +41,7 @@ interface ClinicSettings {
   address: string;
   businessHours: string;
   businessHoursSchedule: WeeklyHours;
+  googleReviewUrl: string;
 }
 
 interface ChannelStatus {
@@ -248,6 +249,7 @@ const DEFAULT_CLINIC: ClinicSettings = {
   address: "",
   businessHours: "",
   businessHoursSchedule: DEFAULT_BUSINESS_HOURS,
+  googleReviewUrl: "",
 };
 
 const PRESET_COLORS = [
@@ -365,6 +367,19 @@ function ClinicTab({
         <div className="col-span-2">
           <Label>Address</Label>
           <Input value={form.address} onChange={field("address")} className="mt-1.5" />
+        </div>
+        <div className="col-span-2">
+          <Label>Google Review URL</Label>
+          <Input
+            value={form.googleReviewUrl}
+            onChange={field("googleReviewUrl")}
+            placeholder="https://g.page/r/.../review"
+            className="mt-1.5"
+          />
+          <p className="text-xs text-muted-foreground mt-1">
+            Sent to clients who reply positively to a post-treatment follow-up. Leave blank to
+            disable review requests.
+          </p>
         </div>
         <div className="col-span-2">
           <Label>Business hours</Label>
