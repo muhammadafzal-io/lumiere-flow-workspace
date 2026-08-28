@@ -5,55 +5,88 @@ import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import { todayInZone, addCalendarDays } from "@/lib/booking/dates";
 import { getClinicTimezone } from "@/lib/clinic-config";
 import { resolvePricing, type ServiceOfferRow } from "@/lib/booking/offer-pricing";
+import { validateAddonLinkSelection } from "@/lib/booking/addon-link-validation";
 
 export const dynamic = "force-dynamic";
 
 const SERVICES = "Services";
 const REQS = "ServiceRequirements";
 const FORM_ASSIGNMENTS = "ServiceFormAssignments";
-const ADDONS = "ServiceAddons";
+const ADDON_LINKS = "ServiceAddonLinks";
 const OFFERS = "ServiceOffers";
 
-/** Validates the shape of an incoming addOns array before it ever touches the DB — each row
- * needs a name; price/durationMinutes, if given, must be non-negative numbers. Returns an error
- * string, or null if valid. */
-function validateAddonsPayload(addOns: unknown): string | null {
+/** Validates the shape of an incoming addOns array (a list of { serviceId, price?, durationMinutes?
+ * } — add-ons are real Services selected from the catalog, never manually-typed names) before it
+ * ever touches the DB. `mainServiceId` is null on create (the id doesn't exist yet, so
+ * self-selection can't happen anyway); required on update to catch a service selecting itself.
+ * Also enforces, server-side (not just filtered out of the UI dropdown), that a selected add-on is
+ * a sub-service the system offers alongside a booking — never another independently-bookable main
+ * procedure (e.g. Laser can't be an "add-on" to Botox; they're each their own booking). */
+async function validateAddonsPayload(
+  sb: ReturnType<typeof getSupabase>,
+  mainServiceId: string | null,
+  addOns: unknown,
+): Promise<string | null> {
   if (!Array.isArray(addOns)) return null;
   for (const a of addOns) {
-    if (!a || typeof a !== "object" || !String(a.name ?? "").trim()) {
-      return "Each add-on needs a name";
+    if (!a || typeof a !== "object" || !String(a.serviceId ?? "").trim()) {
+      return "Each add-on needs a valid service selection";
     }
     if (a.price !== undefined && a.price !== null && (typeof a.price !== "number" || a.price < 0)) {
-      return `Add-on "${a.name}" price must be a non-negative number`;
+      return `Add-on "${a.name ?? a.serviceId}" price must be a non-negative number`;
     }
     if (
       a.durationMinutes !== undefined &&
       a.durationMinutes !== null &&
       (typeof a.durationMinutes !== "number" || a.durationMinutes < 0)
     ) {
-      return `Add-on "${a.name}" duration must be a non-negative number of minutes`;
+      return `Add-on "${a.name ?? a.serviceId}" duration must be a non-negative number of minutes`;
     }
-    if (
-      a.priority !== undefined &&
-      a.priority !== null &&
-      (typeof a.priority !== "number" || !Number.isInteger(a.priority))
-    ) {
-      return `Add-on "${a.name}" priority must be a whole number`;
-    }
+  }
+  const structuralError = validateAddonLinkSelection(
+    mainServiceId,
+    addOns.map((a: any) => a.serviceId),
+  );
+  if (structuralError) return structuralError;
+
+  const ids = addOns.map((a: any) => a.serviceId);
+  if (ids.length === 0) return null;
+  const { data: rows, error } = await sb
+    .from(SERVICES)
+    .select("id, Name, OnlineBookable")
+    .in("id", ids);
+  if (error) return "Could not validate add-on selection";
+  const bookable = (rows ?? []).find((r: any) => r["OnlineBookable"]);
+  if (bookable) {
+    return `"${bookable["Name"]}" is a bookable main procedure and can't be used as an add-on`;
   }
   return null;
 }
 
-function toAddonRows(serviceId: string, addOns: any[]) {
+function toAddonRows(mainServiceId: string, addOns: any[]) {
   return addOns.map((a) => ({
-    service_id: serviceId,
-    name: String(a.name).trim(),
-    description: a.description || null,
-    price: a.price ?? null,
-    duration_minutes: a.durationMinutes ?? 0,
-    status: a.status === "Inactive" ? "Inactive" : "Active",
+    main_service_id: mainServiceId,
+    addon_service_id: a.serviceId,
     priority: a.priority ?? null,
   }));
+}
+
+/** Add-on price/duration/active-status are edited from this dropdown for convenience, but they
+ * aren't a separate concept — an add-on IS a real Service, so editing them here updates that
+ * Service's own Price/DurationMinutes/Status directly (the single source of truth used everywhere
+ * it's booked, listed, or offered), rather than introducing a per-pairing override column. */
+async function applyAddonServiceOverrides(sb: ReturnType<typeof getSupabase>, addOns: any[]) {
+  for (const a of addOns) {
+    if (a.price === undefined && a.durationMinutes === undefined && a.status === undefined) {
+      continue;
+    }
+    const fields: Record<string, unknown> = {};
+    if (a.price !== undefined) fields["Price"] = a.price;
+    if (a.durationMinutes !== undefined) fields["DurationMinutes"] = a.durationMinutes;
+    if (a.status !== undefined) fields["Status"] = a.status === "Inactive" ? "Inactive" : "Active";
+    const { error } = await sb.from(SERVICES).update(fields).eq("id", a.serviceId);
+    if (error) throw new Error(error.message);
+  }
 }
 
 /** Validates the shape of an incoming offers array — each row needs a name, a valid discount
@@ -145,21 +178,26 @@ export async function GET() {
       (assignmentsGrouped[a.service_id] ??= []).push(a.form_id);
     });
 
-    const { data: addons } = await sb
-      .from(ADDONS)
-      .select("*")
-      .in("service_id", ids.length ? ids : ["invalid"]);
+    const { data: addonLinks } = await sb
+      .from(ADDON_LINKS)
+      .select(
+        "id, main_service_id, priority, addon:addon_service_id(id, Name, Price, DurationMinutes, Status)",
+      )
+      .in("main_service_id", ids.length ? ids : ["invalid"]);
 
     const addonsGrouped: Record<string, any[]> = {};
-    (addons ?? []).forEach((a: any) => {
-      (addonsGrouped[a.service_id] ??= []).push({
-        id: a.id,
-        name: a.name,
-        description: a.description,
-        price: a.price === null ? null : Number(a.price),
-        durationMinutes: a.duration_minutes ?? 0,
-        status: a.status ?? "Active",
-        priority: a.priority === null || a.priority === undefined ? null : Number(a.priority),
+    (addonLinks ?? []).forEach((link: any) => {
+      const addon = link.addon ?? {};
+      (addonsGrouped[link.main_service_id] ??= []).push({
+        linkId: link.id,
+        serviceId: addon.id,
+        name: addon["Name"] ?? "",
+        price:
+          addon["Price"] === null || addon["Price"] === undefined ? null : Number(addon["Price"]),
+        durationMinutes: addon["DurationMinutes"] ?? 0,
+        status: addon["Status"] ?? "Active",
+        priority:
+          link.priority === null || link.priority === undefined ? null : Number(link.priority),
       });
     });
 
@@ -262,7 +300,7 @@ export async function POST(req: Request) {
         { status: 400 },
       );
     }
-    const addonsError = validateAddonsPayload(addOns);
+    const addonsError = await validateAddonsPayload(sb, null, addOns);
     if (addonsError) {
       return NextResponse.json({ error: addonsError }, { status: 400 });
     }
@@ -317,10 +355,11 @@ export async function POST(req: Request) {
       if (aerr) throw new Error(aerr.message);
     }
 
-    // Insert add-ons if provided
+    // Insert add-on links if provided
     if (Array.isArray(addOns) && addOns.length > 0) {
-      const { error: addonErr } = await sb.from(ADDONS).insert(toAddonRows(svc.id, addOns));
+      const { error: addonErr } = await sb.from(ADDON_LINKS).insert(toAddonRows(svc.id, addOns));
       if (addonErr) throw new Error(addonErr.message);
+      await applyAddonServiceOverrides(sb, addOns);
     }
 
     // Insert offers if provided
@@ -375,7 +414,7 @@ export async function PATCH(req: Request) {
         { status: 400 },
       );
     }
-    const addonsError = validateAddonsPayload(body.addOns);
+    const addonsError = await validateAddonsPayload(sb, id, body.addOns);
     if (addonsError) {
       return NextResponse.json({ error: addonsError }, { status: 400 });
     }
@@ -447,13 +486,14 @@ export async function PATCH(req: Request) {
       }
     }
 
-    // Replace add-ons if provided
+    // Replace add-on links if provided
     if (Array.isArray(body.addOns)) {
-      const { error: daoErr } = await sb.from(ADDONS).delete().eq("service_id", id);
+      const { error: daoErr } = await sb.from(ADDON_LINKS).delete().eq("main_service_id", id);
       if (daoErr) throw new Error(daoErr.message);
       if (body.addOns.length > 0) {
-        const { error: iaoErr } = await sb.from(ADDONS).insert(toAddonRows(id, body.addOns));
+        const { error: iaoErr } = await sb.from(ADDON_LINKS).insert(toAddonRows(id, body.addOns));
         if (iaoErr) throw new Error(iaoErr.message);
+        await applyAddonServiceOverrides(sb, body.addOns);
       }
     }
 

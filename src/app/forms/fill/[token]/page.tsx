@@ -42,13 +42,16 @@ export default async function FillFormPage({ params }: { params: Promise<{ token
     );
   }
 
-  const { link, form, answers, submittedAt, requiredForms } = dashboard;
+  const { link, form, answers, submittedAt, requiredForms, booking } = dashboard;
 
   // Formatted server-side, in the clinic's own timezone, so the exact same string is used for
   // both the SSR pass and the client hydration pass — computing this client-side with
   // toLocaleString() would mismatch whenever the server and the customer's browser sit in
   // different timezones, breaking hydration.
   const submittedAtLabel = submittedAt ? await formatInClinicTimezone(submittedAt) : null;
+  const bookingTimeLabel = booking?.startTime
+    ? await formatInClinicTimezone(booking.startTime)
+    : null;
 
   return (
     <Shell>
@@ -60,6 +63,8 @@ export default async function FillFormPage({ params }: { params: Promise<{ token
         answers={answers}
         submittedAtLabel={submittedAtLabel}
         requiredForms={requiredForms}
+        booking={booking}
+        bookingTimeLabel={bookingTimeLabel}
       />
     </Shell>
   );

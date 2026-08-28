@@ -171,6 +171,7 @@ export async function listActiveServices(query?: string): Promise<ServiceRow[]> 
 }
 
 export interface ServiceAddonRow {
+  /** The add-on's own Service id — this IS a real Service, not a free-text row. */
   id: string;
   serviceId: string;
   name: string;
@@ -179,26 +180,30 @@ export interface ServiceAddonRow {
   durationMinutes: number;
   status: string;
   /** Lower number = higher priority when ranking complementary-treatment recommendations; null
-   * (unranked) sorts last. See src/lib/booking/treatment-recommendation.ts. */
+   * (unranked) sorts last. This is a property of the (main service, add-on) PAIRING — see
+   * ServiceAddonLinks — since the same add-on service can rank differently under different main
+   * services. See src/lib/booking/treatment-recommendation.ts. */
   priority: number | null;
 }
 
-function mapAddonRow(r: any): ServiceAddonRow {
+function mapAddonLinkRow(r: any): ServiceAddonRow {
+  const addon = r.addon ?? {};
   return {
-    id: r.id,
-    serviceId: r.service_id,
-    name: String(r.name ?? "").trim(),
-    description: r.description ?? null,
-    price: r.price === null || r.price === undefined ? null : Number(r.price),
-    durationMinutes: r.duration_minutes ?? 0,
-    status: r.status ?? "Active",
+    id: addon.id,
+    serviceId: r.main_service_id,
+    name: String(addon["Name"] ?? "").trim(),
+    description: null,
+    price: addon["Price"] === null || addon["Price"] === undefined ? null : Number(addon["Price"]),
+    durationMinutes: addon["DurationMinutes"] ?? 0,
+    status: addon["Status"] ?? "Active",
     priority: r.priority === null || r.priority === undefined ? null : Number(r.priority),
   };
 }
 
 /**
- * Lists the Active add-ons configured for a Service (by id or name) — the ServiceAddons child
- * table, same one-service-to-many-config-rows shape as ServiceRequirements/ServiceFormAssignments.
+ * Lists the Active add-ons configured for a Service (by id or name) — resolved via
+ * ServiceAddonLinks, a proper Service-to-Service relationship (an add-on IS a real Service,
+ * selected from the catalog, not a manually-typed name — see migrations/create_service_addon_links.sql).
  * Returns [] (never throws) when the treatment doesn't resolve to a configured Service, or the
  * Service has no add-ons — both are normal "nothing to offer" cases the AI booking flow should
  * just continue past, not error states.
@@ -212,13 +217,15 @@ export async function listActiveAddonsForService(
   if (!serviceId) return [];
 
   const { data, error } = await sb
-    .from("ServiceAddons")
-    .select("*")
-    .eq("service_id", serviceId)
-    .eq("status", "Active")
+    .from("ServiceAddonLinks")
+    .select(
+      "main_service_id, priority, addon:addon_service_id(id, Name, Price, DurationMinutes, Status)",
+    )
+    .eq("main_service_id", serviceId)
     .order("priority", { ascending: true, nullsFirst: false });
   if (error) throw new Error(`listActiveAddonsForService: ${error.message}`);
-  return (data ?? []).map(mapAddonRow);
+
+  return (data ?? []).filter((row: any) => row.addon?.["Status"] === "Active").map(mapAddonLinkRow);
 }
 
 function mapOfferRow(r: any): ServiceOfferRow {
@@ -490,10 +497,18 @@ export async function getInHouseFormLinks(
   }
 }
 
-/** Renders the in-house-forms block as plain-text lines, or [] when there are none. */
+/** Renders a URL-free plain-text mention of the required forms — the actual clickable links are
+ * sent as email button CTAs (see formLinksToCtas) rather than raw URLs in the body text. Returns
+ * [] when there are none. */
 export function formatInHouseFormLinks(links: InHouseFormLink[]): string[] {
   if (links.length === 0) return [];
-  return ["", "Please complete before your visit:", ...links.map((l) => `${l.formName}: ${l.url}`)];
+  const names = links.map((l) => l.formName).join(", ");
+  return ["", `Please complete the following before your visit: ${names} (buttons below).`];
+}
+
+/** Converts in-house form links into email button CTAs — see buildEmailHtml's `ctas`. */
+export function formLinksToCtas(links: InHouseFormLink[]): { label: string; url: string }[] {
+  return links.map((l) => ({ label: `Complete ${l.formName}`, url: l.url }));
 }
 
 function toFractionalHour(hhmm: string): number {

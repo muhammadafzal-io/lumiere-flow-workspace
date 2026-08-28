@@ -29,6 +29,10 @@ export interface SendEmailOptions {
   text: string;
   flowType?: EmailFlowType;
   cta?: { label: string; url: string };
+  /** Additional action buttons, rendered stacked below `cta` (or alone if `cta` is omitted) — use
+   * this instead of embedding raw URLs in `text` whenever a link is a customer action (complete a
+   * form, view something, etc.). Each renders as a full clickable button, not plain text. */
+  ctas?: { label: string; url: string }[];
   logMeta?: EmailSendLogMeta;
 }
 
@@ -148,21 +152,27 @@ async function buildEmailHtml(opts: SendEmailOptions): Promise<string> {
   const preheader = escapeHtml(buildPreheader(opts.text));
   const subject = escapeHtml(sanitizeEmailSubject(opts.subject));
 
-  const ctaBlock = opts.cta
-    ? `
-    <table width="100%" cellpadding="0" cellspacing="0" style="margin:28px 0 0 0;">
+  const allCtas = [opts.cta, ...(opts.ctas ?? [])].filter(
+    (c): c is { label: string; url: string } => !!c,
+  );
+  const ctaBlock = allCtas
+    .map(
+      (c, i) => `
+    <table width="100%" cellpadding="0" cellspacing="0" style="margin:${i === 0 ? 28 : 12}px 0 0 0;">
       <tr>
         <td align="center">
-          <a href="${opts.cta.url}"
-             style="display:inline-block;padding:14px 36px;background:${accent};
-                    color:${BRAND.white};font-size:15px;font-weight:600;
+          <a href="${c.url}"
+             style="display:inline-block;width:100%;max-width:340px;box-sizing:border-box;
+                    padding:14px 24px;background:${accent};
+                    color:${BRAND.white};font-size:15px;font-weight:600;text-align:center;
                     text-decoration:none;border-radius:6px;letter-spacing:0.3px;">
-            ${opts.cta.label}
+            ${escapeHtml(c.label)}
           </a>
         </td>
       </tr>
-    </table>`
-    : "";
+    </table>`,
+    )
+    .join("");
 
   return `<!DOCTYPE html>
 <html lang="en">

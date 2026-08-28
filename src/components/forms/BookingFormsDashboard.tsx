@@ -49,6 +49,8 @@ export function BookingFormsDashboard({
   answers,
   submittedAtLabel,
   requiredForms,
+  booking,
+  bookingTimeLabel,
 }: {
   token: string;
   linkId: string;
@@ -57,6 +59,8 @@ export function BookingFormsDashboard({
   answers: Record<string, unknown> | null;
   submittedAtLabel: string | null;
   requiredForms: SiblingForm[];
+  booking: { treatment: string; startTime: string; practitionerName: string } | null;
+  bookingTimeLabel: string | null;
 }) {
   const router = useRouter();
   const siblings = requiredForms.filter((f) => f.formResponseId !== linkId);
@@ -67,6 +71,13 @@ export function BookingFormsDashboard({
         <div className="space-y-1 text-center">
           <h1 className="text-lg font-semibold">{form.name}</h1>
           {form.description && <p className="text-sm text-muted-foreground">{form.description}</p>}
+          {booking && (
+            <p className="text-sm text-muted-foreground">
+              For your {booking.treatment} appointment
+              {bookingTimeLabel ? ` · ${bookingTimeLabel}` : ""}
+              {booking.practitionerName ? ` · with ${booking.practitionerName}` : ""}
+            </p>
+          )}
         </div>
 
         {linkStatus === "expired" ? (

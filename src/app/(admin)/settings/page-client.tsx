@@ -112,9 +112,10 @@ interface EquipmentRequirementRule {
 }
 
 interface ServiceAddon {
-  id?: string;
+  linkId?: string;
+  /** The add-on's own Service id — selected from the catalog, never typed. */
+  serviceId: string;
   name: string;
-  description: string | null;
   price: number | null;
   durationMinutes: number;
   status: string;
@@ -294,6 +295,17 @@ function parseSpecialties(raw: string | undefined): string[] {
 
 function formatSpecialties(arr: string[]): string {
   return arr.join(", ");
+}
+
+/** Extracts the plain YYYY-MM-DD an <input type="date"> requires from whatever the API returned
+ * (a full ISO timestamp with a timezone offset, e.g. "2027-11-11T00:00:00+00:00") — a
+ * datetime-local/date input silently shows blank if given a value in any other format, which is
+ * why offer start/end dates appeared to "not save" (they saved fine; the field just couldn't
+ * display the stored value back). */
+function toDateInputValue(value: string | null): string {
+  if (!value) return "";
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : "";
 }
 
 function ClinicTab({
@@ -1666,6 +1678,11 @@ function ServicesTab({
   const [attachedFormIds, setAttachedFormIds] = useState<string[]>([]);
   const [availableForms, setAvailableForms] = useState<AttachableForm[]>([]);
   const [addOns, setAddOns] = useState<ServiceAddon[]>([]);
+  const [newAddonOpen, setNewAddonOpen] = useState(false);
+  const [newAddonName, setNewAddonName] = useState("");
+  const [newAddonPrice, setNewAddonPrice] = useState<number | null>(null);
+  const [newAddonDuration, setNewAddonDuration] = useState(0);
+  const [creatingAddon, setCreatingAddon] = useState(false);
   const [offers, setOffers] = useState<ServiceOffer[]>([]);
   const [pendingDelete, setPendingDelete] = useState<ServiceItem | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1724,9 +1741,62 @@ function ServicesTab({
     setDialogOpen(true);
   };
 
+  /** Creates a brand-new Service (marked not-independently-bookable, so it only ever shows up as
+   * an add-on) and immediately links it to the service currently being edited — the one-step
+   * shortcut for "I need a new add-on that doesn't exist in the catalog yet" instead of leaving
+   * this dialog to create it separately first. */
+  const createNewAddon = async () => {
+    if (!newAddonName.trim()) {
+      toast.error("Add-on name is required");
+      return;
+    }
+    setCreatingAddon(true);
+    try {
+      const res = await fetch("/api/settings/services", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          Name: newAddonName.trim(),
+          Price: newAddonPrice,
+          DurationMinutes: newAddonDuration,
+          OnlineBookable: false,
+          Status: "Active",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create add-on");
+
+      setAddOns((rows) => [
+        ...rows,
+        {
+          serviceId: data.service.id,
+          name: data.service.name,
+          price: data.service.price,
+          durationMinutes: data.service.durationMinutes,
+          status: data.service.status,
+          priority: null,
+        },
+      ]);
+      setNewAddonName("");
+      setNewAddonPrice(null);
+      setNewAddonDuration(0);
+      setNewAddonOpen(false);
+      toast.success(`${data.service.name} created and added`);
+      await onRefetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create add-on");
+    } finally {
+      setCreatingAddon(false);
+    }
+  };
+
   const save = async () => {
     if (!form.name || !form.name.trim()) {
       toast.error("Service name is required");
+      return;
+    }
+    if (offers.some((o) => !o.name.trim())) {
+      toast.error("Each offer needs a name — fill it in or remove that offer row before saving");
       return;
     }
 
@@ -1755,8 +1825,8 @@ function ServicesTab({
         Status: form.status ?? "Active",
         requirements,
         attachedFormIds,
-        addOns: addOns.filter((a) => a.name.trim()),
-        offers: offers.filter((o) => o.name.trim()),
+        addOns: addOns.filter((a) => a.serviceId),
+        offers,
       } as any;
 
       const method = active ? "PATCH" : "POST";
@@ -1851,32 +1921,34 @@ function ServicesTab({
             </tr>
           </thead>
           <tbody>
-            {services.map((item) => (
-              <tr key={item.id} className="border-t">
-                <td className="px-4 py-3">{item.name}</td>
-                <td className="px-4 py-3">{item.durationMinutes} min</td>
-                <td className="px-4 py-3">{item.price != null ? `$${item.price}` : "—"}</td>
-                <td className="px-4 py-3">
-                  {item.offerPrice != null ? (
-                    <span className="text-primary font-medium">${item.offerPrice}</span>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="px-4 py-3">{item.requirements?.length ?? 0}</td>
-                <td className="px-4 py-3">{item.attachedFormIds?.length ?? 0}</td>
-                <td className="px-4 py-3">{item.status}</td>
-                <td className="px-4 py-3 flex gap-2">
-                  <Button variant="ghost" size="sm" onClick={() => editItem(item)}>
-                    <Pencil className="h-4 w-4" />
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => startDelete(item)}>
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </td>
-              </tr>
-            ))}
-            {services.length === 0 && (
+            {services
+              .filter((item) => item.onlineBookable)
+              .map((item) => (
+                <tr key={item.id} className="border-t">
+                  <td className="px-4 py-3">{item.name}</td>
+                  <td className="px-4 py-3">{item.durationMinutes} min</td>
+                  <td className="px-4 py-3">{item.price != null ? `$${item.price}` : "—"}</td>
+                  <td className="px-4 py-3">
+                    {item.offerPrice != null ? (
+                      <span className="text-primary font-medium">${item.offerPrice}</span>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-4 py-3">{item.requirements?.length ?? 0}</td>
+                  <td className="px-4 py-3">{item.attachedFormIds?.length ?? 0}</td>
+                  <td className="px-4 py-3">{item.status}</td>
+                  <td className="px-4 py-3 flex gap-2">
+                    <Button variant="ghost" size="sm" onClick={() => editItem(item)}>
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => startDelete(item)}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            {services.filter((item) => item.onlineBookable).length === 0 && (
               <tr>
                 <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                   No services configured yet.
@@ -2225,153 +2297,187 @@ function ServicesTab({
               </div>
             </div>
             <div className="border-t pt-4">
-              <div className="flex items-center justify-between mb-2">
-                <div>
-                  <Label>Add-ons</Label>
-                  <p className="text-xs text-muted-foreground">
-                    Optional upsells the AI can offer when a client books this service (e.g. "LED
-                    Light Therapy"). Priority ranks which one gets recommended first (1 = highest).
-                  </p>
+              <div className="mb-2">
+                <Label>Add-On Services</Label>
+                <p className="text-xs text-muted-foreground mb-2">
+                  Other services from your catalog that pair with this one (e.g. LED Therapy on a
+                  HydraFacial) — pick from the dropdown below, never typed. Price/duration default
+                  to that service's own configuration, editable below — changing them here updates
+                  that service's own record everywhere it's used. Offered in chat only, never
+                  hardcoded.
+                </p>
+                <div className="flex gap-2">
+                  <Select
+                    value=""
+                    onValueChange={(serviceId) => {
+                      const s = services.find((svc) => svc.id === serviceId);
+                      if (!s) return;
+                      setAddOns((rows) => [
+                        ...rows,
+                        {
+                          serviceId: s.id,
+                          name: s.name,
+                          price: s.price,
+                          durationMinutes: s.durationMinutes,
+                          status: s.status,
+                          priority: null,
+                        },
+                      ]);
+                    }}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Add an existing add-on service…" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {services
+                        .filter(
+                          (s) =>
+                            s.status === "Active" &&
+                            s.id !== active?.id &&
+                            !s.onlineBookable &&
+                            !addOns.some((a) => a.serviceId === s.id),
+                        )
+                        .map((s) => (
+                          <SelectItem key={s.id} value={s.id}>
+                            {s.name}
+                            {s.price != null ? ` — $${s.price}` : ""}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setNewAddonOpen((v) => !v)}
+                  >
+                    <Plus className="h-3.5 w-3.5 mr-1" /> New
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setAddOns((rows) => [
-                      ...rows,
-                      {
-                        name: "",
-                        description: null,
-                        price: null,
-                        durationMinutes: 0,
-                        status: "Active",
-                        priority: null,
-                      },
-                    ])
-                  }
-                >
-                  <Plus className="h-3.5 w-3.5 mr-1" /> Add
-                </Button>
-              </div>
-              <div className="space-y-3">
-                {addOns.map((addon, i) => (
-                  <div key={addon.id ?? i} className="rounded-md border p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex-1 grid grid-cols-2 gap-2">
+                {newAddonOpen && (
+                  <div className="mt-2 rounded-md border p-3 space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                      Creates a brand-new service (not independently bookable — it only ever appears
+                      as an add-on) and links it here immediately.
+                    </p>
+                    <div className="grid grid-cols-3 gap-2">
+                      <Input
+                        placeholder="Add-on name"
+                        value={newAddonName}
+                        onChange={(e) => setNewAddonName(e.target.value)}
+                        className="col-span-3"
+                      />
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">Price ($)</Label>
                         <Input
-                          placeholder="Add-on name"
-                          value={addon.name}
+                          type="number"
+                          placeholder="Optional"
+                          value={newAddonPrice ?? ""}
                           onChange={(e) =>
-                            setAddOns((rows) =>
-                              rows.map((r, idx) =>
-                                idx === i ? { ...r, name: e.target.value } : r,
-                              ),
-                            )
+                            setNewAddonPrice(e.target.value === "" ? null : Number(e.target.value))
                           }
+                          className="h-8"
                         />
+                      </div>
+                      <div>
+                        <Label className="text-[10px] text-muted-foreground">Duration (min)</Label>
                         <Input
-                          placeholder="Description (optional)"
-                          value={addon.description ?? ""}
-                          onChange={(e) =>
-                            setAddOns((rows) =>
-                              rows.map((r, idx) =>
-                                idx === i ? { ...r, description: e.target.value || null } : r,
-                              ),
-                            )
-                          }
+                          type="number"
+                          value={newAddonDuration}
+                          onChange={(e) => setNewAddonDuration(Number(e.target.value))}
+                          className="h-8"
                         />
                       </div>
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-6 w-6 ml-2"
-                        onClick={() => setAddOns((rows) => rows.filter((_, idx) => idx !== i))}
+                        onClick={createNewAddon}
+                        disabled={creatingAddon}
+                        className="self-end"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        {creatingAddon && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
+                        Create &amp; add
                       </Button>
                     </div>
-                    <div className="grid grid-cols-4 gap-2 items-end">
-                      <div>
-                        <Label className="text-xs">Price ($)</Label>
-                        <Input
-                          type="number"
-                          placeholder="Optional"
-                          value={addon.price ?? ""}
-                          onChange={(e) =>
-                            setAddOns((rows) =>
-                              rows.map((r, idx) =>
-                                idx === i
-                                  ? {
-                                      ...r,
-                                      price: e.target.value === "" ? null : Number(e.target.value),
-                                    }
-                                  : r,
-                              ),
-                            )
-                          }
-                          className="mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Extra duration (min)</Label>
-                        <Input
-                          type="number"
-                          value={String(addon.durationMinutes ?? 0)}
-                          onChange={(e) =>
-                            setAddOns((rows) =>
-                              rows.map((r, idx) =>
-                                idx === i ? { ...r, durationMinutes: Number(e.target.value) } : r,
-                              ),
-                            )
-                          }
-                          className="mt-1"
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-xs">Priority</Label>
-                        <Input
-                          type="number"
-                          placeholder="Unranked"
-                          value={addon.priority ?? ""}
-                          onChange={(e) =>
-                            setAddOns((rows) =>
-                              rows.map((r, idx) =>
-                                idx === i
-                                  ? {
-                                      ...r,
-                                      priority:
-                                        e.target.value === "" ? null : Number(e.target.value),
-                                    }
-                                  : r,
-                              ),
-                            )
-                          }
-                          className="mt-1"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between rounded-md border px-3 h-9">
-                        <Label className="mb-0 text-xs">Active</Label>
-                        <Switch
-                          checked={addon.status !== "Inactive"}
-                          onCheckedChange={(checked) =>
-                            setAddOns((rows) =>
-                              rows.map((r, idx) =>
-                                idx === i ? { ...r, status: checked ? "Active" : "Inactive" } : r,
-                              ),
-                            )
-                          }
-                        />
-                      </div>
-                    </div>
                   </div>
-                ))}
+                )}
+              </div>
+              <div className="space-y-1.5">
                 {addOns.length === 0 && (
                   <p className="text-xs text-muted-foreground">
-                    No add-ons configured for this service.
+                    No add-on services configured for this service.
                   </p>
                 )}
+                {addOns.map((a) => (
+                  <div
+                    key={a.serviceId}
+                    className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm"
+                  >
+                    <span className="flex-1">{a.name}</span>
+                    <div className="flex flex-col gap-0.5 w-24 flex-shrink-0">
+                      <Label className="text-[10px] text-muted-foreground">Price ($)</Label>
+                      <Input
+                        type="number"
+                        placeholder="Optional"
+                        value={a.price ?? ""}
+                        onChange={(e) =>
+                          setAddOns((rows) =>
+                            rows.map((r) =>
+                              r.serviceId === a.serviceId
+                                ? {
+                                    ...r,
+                                    price: e.target.value === "" ? null : Number(e.target.value),
+                                  }
+                                : r,
+                            ),
+                          )
+                        }
+                        className="h-8"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-0.5 w-24 flex-shrink-0">
+                      <Label className="text-[10px] text-muted-foreground">Duration (min)</Label>
+                      <Input
+                        type="number"
+                        value={a.durationMinutes ?? 0}
+                        onChange={(e) =>
+                          setAddOns((rows) =>
+                            rows.map((r) =>
+                              r.serviceId === a.serviceId
+                                ? { ...r, durationMinutes: Number(e.target.value) }
+                                : r,
+                            ),
+                          )
+                        }
+                        className="h-8"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-0.5 items-center flex-shrink-0">
+                      <Label className="text-[10px] text-muted-foreground">Active</Label>
+                      <Switch
+                        checked={a.status !== "Inactive"}
+                        onCheckedChange={(checked) =>
+                          setAddOns((rows) =>
+                            rows.map((r) =>
+                              r.serviceId === a.serviceId
+                                ? { ...r, status: checked ? "Active" : "Inactive" }
+                                : r,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 flex-shrink-0 self-end"
+                      onClick={() =>
+                        setAddOns((rows) => rows.filter((r) => r.serviceId !== a.serviceId))
+                      }
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
               </div>
             </div>
             <div className="border-t pt-4">
@@ -2494,8 +2600,8 @@ function ServicesTab({
                         <div>
                           <Label className="text-xs">Starts (optional)</Label>
                           <Input
-                            type="datetime-local"
-                            value={offerRow.startsAt ?? ""}
+                            type="date"
+                            value={toDateInputValue(offerRow.startsAt)}
                             onChange={(e) =>
                               setOffers((rows) =>
                                 rows.map((r, idx) =>
@@ -2509,8 +2615,8 @@ function ServicesTab({
                         <div>
                           <Label className="text-xs">Ends (optional)</Label>
                           <Input
-                            type="datetime-local"
-                            value={offerRow.endsAt ?? ""}
+                            type="date"
+                            value={toDateInputValue(offerRow.endsAt)}
                             onChange={(e) =>
                               setOffers((rows) =>
                                 rows.map((r, idx) =>

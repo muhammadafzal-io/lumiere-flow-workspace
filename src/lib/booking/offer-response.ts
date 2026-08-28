@@ -17,13 +17,64 @@ import {
   listActiveAddonsForService,
   listServiceOffers,
   getServiceRateCardPricing,
+  getInHouseFormLinks,
+  formatInHouseFormLinks,
+  formLinksToCtas,
 } from "@/lib/booking/recipe";
-import { resolvePricing } from "@/lib/booking/offer-pricing";
-import { formatAddonsForNotes } from "@/lib/booking/addon-selection";
-import { formatOfferForNotes } from "@/lib/booking/offer-pricing";
-import { mapOfferEventRow, type OfferEventRow } from "@/lib/booking/offer-events";
+import {
+  resolvePricing,
+  buildBookingPricingSummary,
+  mergeNotesWithPricingSummary,
+} from "@/lib/booking/offer-pricing";
+import {
+  mapOfferEventRow,
+  listOfferEventsForEvent,
+  type OfferEventRow,
+} from "@/lib/booking/offer-events";
+import { sendRetentionEmail } from "@/lib/integrations/email";
 
 const TABLE = "OfferEvents";
+
+/**
+ * Rebuilds the ONE consolidated pricing summary from every currently-ACCEPTED OfferEvents row for
+ * this booking (not just the one just accepted) and writes it into the calendar event's notes,
+ * replacing any prior auto-generated summary. Called after marking the just-accepted row ACCEPTED,
+ * so it's included in this pass — this is what keeps an add-on accepted at booking time and an
+ * offer accepted later (or vice versa) from each independently appending their own conflicting
+ * "Price:" fragment; there's only ever one current summary, always reflecting the full picture.
+ */
+async function rebuildAndPatchBookingNotes(opts: {
+  eventId: string;
+  currentNotes: string;
+  treatment: string;
+}): Promise<void> {
+  const [allOfferEvents, addOnCandidates, offerCandidates, { price: basePrice }] =
+    await Promise.all([
+      listOfferEventsForEvent(opts.eventId),
+      listActiveAddonsForService(opts.treatment).catch(() => []),
+      listServiceOffers(opts.treatment).catch(() => []),
+      getServiceRateCardPricing(opts.treatment).catch(() => ({ price: null, offers: [] })),
+    ]);
+
+  const accepted = allOfferEvents.filter((o) => o.status === "ACCEPTED");
+  const acceptedAddons = accepted
+    .filter((o) => o.offerType === "CROSS_SELL")
+    .map((o) => addOnCandidates.find((a) => a.id === o.offerId))
+    .filter((a): a is NonNullable<typeof a> => !!a)
+    .map((a) => ({ name: a.name, price: a.price }));
+  const acceptedUpsellEvent = accepted.find((o) => o.offerType === "UPSELL");
+  const acceptedOffer = acceptedUpsellEvent
+    ? (offerCandidates.find((o) => o.id === acceptedUpsellEvent.offerId) ?? null)
+    : null;
+
+  const summary = buildBookingPricingSummary({
+    basePrice,
+    offer: acceptedOffer,
+    addons: acceptedAddons,
+  });
+  const newNotes = mergeNotesWithPricingSummary(opts.currentNotes, summary);
+  await patchCalendarBookingFields(opts.eventId, { notes: newNotes });
+}
 
 export type AcceptOfferResult =
   | { ok: true; message: string }
@@ -111,14 +162,18 @@ export async function acceptOfferEvent(token: string): Promise<AcceptOfferResult
       }
 
       await rescheduleCalendarEvent(offer.eventId, booking.startTime, newEndTime);
-      const newNotes = [booking.notes, formatAddonsForNotes([addon])].filter(Boolean).join(" | ");
-      await patchCalendarBookingFields(offer.eventId, { notes: newNotes });
 
       await sb
         .from(TABLE)
         .update({ status: "ACCEPTED", responded_at: new Date().toISOString() })
         .eq("id", offer.id)
         .eq("status", "PRESENTED");
+
+      await rebuildAndPatchBookingNotes({
+        eventId: offer.eventId,
+        currentNotes: booking.notes,
+        treatment: booking.treatment,
+      });
 
       await logEvent(
         "booking",
@@ -127,9 +182,55 @@ export async function acceptOfferEvent(token: string): Promise<AcceptOfferResult
         { clientId: offer.clientId ?? undefined, phone: offer.clientContact ?? undefined },
       ).catch(() => undefined);
 
+      // The add-on is a real Service (see ServiceAddonLinks) — reuse the same in-house
+      // form-assignment lookup the original booking confirmation uses, scoped to the add-on's own
+      // service id, so its own required consent form (if any) gets sent now that it's been
+      // explicitly accepted — never before, per the "no form for a declined/unrequested add-on"
+      // rule.
+      const addonForms = await getInHouseFormLinks(
+        addon.id,
+        offer.eventId,
+        booking.startTime,
+        offer.clientContact || booking.clientContact,
+        offer.clientName || booking.clientName,
+        offer.clientId,
+      ).catch(() => []);
+
+      if (addonForms.length > 0 && booking.clientEmail) {
+        await sendRetentionEmail({
+          to: booking.clientEmail,
+          subject: `Please complete your ${addon.name} form`,
+          text: [
+            `Hi ${offer.clientName ?? booking.clientName},`,
+            "",
+            `${addon.name} has been added to your appointment. Please complete the form below before your visit.`,
+            ...formatInHouseFormLinks(addonForms),
+          ].join("\n"),
+          flowType: "booking",
+          logMeta: {
+            category: "booking",
+            triggerType: "system",
+            sourceId: offer.eventId,
+            sourceName: `${addon.name} consent form`,
+            clientId: offer.clientId ?? undefined,
+            clientName: offer.clientName ?? booking.clientName,
+          },
+          ctas: formLinksToCtas(addonForms),
+        }).catch((err) => console.error("[acceptOfferEvent] addon form email failed:", err));
+      }
+
       return {
         ok: true,
-        message: `${addon.name} has been added to your appointment${addon.price != null ? ` for $${addon.price}` : ""}.`,
+        message: [
+          `${addon.name} has been added to your appointment${addon.price != null ? ` for $${addon.price}` : ""}.`,
+          ...(addonForms.length > 0
+            ? [
+                `Please complete the following before your visit: ${addonForms
+                  .map((f) => `${f.formName} (${f.url})`)
+                  .join(", ")}`,
+              ]
+            : []),
+        ].join(" "),
       };
     }
 
@@ -145,14 +246,17 @@ export async function acceptOfferEvent(token: string): Promise<AcceptOfferResult
       return { ok: false, error: "This offer is no longer available.", code: "unavailable" };
     }
 
-    const newNotes = [booking.notes, formatOfferForNotes(pricing)].filter(Boolean).join(" | ");
-    await patchCalendarBookingFields(offer.eventId, { notes: newNotes });
-
     await sb
       .from(TABLE)
       .update({ status: "ACCEPTED", responded_at: new Date().toISOString() })
       .eq("id", offer.id)
       .eq("status", "PRESENTED");
+
+    await rebuildAndPatchBookingNotes({
+      eventId: offer.eventId,
+      currentNotes: booking.notes,
+      treatment: booking.treatment,
+    });
 
     await logEvent(
       "booking",

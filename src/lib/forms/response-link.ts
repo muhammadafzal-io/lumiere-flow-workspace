@@ -11,6 +11,7 @@ import { getAppBaseUrl } from "@/lib/client-channels";
 import type { FormField } from "@/lib/forms/types";
 import { validateFormAnswers } from "@/lib/forms/validate";
 import { listRequiredFormsForEvent, type RequiredFormTrackingRecord } from "@/lib/forms/tracking";
+import { getCalendarBookingDetails } from "@/lib/integrations/google-calendar";
 
 /** Grace period always ends at least this long before the appointment itself, never after. */
 const LEAD_BUFFER_MS = 60 * 60_000;
@@ -337,6 +338,11 @@ export interface BookingFormsDashboard {
   /** Every required form for the same booking (event_id), including this one — the page matches
    * the "current" row by `formResponseId === link.id` to render it inline vs. as a sibling link. */
   requiredForms: RequiredFormTrackingRecord[];
+  /** Treatment/date-time/practitioner for the appointment this form belongs to — gives the client
+   * context while filling it out, same as the booking-completion page (completion-link.ts). Null
+   * if the calendar event can't be resolved (e.g. since cancelled); the page still works without
+   * it, just without the context line. */
+  booking: { treatment: string; startTime: string; practitionerName: string } | null;
 }
 
 /**
@@ -352,9 +358,10 @@ export async function getBookingFormsDashboard(
   if (!found) return null;
   const { link, form } = found;
 
-  const [answers, requiredForms] = await Promise.all([
+  const [answers, requiredForms, bookingDetails] = await Promise.all([
     link.status === "completed" ? getFormResponseAnswers(link.id) : Promise.resolve(null),
     listRequiredFormsForEvent(link.eventId),
+    getCalendarBookingDetails(link.eventId).catch(() => null),
   ]);
 
   return {
@@ -363,5 +370,12 @@ export async function getBookingFormsDashboard(
     answers: answers?.answers ?? null,
     submittedAt: answers?.submittedAt ?? null,
     requiredForms,
+    booking: bookingDetails
+      ? {
+          treatment: bookingDetails.treatment,
+          startTime: bookingDetails.startTime,
+          practitionerName: bookingDetails.practitionerName,
+        }
+      : null,
   };
 }

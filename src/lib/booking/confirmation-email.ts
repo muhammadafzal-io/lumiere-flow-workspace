@@ -1,12 +1,12 @@
 import { sendRetentionEmail } from "@/lib/integrations/email";
 import { logEvent } from "@/lib/integrations/activity-log";
-import { widgetLinkLine } from "@/lib/client-channels";
 import { getClinicConfig } from "@/lib/clinic-config";
 import { getClinicBusinessHours, describeClinicHours } from "@/lib/booking/clinic-hours";
 import { getSupabase } from "@/lib/supabase";
 import {
   getInHouseFormLinks,
   formatInHouseFormLinks,
+  formLinksToCtas,
   resolveServiceId,
   listActiveAddonsForService,
   listServiceOffers,
@@ -37,6 +37,13 @@ import { trackRequiredForms } from "@/lib/forms/tracking";
  * that context (e.g. a resend, or the waitlist-offer acceptance flow) simply get every currently
  * available add-on/offer presented, since nothing was already taken care of at booking time.
  */
+interface PostBookingOfferContent {
+  lines: string[];
+  ctas: { label: string; url: string }[];
+}
+
+const EMPTY_OFFER_CONTENT: PostBookingOfferContent = { lines: [], ctas: [] };
+
 async function buildPostBookingOfferLines(opts: {
   eventId: string;
   treatment: string;
@@ -47,10 +54,10 @@ async function buildPostBookingOfferLines(opts: {
   platform?: string;
   selectedAddonIds?: string[];
   acceptedOfferId?: string;
-}): Promise<string[]> {
+}): Promise<PostBookingOfferContent> {
   try {
     const serviceId = await resolveServiceId(getSupabase(), opts.treatment).catch(() => null);
-    if (!serviceId) return [];
+    if (!serviceId) return EMPTY_OFFER_CONTENT;
 
     const [addOns, offers] = await Promise.all([
       listActiveAddonsForService(serviceId).catch(() => []),
@@ -87,9 +94,10 @@ async function buildPostBookingOfferLines(opts: {
       recentWindowDays: RECENT_TREATMENT_WINDOW_DAYS,
     });
 
-    if (!recommendation && !post.upsell) return [];
+    if (!recommendation && !post.upsell) return EMPTY_OFFER_CONTENT;
 
     const lines: string[] = ["", "You might also like:"];
+    const ctas: { label: string; url: string }[] = [];
     const chatId = opts.chatId ?? `email:${opts.eventId}`;
 
     if (recommendation) {
@@ -108,9 +116,12 @@ async function buildPostBookingOfferLines(opts: {
         platform: opts.platform,
       });
       if (logged) {
-        lines.push(
-          `${recommendation.recommendedTreatmentName}${recommendation.price != null ? ` — $${recommendation.price}` : ""}: ${offerRespondUrl(logged.token)}`,
-        );
+        const priceLabel = recommendation.price != null ? ` — $${recommendation.price}` : "";
+        lines.push(`${recommendation.recommendedTreatmentName}${priceLabel} (button below)`);
+        ctas.push({
+          label: `Add ${recommendation.recommendedTreatmentName}${priceLabel}`,
+          url: offerRespondUrl(logged.token),
+        });
       }
     }
 
@@ -132,15 +143,19 @@ async function buildPostBookingOfferLines(opts: {
       });
       if (logged) {
         lines.push(
-          `${post.upsell.name}: normally $${basePrice}, now $${upsellPrice} — ${offerRespondUrl(logged.token)}`,
+          `${post.upsell.name}: normally $${basePrice}, now $${upsellPrice} (button below)`,
         );
+        ctas.push({
+          label: `Apply ${post.upsell.name} — $${upsellPrice}`,
+          url: offerRespondUrl(logged.token),
+        });
       }
     }
 
-    return lines.length > 2 ? lines : [];
+    return lines.length > 2 ? { lines, ctas } : EMPTY_OFFER_CONTENT;
   } catch (err) {
     console.error("[confirmation-email] buildPostBookingOfferLines failed:", err);
-    return [];
+    return EMPTY_OFFER_CONTENT;
   }
 }
 
@@ -193,7 +208,28 @@ export async function sendBookingConfirmationEmail(opts: {
     }).catch((err) => console.error("[trackRequiredForms] failed:", err));
   }
 
-  const offerLines = opts.eventId
+  // Any add-on the client accepted live in chat (not via the post-booking email link) is a real
+  // Service too, and may have its own required consent form — reuses the exact same
+  // getInHouseFormLinks lookup as the main treatment, just scoped to the add-on's own service id.
+  const addonFormLinks: InHouseFormLink[] =
+    opts.eventId && opts.selectedAddonIds?.length
+      ? (
+          await Promise.all(
+            opts.selectedAddonIds.map((addonId) =>
+              getInHouseFormLinks(
+                addonId,
+                opts.eventId!,
+                opts.startTime,
+                opts.phone ?? "",
+                opts.clientName,
+                opts.clientId ?? null,
+              ).catch(() => [] as InHouseFormLink[]),
+            ),
+          )
+        ).flat()
+      : [];
+
+  const offerContent = opts.eventId
     ? await buildPostBookingOfferLines({
         eventId: opts.eventId,
         treatment: opts.treatment,
@@ -205,7 +241,7 @@ export async function sendBookingConfirmationEmail(opts: {
         selectedAddonIds: opts.selectedAddonIds,
         acceptedOfferId: opts.acceptedOfferId,
       })
-    : [];
+    : EMPTY_OFFER_CONTENT;
 
   await sendRetentionEmail({
     to: opts.to,
@@ -232,21 +268,17 @@ export async function sendBookingConfirmationEmail(opts: {
       `Practitioner: ${opts.practitionerName}`,
       `Location: ${clinic.address}`,
       opts.notes ? `Notes: ${opts.notes}` : "",
-      ...formatInHouseFormLinks(inHouseLinks),
-      ...offerLines,
+      ...formatInHouseFormLinks([...inHouseLinks, ...addonFormLinks]),
+      ...offerContent.lines,
       ``,
       `Need to change anything? Reply to this email or contact us ${businessHoursLabel}.`,
-      widgetLinkLine(),
       ``,
       `See you soon!`,
       `— The Lumière Team`,
     ]
       .filter((line) => line !== undefined)
       .join("\n"),
-    cta: {
-      label: "View Location",
-      url: `https://maps.google.com/?q=${encodeURIComponent(clinic.address)}`,
-    },
+    ctas: [...formLinksToCtas([...inHouseLinks, ...addonFormLinks]), ...offerContent.ctas],
   });
 
   await logEvent("booking", opts.clientName, `Booking confirmation email sent to ${opts.to}`, {

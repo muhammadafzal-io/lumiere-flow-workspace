@@ -31,8 +31,12 @@ import {
   listServiceOffers,
   getServiceRateCardPricing,
 } from "@/lib/booking/recipe";
-import { resolveSelectedAddons, formatAddonsForNotes } from "@/lib/booking/addon-selection";
-import { resolvePricing, formatOfferForNotes } from "@/lib/booking/offer-pricing";
+import { resolveSelectedAddons } from "@/lib/booking/addon-selection";
+import {
+  resolvePricing,
+  buildBookingPricingSummary,
+  mergeNotesWithPricingSummary,
+} from "@/lib/booking/offer-pricing";
 import { validatePromoCode } from "@/lib/credits/validate-code";
 import {
   validateBookAppointment,
@@ -522,7 +526,6 @@ export async function executeTool(
         const resolvedClientName =
           rawClientName || (isVoice ? PENDING_NAME_PLACEHOLDER : rawClientName);
 
-        const addonsNote = formatAddonsForNotes(addonSelection.matched);
         // Re-resolved fresh right now, independent of anything the AI said earlier in the
         // conversation — this is the price actually charged, stamped onto the booking as static
         // text so a later Rate Card change never retroactively alters what this booking recorded.
@@ -537,13 +540,19 @@ export async function executeTool(
         const acceptedOfferCandidate = acceptedOfferId
           ? currentOffers.find((o) => o.id === acceptedOfferId)
           : undefined;
-        const appliedPricing = acceptedOfferCandidate
-          ? resolvePricing(currentPrice, [acceptedOfferCandidate])
-          : { basePrice: currentPrice, offer: null, finalPrice: currentPrice };
-        const pricingNote = formatOfferForNotes(appliedPricing);
-        const combinedNotes = [input.notes as string | undefined, addonsNote, pricingNote]
-          .filter(Boolean)
-          .join(" | ");
+        // One consolidated summary line (add-ons + discounted price + grand total) rather than
+        // separate "Add-ons:"/"Price:" fragments — this is also the format any later post-booking
+        // accept (see offer-response.ts's rebuildAndPatchBookingNotes) replaces wholesale, so a
+        // second accept never leaves a stale, conflicting fragment behind.
+        const pricingSummary = buildBookingPricingSummary({
+          basePrice: currentPrice,
+          offer: acceptedOfferCandidate ?? null,
+          addons: addonSelection.matched.map((a) => ({ name: a.name, price: a.price })),
+        });
+        const combinedNotes = mergeNotesWithPricingSummary(
+          input.notes as string | undefined,
+          pricingSummary,
+        );
 
         const apptData = {
           clientName: resolvedClientName,
@@ -736,7 +745,13 @@ export async function executeTool(
                     note: "These selected add-ons are no longer available and were NOT included — let the client know.",
                   }
                 : undefined,
-            price_charged: currentPrice != null ? appliedPricing.finalPrice : undefined,
+            price_charged:
+              currentPrice != null
+                ? resolvePricing(
+                    currentPrice,
+                    acceptedOfferCandidate ? [acceptedOfferCandidate] : [],
+                  ).finalPrice
+                : undefined,
             rate_card_price: currentPrice ?? undefined,
           };
           flow?.step("book:complete", { result: summarizeForFlowLog(result) });
