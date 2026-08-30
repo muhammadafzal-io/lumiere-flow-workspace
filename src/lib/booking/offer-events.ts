@@ -162,6 +162,25 @@ export async function listOfferEventsForEvent(eventId: string): Promise<OfferEve
   }
 }
 
+/** Every OfferEvents row ever logged, optionally since a given ISO timestamp — the raw material
+ * for the offer-performance page's aggregation. Unlike listOfferEventsForEvent this isn't scoped
+ * to one booking; it's meant to be grouped by (offerType, offerId) across the clinic's whole
+ * history. Never throws — an analytics read failing should show "no data" in the UI, not break
+ * page load. */
+export async function listAllOfferEvents(opts?: { since?: string }): Promise<OfferEventRow[]> {
+  try {
+    const sb = getSupabase();
+    let query = sb.from(TABLE).select("*");
+    if (opts?.since) query = query.gte("created_at", opts.since);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    return (data ?? []).map(mapOfferEventRow);
+  } catch (err) {
+    console.error("[offer-events] listAllOfferEvents failed:", err);
+    return [];
+  }
+}
+
 export function offerRespondUrl(token: string): string {
   return `${getAppBaseUrl()}/offers/respond/${token}`;
 }

@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { after } from "next/server";
 import type { ChatCompletionMessageParam } from "openai/resources";
 import { getSystemPrompt } from "./system-prompt";
 import { TOOLS } from "./tools";
@@ -19,12 +20,7 @@ import {
   findLastPractitionerForContact,
   patchCalendarBookingFields,
 } from "@/lib/integrations/google-calendar";
-import {
-  lookupClient,
-  upsertClient,
-  createAppointmentRecord,
-  getPractitioners,
-} from "@/lib/integrations/airtable";
+import { lookupClient, upsertClient, getPractitioners } from "@/lib/integrations/airtable";
 import {
   listActiveServices,
   listActiveAddonsForService,
@@ -601,17 +597,6 @@ export async function executeTool(
           const clientRecord = await lookupClient({ phone: apptData.clientContact }).catch(
             () => null,
           );
-          await createAppointmentRecord(
-            {
-              clientName: apptData.clientName,
-              treatment: apptData.treatment,
-              startTime: apptData.startTime,
-              endTime: apptData.endTime,
-              clientContact: apptData.clientContact,
-              notes: apptData.notes,
-            },
-            clientRecord?.id,
-          ).catch(() => undefined);
           flow?.step("book:crm record saved", { clientId: clientRecord?.id });
 
           // The client's real Clients-table id is only known now (upsert/lookup happens after
@@ -632,11 +617,21 @@ export async function executeTool(
           // client whose CRM record already has an email on file) — the real confirmation is
           // sent later by completeBookingLink() once the registration form is submitted.
           // Sending it here too would prematurely "confirm" a booking that's still Pending.
-          let confirmationEmailSent = false;
-          if (!isVoice && clientEmail) {
-            try {
-              flow?.step("book:send confirmation email", { to: clientEmail });
-              await sendBookingConfirmationEmail({
+          //
+          // Deferred via Next's after() rather than awaited: sendBookingConfirmationEmail does a
+          // lot of work (form lookups, cross-sell/upsell computation, the actual provider send)
+          // that has nothing to do with whether the booking itself succeeded — measured at ~13s
+          // of a ~30s total book_appointment call, the single largest cost in the entire flow,
+          // all spent blocking the chat reply on an email the client doesn't need synchronously.
+          // after() (not a bare unawaited promise) is what actually guarantees this finishes on
+          // Vercel — the serverless instance can freeze the moment the response is sent otherwise.
+          // confirmation_email_sent now means "the send was scheduled" rather than "delivery
+          // confirmed" — an actual failure still gets logged, just after the tool has returned.
+          const confirmationEmailSent = !isVoice && !!clientEmail;
+          if (confirmationEmailSent) {
+            flow?.step("book:send confirmation email", { to: clientEmail });
+            const sendConfirmationEmail = () =>
+              sendBookingConfirmationEmail({
                 to: clientEmail,
                 clientName: apptData.clientName,
                 treatment: apptData.treatment,
@@ -654,15 +649,21 @@ export async function executeTool(
                 platform: context.platform,
                 selectedAddonIds: addonSelection.matched.map((a) => a.id),
                 acceptedOfferId: acceptedOfferCandidate?.id,
+              }).catch((e) => {
+                console.error(`[agent/book] confirmation email failed:`, e);
               });
-              confirmationEmailSent = true;
-              flow?.step("book:confirmation email sent", { to: clientEmail });
+            // after() schedules the send to run once the response is on its way, which is what
+            // actually guarantees it survives on Vercel — but it throws SYNCHRONOUSLY if called
+            // outside a real request context. Booking success must never hinge on that scheduling
+            // call succeeding (the calendar event and CRM record are already committed by this
+            // point) — on the rare chance it throws, fall back to firing the send directly instead
+            // of losing the email, or worse, letting the throw bubble up and mark an already-
+            // successful booking as failed.
+            try {
+              after(sendConfirmationEmail);
             } catch (e) {
-              console.error(`[agent/book] confirmation email failed:`, e);
-              flow?.step("book:confirmation email failed", {
-                to: clientEmail,
-                error: e instanceof Error ? e.message : String(e),
-              });
+              console.error(`[agent/book] after() scheduling failed, sending inline:`, e);
+              void sendConfirmationEmail();
             }
           } else {
             flow?.step("book:no email to send");

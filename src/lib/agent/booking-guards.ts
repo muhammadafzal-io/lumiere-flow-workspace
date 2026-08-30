@@ -61,8 +61,13 @@ export function hasBirthdayCollected(input: Record<string, unknown>): boolean {
   return hasValidBirthday(input);
 }
 
-/** Fill client_email / birthday from Supabase when upsert_client ran earlier in the session. */
-export async function enrichBookingInput(input: Record<string, unknown>): Promise<void> {
+/** Fill client_email / birthday from Supabase when upsert_client ran earlier in the session.
+ * Returns the CRM client this phone number resolved to (or null) so the caller — see the
+ * name-mismatch check in validateBookAppointment below — can reuse it instead of looking the same
+ * phone up a second time. */
+export async function enrichBookingInput(
+  input: Record<string, unknown>,
+): Promise<Awaited<ReturnType<typeof lookupClientByPhone>>> {
   logFlowStep("book:enrichBookingInput:start", {
     phone: input.client_contact,
     hasEmail: Boolean(input.client_email),
@@ -71,13 +76,13 @@ export async function enrichBookingInput(input: Record<string, unknown>): Promis
   sanitizeBookingEmails(input);
   if (!input.client_contact) {
     logFlowStep("book:enrichBookingInput:skip", { reason: "no phone" });
-    return;
+    return null;
   }
 
   const client = await lookupClientByPhone(String(input.client_contact)).catch(() => null);
   if (!client) {
     logFlowStep("book:enrichBookingInput:crm miss");
-    return;
+    return null;
   }
 
   logFlowStep("book:enrichBookingInput:crm found", {
@@ -96,6 +101,7 @@ export async function enrichBookingInput(input: Record<string, unknown>): Promis
     client_email: input.client_email,
     birthday: input.birthday,
   });
+  return client;
 }
 
 /**
@@ -122,7 +128,7 @@ export async function validateBookAppointment(
     treatment: input.treatment,
     date_time: input.date_time,
   });
-  await enrichBookingInput(input);
+  const enrichedClient = await enrichBookingInput(input);
   const requireFullProfile = opts?.requireFullProfile !== false;
 
   const missing: string[] = [];
@@ -152,10 +158,11 @@ export async function validateBookAppointment(
 
   // Data-integrity check, independent of requireFullProfile — catches a phone number already
   // on file under a different person's name, for both the full-profile (chat) and relaxed
-  // (voice) gates.
+  // (voice) gates. Reuses enrichBookingInput's own lookup (same phone, not mutated in between)
+  // instead of querying the CRM a second time for the same answer.
   const phone = String(input.client_contact ?? "").trim();
   if (phone && clientName && isFullName(clientName)) {
-    const existing = await lookupClientByPhone(phone).catch(() => null);
+    const existing = enrichedClient;
     if (existing?.name && !areNamesLikelySame(existing.name, clientName)) {
       const error = `This phone number is already linked to ${existing.name}. Use the same client name for this phone, or confirm a different phone number before booking.`;
       logFlowStep("book:validateBookAppointment:failed", { error, existingName: existing.name });

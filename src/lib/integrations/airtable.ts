@@ -1,7 +1,8 @@
 import { getSupabase } from "@/lib/supabase";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
-import type { Client, Appointment } from "@/types";
+import type { Client } from "@/types";
 import { getClinicTimezone } from "@/lib/clinic-config";
+import { phoneSearchVariants, phonesMatch } from "@/lib/phone";
 
 async function normalizeToDate(raw: string | undefined): Promise<string | undefined> {
   if (!raw?.trim()) return undefined;
@@ -37,7 +38,6 @@ function rowToClient(row: Record<string, any>): Client {
 }
 
 const TABLE = "Clients";
-const APPT_TABLE = "Appointments";
 
 export async function lookupClient(opts: {
   telegramId?: string;
@@ -132,19 +132,31 @@ export async function getClientById(id: string): Promise<Client | null> {
   return data ? rowToClient(data) : null;
 }
 
+/**
+ * Matches a phone number against every plausible stored format in ONE filtered query — an exact
+ * "Phone".eq lookup only catches a client whose number happens to be stored in exactly the format
+ * passed in, which is rare (callers commonly pass a raw dialed string, digits-only, or a specific
+ * spacing/parens style that doesn't match how it was originally saved). Falls back to a full-table
+ * fuzzy scan (phonesMatch, format-agnostic) only when none of the generated variants hit — e.g. an
+ * international number outside the formats phoneSearchVariants anticipates — so that expensive path
+ * is now the rare case rather than the common one.
+ */
 export async function lookupClientByPhone(phone: string): Promise<Client | null> {
-  const direct = await lookupClient({ phone }).catch(() => null);
-  if (direct) return direct;
+  const variants = phoneSearchVariants(phone);
+  if (variants.length === 0) return null;
 
-  const { phonesMatch } = await import("@/lib/phone");
+  const sb = getSupabase();
+  const { data, error } = await sb.from(TABLE).select("*").in("Phone", variants).limit(1);
+  if (error) throw new Error(error.message);
+  if (data && data.length > 0) return rowToClient(data[0]);
+
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 7) return null;
 
-  const sb = getSupabase();
-  const { data, error } = await sb.from(TABLE).select("*");
-  if (error) throw new Error(error.message);
+  const { data: all, error: allErr } = await sb.from(TABLE).select("*");
+  if (allErr) throw new Error(allErr.message);
 
-  const row = (data ?? []).find((r) => phonesMatch(String(r["Phone"] ?? ""), phone));
+  const row = (all ?? []).find((r) => phonesMatch(String(r["Phone"] ?? ""), phone));
   return row ? rowToClient(row) : null;
 }
 
@@ -295,26 +307,4 @@ export async function getPractitioners(filter?: { specialty?: string }): Promise
     return all.filter((p) => p.specialty?.toLowerCase().includes(term));
   }
   return all;
-}
-
-export async function createAppointmentRecord(
-  appt: Omit<Appointment, "id">,
-  clientId?: string,
-): Promise<void> {
-  const sb = getSupabase();
-  try {
-    const { error } = await sb.from(APPT_TABLE).insert({
-      client_name: appt.clientName,
-      treatment: appt.treatment,
-      start_time: appt.startTime,
-      end_time: appt.endTime,
-      status: "Confirmed",
-      contact: appt.clientContact,
-      ...(appt.notes && { notes: appt.notes }),
-      ...(clientId && { client_id: clientId }),
-    });
-    if (error) console.error("createAppointmentRecord:", error.message);
-  } catch {
-    void 0;
-  }
 }

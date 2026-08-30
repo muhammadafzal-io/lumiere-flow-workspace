@@ -170,6 +170,19 @@ export async function listActiveServices(query?: string): Promise<ServiceRow[]> 
   return all.filter((s) => s.name.toLowerCase().includes(term));
 }
 
+/** id -> name for every Service regardless of status — used to label historical offer/add-on
+ * data by the treatment it was presented alongside, including one since renamed or deactivated. */
+export async function listAllServiceNames(): Promise<Record<string, string>> {
+  const sb = getSupabase();
+  const { data, error } = await sb.from("Services").select("id, Name");
+  if (error) throw new Error(`listAllServiceNames: ${error.message}`);
+  const out: Record<string, string> = {};
+  for (const row of data ?? []) {
+    out[row.id] = String(row["Name"] ?? "").trim();
+  }
+  return out;
+}
+
 export interface ServiceAddonRow {
   /** The add-on's own Service id — this IS a real Service, not a free-text row. */
   id: string;

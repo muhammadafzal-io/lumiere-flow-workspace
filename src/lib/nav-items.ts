@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   FileText,
   ListPlus,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 
@@ -35,6 +36,12 @@ export const NAV_ITEMS: NavItem[] = [
     module: "pending_bookings",
   },
   { title: "Waitlist", url: "/waitlist", icon: ListPlus, module: "waitlist" },
+  {
+    title: "Offer Performance",
+    url: "/offer-performance",
+    icon: TrendingUp,
+    module: "offer_performance",
+  },
   { title: "Customers", url: "/customers", icon: Users, module: "customers" },
   { title: "Forms", url: "/forms", icon: FileText, module: "forms" },
   { title: "Activity Log", url: "/activity", icon: ScrollText, module: "activity" },
