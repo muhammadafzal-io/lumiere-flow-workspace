@@ -44,10 +44,10 @@ interface OfferSummary {
 }
 
 const VERDICT_LABEL: Record<VerdictLabel, string> = {
-  good: "Good offer",
-  mixed: "Mixed",
-  underperforming: "Underperforming",
-  insufficient_data: "Not enough data",
+  good: "Strong Performer",
+  mixed: "Needs Attention",
+  underperforming: "Weak Performer",
+  insufficient_data: "Insufficient Data",
 };
 
 function verdictClass(label: VerdictLabel): string {
