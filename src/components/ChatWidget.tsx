@@ -74,6 +74,12 @@ export default function ChatWidget({
         body: JSON.stringify({ sessionId, message: text, history: agentHistory }),
       });
 
+      // A non-2xx here (most often a gateway timeout on a slow turn — several tool calls in a
+      // row can add up) means the server never got as far as returning a real reply, distinct
+      // from a genuine network failure below. Both land in the catch block, but distinguishing
+      // them lets the message actually say what happened instead of a generic "connection" guess.
+      if (!res.ok) throw new Error(`http_${res.status}`);
+
       const data: {
         reply?: string;
         error?: string;
@@ -84,14 +90,25 @@ export default function ChatWidget({
 
       const reply = data.reply ?? "Sorry, I couldn't process that. Please try again.";
       setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
-      if (data.history) setAgentHistory(data.history);
+      if (data.history) {
+        setAgentHistory(data.history);
+      } else {
+        // No updated history back — at minimum keep this message in the AI's context so a retry
+        // doesn't silently lose track of what the client just said.
+        setAgentHistory((prev) => [...prev, { role: "user", content: text }]);
+      }
     } catch (err) {
-      void err;
+      const isServerTimeout = err instanceof Error && /^http_(5\d\d|408)$/.test(err.message);
+      // Preserve the message in context here too — same reasoning as the no-history branch
+      // above — so a retry after a timeout isn't starting the AI over from scratch.
+      setAgentHistory((prev) => [...prev, { role: "user", content: text }]);
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          text: "I'm having trouble connecting. Please try again in a moment 💛",
+          text: isServerTimeout
+            ? "That took longer than expected on our end — nothing was lost, please try sending that again. 💛"
+            : "I'm having trouble connecting. Please check your connection and try again in a moment 💛",
         },
       ]);
     } finally {

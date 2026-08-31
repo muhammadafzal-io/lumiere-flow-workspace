@@ -50,7 +50,7 @@ export interface OfferPerformanceSummary {
 /** Below this many presentations, a verdict would just be noise — not enough samples to trust a
  * rate. Deliberately a plain constant (not a Settings field) — a boutique clinic's offer volume is
  * low enough that this rarely needs tuning; easy to promote to Settings later if it does. */
-const MIN_SAMPLE_SIZE = 10;
+const MIN_SAMPLE_SIZE = 5;
 /** At or above this acceptance rate, an offer is pulling its weight. */
 const GOOD_ACCEPTANCE_RATE = 0.2;
 /** At or below this acceptance rate (with enough samples), an offer isn't landing. */
