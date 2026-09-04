@@ -11,6 +11,7 @@ import {
   FileText,
   ListPlus,
   TrendingUp,
+  Repeat,
   type LucideIcon,
 } from "lucide-react";
 
@@ -28,6 +29,7 @@ export interface NavItem {
 export const NAV_ITEMS: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, module: "dashboard" },
   { title: "Rules & Campaigns", url: "/rules", icon: Zap, module: "rules" },
+  { title: "Flows", url: "/flows", icon: Repeat, module: "flows" },
   { title: "Calendar", url: "/calendar", icon: CalendarIcon, module: "calendar" },
   {
     title: "Pending Bookings",

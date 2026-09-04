@@ -2,28 +2,51 @@ import "server-only";
 
 import { logEvent } from "@/lib/integrations/activity-log";
 import { getMessagingProvider } from "@/lib/messaging";
+import { getClinicConfig } from "@/lib/clinic-config";
 import { listFollowupCandidates } from "@/lib/retention/followup-candidates";
 import { recordFollowupSend } from "@/lib/retention/followup-sends";
 import { trySend } from "@/lib/retention/utils";
+import { widgetLinkLine } from "@/lib/client-channels";
 import type { AudienceFilters } from "@/lib/retention/audience-config";
 import type { RetentionResult, RunFlowOptions } from "@/types";
 
-const DEFAULT_MESSAGE = `Hi {first_name},
+/**
+ * Email replies never reach the agent (no inbound email channel exists — only
+ * WhatsApp/Discord/widget do), so the feedback CTA must point there instead of
+ * "reply to this email," or a positive reply here would never trigger a review
+ * request via check_followup_feedback.
+ *
+ * The Google review link is included here for every recipient (not gated on a
+ * positive reply first, unlike review-request.ts's separate sentiment-gated
+ * flow) — deliberately asks everyone up front rather than waiting on a reply.
+ */
+function buildDefaultMessage(reviewUrl: string | null): string {
+  const reviewLine = reviewUrl
+    ? `\n\nLoved your visit? We'd really appreciate a quick Google review — it helps other clients find us: {review_url}`
+    : "";
+  return `Hi {first_name},
 
 Thank you for visiting Lumière for your {treatment} treatment!
 
 We hope you're feeling wonderful. How are you doing, and are you satisfied with your results so far?
 
-If you have any questions or would like to share feedback, simply reply to this email — we'd love to hear from you.
+We'd love to hear your feedback — ${widgetLinkLine()}${reviewLine}
 
 Warmly,
 The Lumière Team`;
+}
 
-function personalizeMessage(template: string, name: string, treatment: string): string {
+function personalizeMessage(
+  template: string,
+  name: string,
+  treatment: string,
+  reviewUrl: string | null,
+): string {
   const first = name.trim().split(/\s+/)[0] || name;
   return template
     .replace(/\{first_name\}/g, first)
-    .replace(/\{treatment\}/g, treatment || "recent");
+    .replace(/\{treatment\}/g, treatment || "recent")
+    .replace(/\{review_url\}/g, reviewUrl ?? "");
 }
 
 function buildSubject(name: string, treatment: string): string {
@@ -51,7 +74,9 @@ export async function runFollowupFlow(
   }
 
   const result: RetentionResult = { sent: 0, skipped: 0, failed: 0, details: [] };
-  const template = process.env.FOLLOWUP_MESSAGE_TEMPLATE?.trim() || DEFAULT_MESSAGE;
+  const clinic = await getClinicConfig();
+  const reviewUrl = clinic.googleReviewUrl;
+  const template = process.env.FOLLOWUP_MESSAGE_TEMPLATE?.trim() || buildDefaultMessage(reviewUrl);
 
   for (const c of candidates) {
     if (!c.email) {
@@ -74,7 +99,7 @@ export async function runFollowupFlow(
       continue;
     }
 
-    const text = personalizeMessage(template, c.clientName, c.treatment);
+    const text = personalizeMessage(template, c.clientName, c.treatment, reviewUrl);
 
     try {
       const { platform, simulated, emailSent, discordMirrored, emailError } = await trySend(
