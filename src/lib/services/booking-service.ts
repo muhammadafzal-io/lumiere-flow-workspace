@@ -456,6 +456,38 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
     }
   }
 
+  // Whether ANY practitioner is qualified for this service at all (or whether a specifically
+  // requested one is) is a static fact from the recipe alone — independent of date. Checking it
+  // here, before buildAvailabilityInputs does real Google Calendar work, avoids paying that cost
+  // once per day of a findEarliestAvailability scan when the answer is already known: zero
+  // qualified practitioners means zero availability on every date, not just this one. This was
+  // previously the exact cause of a ~50s response for a service with no qualified practitioner —
+  // the day-by-day scan burned a full Calendar lookup per day before ever giving up.
+  if (recipe && recipe.qualifiedPractitioners.length === 0) {
+    return {
+      date,
+      durationMinutes: effectiveDuration,
+      slots: [],
+      bookingWindowNote: `No practitioner is currently qualified to perform ${recipe.service.name}.`,
+      availablePractitioners: [],
+      availableRooms: [],
+    };
+  }
+  if (
+    recipe &&
+    practitionerName &&
+    !recipe.qualifiedPractitioners.some((p) => p.name === practitionerName)
+  ) {
+    return {
+      date,
+      durationMinutes: effectiveDuration,
+      slots: [],
+      bookingWindowNote: `${practitionerName} is not qualified to perform ${recipe.service.name}.`,
+      availablePractitioners: [],
+      availableRooms: [],
+    };
+  }
+
   let slots: AvailableSlot[];
   let bookingWindowNote: string | undefined;
 
