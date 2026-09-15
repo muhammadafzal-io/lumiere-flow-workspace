@@ -87,12 +87,28 @@ import { slotPresentLimit } from "@/lib/agent/shared-booking-rules";
 import { dateFromIsoInTz, timeKeyInTz } from "@/lib/booking/dates";
 import { getClinicConfig } from "@/lib/clinic-config";
 
+/** Per-request ceiling for a single model call. The SDK's default is 10 MINUTES, which is
+ * meaningless inside an API route capped at maxDuration = 60s — a hung call just runs until
+ * Vercel kills the whole function, so the browser gets no JSON at all and the widget shows its
+ * generic "trouble connecting" line. Bounded here instead, well inside that 60s budget, so a
+ * stalled call fails while there's still time to return a real reply. */
+const OPENAI_TIMEOUT_MS = 20_000;
+/** The SDK default is 2 (3 attempts). With backoff between them, a persistently failing call —
+ * a 429 from a rate limit, say — burned ~40s before throwing, which is most of the function's
+ * budget spent on a request that was never going to succeed. One retry covers a transient blip
+ * without eating the whole window. */
+const OPENAI_MAX_RETRIES = 1;
+
 function getOpenAI() {
   const apiKey = getOpenAIApiKey();
   if (!apiKey) {
     throw new Error("OPENAI_API_KEY is not configured");
   }
-  return new OpenAI({ apiKey });
+  return new OpenAI({
+    apiKey,
+    timeout: OPENAI_TIMEOUT_MS,
+    maxRetries: OPENAI_MAX_RETRIES,
+  });
 }
 
 const MAX_TOOL_ROUNDS = 8;

@@ -16,6 +16,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "sessionId and message are required" }, { status: 400 });
   }
 
+  const startedAt = Date.now();
   try {
     const result = await runAgent({
       userMessage: message,
@@ -31,7 +32,18 @@ export async function POST(req: NextRequest) {
       history: result.messages,
     });
   } catch (err) {
-    void err;
+    // The client only ever sees the generic line below, so this log is the ONLY record that a
+    // real customer conversation failed — it was previously discarded (`void err`), which made
+    // every such failure invisible in production. Includes elapsed time and history length
+    // because the failures worth diagnosing here are the slow ones (an upstream model timeout
+    // looks completely different from an immediate throw, and only the timing distinguishes them).
+    console.error("[api/chat] runAgent failed", {
+      sessionId,
+      elapsedMs: Date.now() - startedAt,
+      historyLength: Array.isArray(history) ? history.length : 0,
+      error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     return NextResponse.json(
       { reply: "I'm having trouble right now. Please try again later." },
       { status: 200 },
