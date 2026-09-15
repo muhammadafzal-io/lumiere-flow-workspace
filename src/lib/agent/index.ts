@@ -25,6 +25,8 @@ import {
   listActiveServices,
   listActiveAddonsForService,
   listServiceOffers,
+  listActiveAddonsForServices,
+  listServiceOffersForServices,
   getServiceRateCardPricing,
 } from "@/lib/booking/recipe";
 import { resolveSelectedAddons } from "@/lib/booking/addon-selection";
@@ -94,6 +96,21 @@ function getOpenAI() {
 }
 
 const MAX_TOOL_ROUNDS = 8;
+
+/** Tools safe to run concurrently when the model calls several of them in the same round — pure
+ * lookups, no writes, no ordering dependency on each other or on anything else in the round.
+ * Deliberately conservative: anything with a write or a side effect (bookings, client upserts,
+ * waitlist, escalation, credit-code redemption, review requests) is left OUT even if it's
+ * probably fine, since a wrong guess here means a real ordering bug, not just a missed
+ * optimization — see the check in runAgent's tool loop for how this is used. */
+const PARALLEL_SAFE_TOOLS = new Set([
+  "get_practitioners",
+  "get_services",
+  "get_addons",
+  "check_availability",
+  "find_earliest_availability",
+  "lookup_client",
+]);
 
 /**
  * Creates the booking-completion link and delivers it on the best available channel.
@@ -235,10 +252,23 @@ export async function executeTool(
           // unprompted) — NOT as a directive to proactively pitch them. Cross-sell/upsell offers
           // are only ever proactively presented post-booking, once required forms are sent (see
           // book_appointment's result) — never during the booking flow itself.
-          const [addOnsByService, offersByService] = await Promise.all([
-            Promise.all(services.map((s) => listActiveAddonsForService(s.id).catch(() => []))),
-            Promise.all(services.map((s) => listServiceOffers(s.id).catch(() => []))),
+          //
+          // Batched (one query for all services' add-ons, one for all offers) rather than a
+          // per-service Promise.all — the latter meant up to 2-4 Supabase round trips PER active
+          // service fired simultaneously for a single get_services call (each singular helper
+          // pays its own resolveServiceId lookup even for an id that's already resolved), enough
+          // simultaneous requests to hit real connection-pool contention on a catalog of any size.
+          const serviceIds = services.map((s) => s.id);
+          const [addOnsByServiceId, offersByServiceId] = await Promise.all([
+            listActiveAddonsForServices(serviceIds).catch(
+              () => new Map() as Awaited<ReturnType<typeof listActiveAddonsForServices>>,
+            ),
+            listServiceOffersForServices(serviceIds).catch(
+              () => new Map() as Awaited<ReturnType<typeof listServiceOffersForServices>>,
+            ),
           ]);
+          const addOnsByService = services.map((s) => addOnsByServiceId.get(s.id) ?? []);
+          const offersByService = services.map((s) => offersByServiceId.get(s.id) ?? []);
           const pricingByService = services.map((s, i) =>
             resolvePricing(s.price, offersByService[i]),
           );
@@ -1566,19 +1596,26 @@ export async function runAgent(opts: {
 
       messages.push(choice.message);
 
-      for (const toolCall of toolCalls) {
+      const runOneToolCall = async (
+        toolCall: (typeof toolCalls)[number],
+      ): Promise<{
+        message: ChatCompletionMessageParam;
+        escalated?: boolean;
+        booked?: boolean;
+      }> => {
         const toolName = toolCall.function.name;
         let input: Record<string, unknown>;
 
         try {
           input = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
         } catch {
-          messages.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: "Error: could not parse tool arguments",
-          });
-          continue;
+          return {
+            message: {
+              role: "tool",
+              tool_call_id: toolCall.id,
+              content: "Error: could not parse tool arguments",
+            },
+          };
         }
 
         try {
@@ -1586,24 +1623,47 @@ export async function runAgent(opts: {
             result,
             escalated: esc,
             booked: bkd,
-          } = await executeTool(toolName, input, { platform, chatId });
-          if (esc) escalated = true;
-          if (bkd) booked = true;
-
-          const resultStr = JSON.stringify(result);
-
-          messages.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: resultStr,
+          } = await executeTool(toolName, input, {
+            platform,
+            chatId,
           });
+          return {
+            message: { role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result) },
+            escalated: esc,
+            booked: bkd,
+          };
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : String(err);
-          messages.push({
-            role: "tool",
-            tool_call_id: toolCall.id,
-            content: `Error: ${errMsg}`,
-          });
+          return {
+            message: { role: "tool", tool_call_id: toolCall.id, content: `Error: ${errMsg}` },
+          };
+        }
+      };
+
+      // When the model calls several tools in one round, running them concurrently instead of
+      // one-at-a-time can meaningfully cut a turn's latency — but only when every one of them is
+      // read-only and has no ordering dependency on the others (e.g. two get_services/
+      // check_availability lookups). Anything outside that allowlist (bookings, client writes,
+      // waitlist, escalation, credit codes) keeps the original sequential execution for the WHOLE
+      // round the instant even one such tool appears, since those can have real ordering
+      // dependencies (e.g. upsert_client's result being expected by a later book_appointment in
+      // the same round) that concurrent execution wouldn't preserve.
+      const canParallelize =
+        toolCalls.length > 1 && toolCalls.every((tc) => PARALLEL_SAFE_TOOLS.has(tc.function.name));
+
+      if (canParallelize) {
+        const results = await Promise.all(toolCalls.map(runOneToolCall));
+        for (const r of results) {
+          if (r.escalated) escalated = true;
+          if (r.booked) booked = true;
+          messages.push(r.message);
+        }
+      } else {
+        for (const toolCall of toolCalls) {
+          const r = await runOneToolCall(toolCall);
+          if (r.escalated) escalated = true;
+          if (r.booked) booked = true;
+          messages.push(r.message);
         }
       }
 

@@ -9,6 +9,7 @@ import {
   getEventsByRange,
   hasPriorAppointment,
   zonedHourToUtc,
+  prefetchDayEventsRange,
 } from "@/lib/integrations/google-calendar";
 import type { AvailableSlot } from "@/types";
 import {
@@ -115,6 +116,11 @@ export interface AvailabilityRequest {
   addonDurationMinutes?: number;
   /** Clinic's configured IANA timezone; fetched automatically when omitted. Pass explicitly when a caller (e.g. bookAppointment) needs to guarantee the same value is used across several sub-calls in one logical operation. */
   timezone?: string;
+  /** Opt-in only, and only ever from a "browsing" caller (findEarliestAvailability's day-by-day
+   * scan, paired with its own prefetchDayEventsRange call) — never from bookAppointment's final
+   * pre-insert conflict check, which must always see live Calendar data. See getAvailableSlots'
+   * own useDayEventsCache doc for why. */
+  useDayEventsCache?: boolean;
 }
 
 export interface AvailabilityResult {
@@ -420,7 +426,7 @@ export async function canExtendAppointment(opts: {
  * Returns all available room+practitioner combinations for a given date
  */
 export async function checkAvailability(request: AvailabilityRequest): Promise<AvailabilityResult> {
-  const { date, durationMinutes = 60, equipment } = request;
+  const { date, durationMinutes = 60, equipment, useDayEventsCache = false } = request;
   // Trimmed defensively — an untrimmed stored name (e.g. "Dr John ") vs a model-produced "Dr John"
   // would otherwise fail the exact-string filters below even though they refer to the same person/room.
   const practitionerName = request.practitionerName?.trim();
@@ -522,6 +528,7 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
         context,
         equipmentGroups,
         timezone,
+        useDayEventsCache,
       );
     }
 
@@ -555,6 +562,7 @@ export async function checkAvailability(request: AvailabilityRequest): Promise<A
       undefined,
       undefined,
       timezone,
+      useDayEventsCache,
     );
   }
 
@@ -927,6 +935,14 @@ export async function findEarliestAvailability(request: {
   let earliestDate: string | null = null;
   let lastBookingWindowNote: string | undefined;
 
+  // Covers every date the loop below could possibly reach in ONE Calendar API call, so each
+  // day's checkAvailability (opted in via useDayEventsCache) hits this instead of making its own
+  // round trip — collapses what used to be up to maxDays separate Calendar calls into 1. Best
+  // effort: a prefetch failure just means the loop falls back to its normal per-day fetches.
+  await prefetchDayEventsRange(date, addCalendarDays(date, maxDays - 1), timezone).catch((e) => {
+    console.error("[findEarliestAvailability] prefetchDayEventsRange failed:", e);
+  });
+
   for (let i = 0; i < maxDays; i++) {
     if (!isDateOpen(date, schedule)) {
       date = addCalendarDays(date, 1);
@@ -942,6 +958,7 @@ export async function findEarliestAvailability(request: {
       room: request.room,
       treatment: request.treatment,
       timezone,
+      useDayEventsCache: true,
     });
     if (day.bookingWindowNote) lastBookingWindowNote = day.bookingWindowNote;
 

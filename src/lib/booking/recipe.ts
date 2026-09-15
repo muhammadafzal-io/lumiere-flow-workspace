@@ -241,6 +241,44 @@ export async function listActiveAddonsForService(
   return (data ?? []).filter((row: any) => row.addon?.["Status"] === "Active").map(mapAddonLinkRow);
 }
 
+/**
+ * Batched version of listActiveAddonsForService for a caller that already has real Service ids
+ * for several services at once (e.g. get_services building its full catalog response in one
+ * shot) — one query total instead of one round trip per service. Note listActiveAddonsForService
+ * itself pays TWO round trips per call (resolveServiceId, then the actual query) even when handed
+ * an id that's already resolved; calling it once per service in a loop was the real cost behind a
+ * slow first get_services response — N services meant up to 2N-4N simultaneous Supabase requests,
+ * enough to hit connection-pool contention on top of ordinary network latency. Takes ids only (no
+ * name resolution — callers who need that should resolve first, same contract shift that makes
+ * the single round trip possible). Returns a Map keyed by main_service_id; a service with no
+ * add-ons simply has no entry — callers should default to [] on a miss.
+ */
+export async function listActiveAddonsForServices(
+  serviceIds: string[],
+): Promise<Map<string, ServiceAddonRow[]>> {
+  const ids = [...new Set(serviceIds.filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from("ServiceAddonLinks")
+    .select(
+      "main_service_id, priority, addon:addon_service_id(id, Name, Price, DurationMinutes, Status)",
+    )
+    .in("main_service_id", ids)
+    .order("priority", { ascending: true, nullsFirst: false });
+  if (error) throw new Error(`listActiveAddonsForServices: ${error.message}`);
+
+  const byService = new Map<string, ServiceAddonRow[]>();
+  for (const row of (data ?? []) as any[]) {
+    if (row.addon?.["Status"] !== "Active") continue;
+    const mapped = mapAddonLinkRow(row);
+    const list = byService.get(mapped.serviceId) ?? [];
+    list.push(mapped);
+    byService.set(mapped.serviceId, list);
+  }
+  return byService;
+}
+
 function mapOfferRow(r: any): ServiceOfferRow {
   return {
     id: r.id,
@@ -270,6 +308,27 @@ export async function listServiceOffers(serviceIdOrName: string): Promise<Servic
   const { data, error } = await sb.from("ServiceOffers").select("*").eq("service_id", serviceId);
   if (error) throw new Error(`listServiceOffers: ${error.message}`);
   return (data ?? []).map(mapOfferRow);
+}
+
+/** Batched version of listServiceOffers — see listActiveAddonsForServices' own comment for why
+ * this exists and what it trades away (no name resolution, ids only) to get one round trip. */
+export async function listServiceOffersForServices(
+  serviceIds: string[],
+): Promise<Map<string, ServiceOfferRow[]>> {
+  const ids = [...new Set(serviceIds.filter(Boolean))];
+  if (ids.length === 0) return new Map();
+  const sb = getSupabase();
+  const { data, error } = await sb.from("ServiceOffers").select("*").in("service_id", ids);
+  if (error) throw new Error(`listServiceOffersForServices: ${error.message}`);
+
+  const byService = new Map<string, ServiceOfferRow[]>();
+  for (const row of (data ?? []) as any[]) {
+    const mapped = mapOfferRow(row);
+    const list = byService.get(mapped.serviceId) ?? [];
+    list.push(mapped);
+    byService.set(mapped.serviceId, list);
+  }
+  return byService;
 }
 
 /**

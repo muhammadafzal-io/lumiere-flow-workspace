@@ -8,7 +8,7 @@ import {
   WEEKDAY_BY_UTC_DAY,
 } from "@/lib/booking/clinic-hours";
 import { phonesMatch } from "@/lib/phone";
-import { addCalendarDays } from "@/lib/booking/dates";
+import { addCalendarDays, dateInZone } from "@/lib/booking/dates";
 import { getSupabase } from "@/lib/supabase";
 
 /**
@@ -45,9 +45,21 @@ async function getActiveRoomNames(): Promise<string[]> {
 const EVENTS_RANGE_CACHE_MS = 45_000;
 const eventsRangeCache = new Map<string, { at: number; events: CalendarEvent[] }>();
 
+/** Raw per-day Calendar events, cached briefly — the same underlying data getAvailableSlots
+ * fetches fresh for every date it's asked about. A findEarliestAvailability scan checking many
+ * days for a service with no real availability used to pay one full Calendar API round trip per
+ * day (measured ~4s each); prefetchDayEventsRange below fetches the whole search window in ONE
+ * call and buckets it here by local date, so each day's later getAvailableSlots call (when it
+ * opts in via useDayEventsCache) hits this cache instead of making its own request. Deliberately
+ * opt-in, not the default: bookAppointment's own pre-insert re-check (the last line of defense
+ * against a double-booking race) must always see live data, never a cache up to 45s stale. */
+const DAY_EVENTS_CACHE_MS = 45_000;
+const dayEventsCache = new Map<string, { at: number; items: calendar_v3.Schema$Event[] }>();
+
 /** Clear cached calendar ranges after book/cancel/reschedule so lookups see fresh data. */
 export function invalidateEventsRangeCache(): void {
   eventsRangeCache.clear();
+  dayEventsCache.clear();
 }
 
 type EventWithDateTimes = calendar_v3.Schema$Event & {
@@ -225,6 +237,57 @@ export function parseDesc(description: string): {
   };
 }
 
+/**
+ * Fetches every Calendar event across [startDate, endDate] (inclusive, full local days) in ONE
+ * API call and buckets it by local date into dayEventsCache — every date in the range gets an
+ * entry, even an empty one, so a later getAvailableSlots(date, ..., useDayEventsCache: true) call
+ * for any date in this range is a guaranteed cache hit instead of its own Calendar round trip.
+ * Built for findEarliestAvailability's day-by-day scan: checking N days used to cost N separate
+ * Calendar API calls (measured ~4s each) even when the answer turned out to be "nothing free" —
+ * this collapses that to 1 call regardless of how many days are scanned.
+ */
+export async function prefetchDayEventsRange(
+  startDate: string,
+  endDate: string,
+  timezone?: string,
+): Promise<void> {
+  if (startDate > endDate) return;
+  const tz = timezone ?? (await getClinicTimezone());
+  const calendar = getCalendarClient();
+  const calId = calendarId();
+
+  // Span full local midnight-to-midnight days rather than each day's own business hours — a
+  // superset of what any single getAvailableSlots(date) call would fetch on its own, since events
+  // outside business hours can never conflict with a candidate slot anyway (see the interval
+  // checks below); simpler than needing each day's own schedule ahead of time.
+  const timeMin = zonedHourToUtc(startDate, 0, tz).toISOString();
+  const timeMax = zonedHourToUtc(addCalendarDays(endDate, 1), 0, tz).toISOString();
+
+  const res = await calendar.events.list({
+    calendarId: calId,
+    timeMin,
+    timeMax,
+    singleEvents: true,
+    orderBy: "startTime",
+  });
+  const items = res.data.items ?? [];
+
+  const buckets = new Map<string, calendar_v3.Schema$Event[]>();
+  for (let d = startDate; d <= endDate; d = addCalendarDays(d, 1)) {
+    buckets.set(d, []);
+  }
+  for (const item of items) {
+    if (!isCalendarEventWithStartTime(item)) continue;
+    const localDate = dateInZone(new Date(item.start.dateTime), tz);
+    buckets.get(localDate)?.push(item);
+  }
+
+  const now = Date.now();
+  for (const [d, dayItems] of buckets) {
+    dayEventsCache.set(`${calId}|${d}`, { at: now, items: dayItems });
+  }
+}
+
 export async function getAvailableSlots(
   date: string,
   durationMinutes = 60,
@@ -237,6 +300,10 @@ export async function getAvailableSlots(
   equipmentRequirementGroups?: string[][],
   /** Clinic's configured IANA timezone (Settings > Clinic info). Fetched automatically when omitted. */
   timezone?: string,
+  /** Opt-in only — see dayEventsCache's own comment for why this must never be the default. Pass
+   * true only from a "browsing" caller (e.g. findEarliestAvailability's scan), never from the
+   * final pre-insert conflict check that guards against a double-booking race. */
+  useDayEventsCache = false,
 ): Promise<AvailableSlot[]> {
   const tz = timezone ?? (await getClinicTimezone());
   const roomList = rooms ?? (await getActiveRoomNames());
@@ -259,13 +326,22 @@ export async function getAvailableSlots(
   // reintroduce that infinite loop.
   const stepMs = Math.max(durationMinutes, 1) * 60_000;
 
-  const res = await calendar.events.list({
-    calendarId: calId,
-    timeMin: dayStart.toISOString(),
-    timeMax: dayEnd.toISOString(),
-    singleEvents: true,
-    orderBy: "startTime",
-  });
+  let dayItems: calendar_v3.Schema$Event[];
+  const dayCacheKey = `${calId}|${date}`;
+  const cachedDay = useDayEventsCache ? dayEventsCache.get(dayCacheKey) : undefined;
+  if (cachedDay && Date.now() - cachedDay.at < DAY_EVENTS_CACHE_MS) {
+    dayItems = cachedDay.items;
+  } else {
+    const res = await calendar.events.list({
+      calendarId: calId,
+      timeMin: dayStart.toISOString(),
+      timeMax: dayEnd.toISOString(),
+      singleEvents: true,
+      orderBy: "startTime",
+    });
+    dayItems = res.data.items ?? [];
+    if (useDayEventsCache) dayEventsCache.set(dayCacheKey, { at: Date.now(), items: dayItems });
+  }
 
   type BusyEvent = {
     start: Date;
@@ -275,18 +351,16 @@ export async function getAvailableSlots(
     equipment: string[];
   };
 
-  const busyEvents: BusyEvent[] = (res.data.items ?? [])
-    .filter(isCalendarEventWithDateTimes)
-    .map((e) => {
-      const { room, practitioner, equipment } = parseDesc(e.description ?? "");
-      return {
-        start: new Date(e.start.dateTime),
-        end: new Date(e.end.dateTime),
-        room,
-        practitioner,
-        equipment,
-      };
-    });
+  const busyEvents: BusyEvent[] = dayItems.filter(isCalendarEventWithDateTimes).map((e) => {
+    const { room, practitioner, equipment } = parseDesc(e.description ?? "");
+    return {
+      start: new Date(e.start.dateTime),
+      end: new Date(e.end.dateTime),
+      room,
+      practitioner,
+      equipment,
+    };
+  });
 
   const now = new Date();
   const slots: AvailableSlot[] = [];
