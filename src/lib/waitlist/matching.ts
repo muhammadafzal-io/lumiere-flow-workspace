@@ -8,6 +8,7 @@ import { getSupabase } from "@/lib/supabase";
 import { getClinicTimezone } from "@/lib/clinic-config";
 import { dateInZone, timeKeyInTz } from "@/lib/booking/dates";
 import { logEvent } from "@/lib/integrations/activity-log";
+import { formatActivityTime } from "@/lib/activity/merge-timeline";
 import { attachClientContactToRows, type WaitlistEntry } from "@/lib/waitlist/store";
 import { sendWaitlistOfferNotification } from "@/lib/waitlist/notify";
 import { mapOfferRow, type WaitlistOffer } from "@/lib/waitlist/offer-types";
@@ -126,7 +127,7 @@ export async function offerSlotToWaitlist(slot: FreedSlot): Promise<void> {
       await logEvent(
         "waitlist",
         "—",
-        `No waitlist match for freed slot (${slot.treatment}, ${slot.startTime})`,
+        `No waitlist match for freed slot (${slot.treatment}, ${formatActivityTime(slot.startTime, await getClinicTimezone())})`,
         {},
       ).catch(() => undefined);
       return;

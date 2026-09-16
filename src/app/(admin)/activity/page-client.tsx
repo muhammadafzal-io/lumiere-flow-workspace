@@ -72,6 +72,21 @@ function fmtTimestamp(raw: string, timeZone: string): string {
   return raw.slice(0, 20);
 }
 
+function fmtFullTimestamp(raw: string, timeZone: string): string {
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  return d.toLocaleString("en-US", {
+    timeZone,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+}
+
 function platformBadge(p: string) {
   const map: Record<string, string> = {
     calendar: "bg-emerald-500/10 text-emerald-700 border-emerald-300/30",
@@ -155,8 +170,8 @@ export default function ActivityPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-2xl font-semibold tracking-tight">Activity log</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Every automated message and event from the operations log.
@@ -180,10 +195,10 @@ export default function ActivityPage() {
           placeholder="Search client, details…"
           value={search}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setSearch(e.target.value)}
-          className="h-9 w-[200px]"
+          className="h-9 w-full sm:w-[200px]"
         />
         <Select value={eventType} onValueChange={setEventType}>
-          <SelectTrigger className="w-[170px] h-9">
+          <SelectTrigger className="w-full sm:w-[170px] h-9">
             <SelectValue placeholder="Event type" />
           </SelectTrigger>
           <SelectContent>
@@ -196,7 +211,7 @@ export default function ActivityPage() {
           </SelectContent>
         </Select>
         <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="w-[140px] h-9">
+          <SelectTrigger className="w-full sm:w-[140px] h-9">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -207,7 +222,7 @@ export default function ActivityPage() {
           </SelectContent>
         </Select>
         <Select value={platform} onValueChange={setPlatform}>
-          <SelectTrigger className="w-[140px] h-9">
+          <SelectTrigger className="w-full sm:w-[140px] h-9">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -219,7 +234,7 @@ export default function ActivityPage() {
             ))}
           </SelectContent>
         </Select>
-        <div className="ml-auto text-xs text-muted-foreground">
+        <div className="w-full sm:w-auto sm:ml-auto text-xs text-muted-foreground">
           {filtered.length} of {entries.length} entries
         </div>
       </div>
@@ -310,53 +325,55 @@ export default function ActivityPage() {
 
       {/* Detail modal */}
       <Dialog open={!!open} onOpenChange={(o) => !o && setOpen(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="w-[calc(100%-2rem)] max-w-lg max-h-[85vh] overflow-y-auto rounded-lg">
+          <DialogHeader className="pr-6">
             <DialogTitle>Event detail</DialogTitle>
           </DialogHeader>
           {open && (
-            <div className="space-y-4">
-              <div className="text-sm grid grid-cols-2 gap-3">
-                <div>
+            <div className="space-y-4 min-w-0">
+              <div className="text-sm grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-3">
+                <div className="min-w-0">
                   <div className="text-xs text-muted-foreground mb-0.5">Client</div>
-                  <div className="font-medium">
+                  <div className="font-medium break-words">
                     <CustomerLink customerId={open.clientId} name={open.clientName || "—"} />
                   </div>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-muted-foreground mb-0.5">Event type</div>
                   <span className={eventBadge(open.eventType)}>{open.eventType}</span>
                 </div>
                 {open.phone && (
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xs text-muted-foreground mb-0.5">Phone</div>
-                    <div>{open.phone}</div>
+                    <div className="break-words">{open.phone}</div>
                   </div>
                 )}
                 {open.email && (
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-xs text-muted-foreground mb-0.5">Email</div>
-                    <div>{open.email}</div>
+                    <div className="break-all">{open.email}</div>
                   </div>
                 )}
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-muted-foreground mb-0.5">Platform</div>
                   <div className="capitalize">{open.platform || "—"}</div>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-muted-foreground mb-0.5">Timestamp</div>
-                  <div>{open.timestamp}</div>
+                  <div title={open.timestamp}>{fmtFullTimestamp(open.timestamp, tz)}</div>
                 </div>
                 {open.clientId && (
-                  <div>
+                  <div className="min-w-0 sm:col-span-2">
                     <div className="text-xs text-muted-foreground mb-0.5">Client ID</div>
-                    <div className="text-xs font-mono text-muted-foreground">{open.clientId}</div>
+                    <div className="text-xs font-mono text-muted-foreground break-all">
+                      {open.clientId}
+                    </div>
                   </div>
                 )}
               </div>
-              <div>
+              <div className="min-w-0">
                 <div className="text-xs text-muted-foreground mb-1.5">Details</div>
-                <div className="rounded-lg border bg-secondary/40 p-4 text-sm whitespace-pre-wrap">
+                <div className="rounded-lg border bg-secondary/40 p-3 sm:p-4 text-sm whitespace-pre-wrap break-words">
                   {open.details || "—"}
                 </div>
               </div>

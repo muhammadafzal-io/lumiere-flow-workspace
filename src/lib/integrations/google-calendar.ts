@@ -762,6 +762,7 @@ export async function getEventsByRange(
       clientName,
       startTime: e.start.dateTime,
       endTime: e.end?.dateTime ?? e.start.dateTime,
+      createdAt: e.created ?? undefined,
       clientContact: contact,
       clientEmail: email || undefined,
       clientId: clientId ?? undefined,

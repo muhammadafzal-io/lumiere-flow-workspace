@@ -85,6 +85,7 @@ import {
 import { runWithFlowLogger } from "@/lib/voice/flow-context";
 import { slotPresentLimit } from "@/lib/agent/shared-booking-rules";
 import { dateFromIsoInTz, timeKeyInTz } from "@/lib/booking/dates";
+import { formatActivityTime } from "@/lib/activity/merge-timeline";
 import { getClinicConfig } from "@/lib/clinic-config";
 
 /** Per-request ceiling for a single model call. The SDK's default is 10 MINUTES, which is
@@ -718,7 +719,7 @@ export async function executeTool(
           await logEvent(
             "booking",
             apptData.clientName,
-            `Booked ${apptData.treatment} on ${apptData.startTime} with ${apptData.practitionerName} in ${apptData.room}`,
+            `Booked ${apptData.treatment} on ${formatActivityTime(apptData.startTime, tz)} with ${apptData.practitionerName} in ${apptData.room}`,
             {
               clientId: clientRecord?.id,
               phone: apptData.clientContact,

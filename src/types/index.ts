@@ -65,6 +65,8 @@ export interface CalendarEvent {
   clientId?: string;
   startTime: string;
   endTime: string;
+  /** When the event was created on the calendar, i.e. when the booking was made. */
+  createdAt?: string;
   notes: string;
   room: string;
   practitioner: string;
