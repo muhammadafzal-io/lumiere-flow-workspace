@@ -1311,10 +1311,11 @@ export function NewAppointmentModal({
   const [customerId, setCustomerId] = useState<string>("");
   const [treatment, setTreatment] = useState<string>("");
   const [services, setServices] = useState<ServiceOption[]>([]);
-  const [date, setDate] = useState<string>(() => {
-    const p = zonedParts(defaultStart || new Date());
+  const toDateInputValue = (d: Date) => {
+    const p = zonedParts(d);
     return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
-  });
+  };
+  const [date, setDate] = useState<string>(() => toDateInputValue(defaultStart || new Date()));
   const [practitionerId, setPractitionerId] = useState<string>(practitioners[0]?.id || "");
   const [room, setRoom] = useState<string>("");
   const [notes, setNotes] = useState("");
@@ -1459,12 +1460,13 @@ export function NewAppointmentModal({
     }
   };
 
-  // Reset when opening
-  if (open && defaultStart) {
-    const ds = defaultStart.toISOString().slice(0, 10);
-    if (ds !== date) {
-      setDate(ds);
-    }
+  // Re-seed the date only when the modal opens or a different slot is clicked — not on every
+  // render, which snapped any date the user picked straight back to defaultStart's.
+  const seedKey = open && defaultStart ? defaultStart.toISOString() : null;
+  const [seededFor, setSeededFor] = useState<string | null>(null);
+  if (seedKey !== seededFor) {
+    setSeededFor(seedKey);
+    if (defaultStart && seedKey) setDate(toDateInputValue(defaultStart));
   }
 
   // Fetch available slots from Google Calendar (practitioner + room aware, 5-min buffer)
