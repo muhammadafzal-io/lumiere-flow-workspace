@@ -13,7 +13,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { FormField } from "@/lib/forms/types";
+import type { FormField, TextFieldFormat } from "@/lib/forms/types";
+
+// inputMode rather than type="email"/"tel" — native type validation shows browser popups that
+// compete with the app's own inline errors from validateFormAnswers.
+const TEXT_FORMAT_INPUT_PROPS: Record<
+  TextFieldFormat,
+  {
+    placeholder: string;
+    inputMode: "email" | "tel" | "numeric" | "text";
+    autoComplete: string;
+    maxLength?: number;
+  }
+> = {
+  full_name: { placeholder: "First Last", inputMode: "text", autoComplete: "name" },
+  email: { placeholder: "name@example.com", inputMode: "email", autoComplete: "email" },
+  phone: { placeholder: "+1 555 123 4567", inputMode: "tel", autoComplete: "tel" },
+  ssn: { placeholder: "123-45-6789", inputMode: "numeric", autoComplete: "off", maxLength: 11 },
+};
 
 interface FormRendererProps {
   fields: FormField[];
@@ -58,7 +75,9 @@ function FieldControl({
     case "text":
       return (
         <Input
-          placeholder="Your answer"
+          {...(field.format
+            ? TEXT_FORMAT_INPUT_PROPS[field.format]
+            : { placeholder: "Your answer" })}
           disabled={disabled}
           value={mode === "fill" ? ((value as string) ?? "") : undefined}
           onChange={mode === "fill" ? (e) => onChange(e.target.value) : undefined}

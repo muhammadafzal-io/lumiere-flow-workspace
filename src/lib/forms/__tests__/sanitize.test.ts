@@ -101,6 +101,43 @@ describe("sanitizeFormFields", () => {
     expect(result.name).toBe("New form");
   });
 
+  it("keeps an existing field's id so saved answers stay attached", () => {
+    const id = "cd8428aa-0eaf-47bd-9e05-2463a6162388";
+    const result = sanitizeFormFields({
+      name: "Test",
+      fields: [{ id, type: "text", label: "Q1", required: true }],
+    });
+    expect(result.fields[0].id).toBe(id);
+  });
+
+  it("replaces a non-UUID or duplicated id", () => {
+    const id = "cd8428aa-0eaf-47bd-9e05-2463a6162388";
+    const result = sanitizeFormFields({
+      name: "Test",
+      fields: [
+        { id: "not-a-uuid", type: "text", label: "A", required: false },
+        { id, type: "text", label: "B", required: false },
+        { id, type: "text", label: "C", required: false },
+      ],
+    });
+    const [a, b, c] = result.fields;
+    expect(a.id).not.toBe("not-a-uuid");
+    expect(b.id).toBe(id);
+    expect(c.id).not.toBe(id);
+  });
+
+  it("keeps a valid format on text fields and drops it everywhere else", () => {
+    const result = sanitizeFormFields({
+      name: "Test",
+      fields: [
+        { type: "text", label: "Email", required: true, format: "email" },
+        { type: "text", label: "Bogus", required: true, format: "passport" },
+        { type: "textarea", label: "Notes", required: false, format: "email" },
+      ],
+    });
+    expect(result.fields.map((f) => f.format)).toEqual(["email", undefined, undefined]);
+  });
+
   it("omits helpText entirely when blank", () => {
     const result = sanitizeFormFields({
       name: "Test",

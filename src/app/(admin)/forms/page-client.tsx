@@ -56,7 +56,12 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { AccessGate } from "@/components/rbac/AccessGate";
 import { FormRenderer } from "@/components/forms/FormRenderer";
-import type { FormField, FormFieldType } from "@/lib/forms/types";
+import {
+  TEXT_FIELD_FORMAT_LABELS,
+  type FormField,
+  type FormFieldType,
+  type TextFieldFormat,
+} from "@/lib/forms/types";
 
 interface FormListItem {
   id: string;
@@ -130,7 +135,12 @@ function SortableFieldCard({
         </Button>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <Select value={field.type} onValueChange={(v) => onUpdate({ type: v as FormFieldType })}>
+        <Select
+          value={field.type}
+          onValueChange={(v) =>
+            onUpdate({ type: v as FormFieldType, ...(v !== "text" && { format: undefined }) })
+          }
+        >
           <SelectTrigger>
             <SelectValue />
           </SelectTrigger>
@@ -152,6 +162,26 @@ function SortableFieldCard({
         value={field.label}
         onChange={(e) => onUpdate({ label: e.target.value })}
       />
+      {field.type === "text" && (
+        <Select
+          value={field.format ?? "none"}
+          onValueChange={(v) =>
+            onUpdate({ format: v === "none" ? undefined : (v as TextFieldFormat) })
+          }
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">Any text (no format check)</SelectItem>
+            {Object.entries(TEXT_FIELD_FORMAT_LABELS).map(([value, label]) => (
+              <SelectItem key={value} value={value}>
+                Must be: {label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
       {CHOICE_TYPES.includes(field.type) && (
         <Input
           placeholder="Options, comma-separated (e.g. Yes, No, Not sure)"

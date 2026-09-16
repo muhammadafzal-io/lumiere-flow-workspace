@@ -28,7 +28,8 @@ Convert a plain-English description into JSON ONLY (no markdown):
       "label": "the question or statement shown to the client",
       "required": true|false,
       "options": ["Option A","Option B"],
-      "helpText": "optional one-line clarification" }
+      "helpText": "optional one-line clarification",
+      "format": "full_name"|"email"|"phone"|"ssn" }
   ]
 }
 
@@ -50,6 +51,9 @@ Field type guide — pick the narrowest fit:
 
 Rules:
 - Omit "id" entirely — the app assigns it. Omit "options" entirely for every non-choice type.
+- "format" is only for "text" fields, and only when the question asks for exactly that kind of
+  value: full_name (full legal name), email, phone (phone/mobile number), ssn (Social Security
+  Number). Omit it otherwise.
 - Generate 4-12 fields for a typical consent/intake form unless the description asks for more.
 - Always end a consent-style form with exactly one "consent" field summarizing the agreement.
 - Ask about allergies/medications/pregnancy/medical history as yes_no or textarea, not free text

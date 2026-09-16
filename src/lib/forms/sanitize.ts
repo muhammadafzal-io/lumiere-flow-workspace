@@ -1,4 +1,12 @@
-import type { FormField, FormFieldType, GeneratedForm } from "@/lib/forms/types";
+import {
+  TEXT_FIELD_FORMAT_LABELS,
+  type FormField,
+  type FormFieldType,
+  type GeneratedForm,
+  type TextFieldFormat,
+} from "@/lib/forms/types";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const VALID_FIELD_TYPES: FormFieldType[] = [
   "text",
@@ -56,13 +64,23 @@ function sanitizeOne(raw: unknown): FormField {
     }
   }
 
+  const format =
+    finalType === "text" &&
+    typeof f.format === "string" &&
+    Object.hasOwn(TEXT_FIELD_FORMAT_LABELS, f.format)
+      ? (f.format as TextFieldFormat)
+      : undefined;
+
   return {
-    id: crypto.randomUUID(),
+    // Saved answers are keyed by field id, so an existing field must keep its id across edits —
+    // regenerating it on every save orphaned all previous responses to that form.
+    id: typeof f.id === "string" && UUID_RE.test(f.id) ? f.id : crypto.randomUUID(),
     type: finalType,
     label,
     required,
     ...(options ? { options } : {}),
     ...(helpText ? { helpText } : {}),
+    ...(format ? { format } : {}),
   };
 }
 
@@ -77,10 +95,17 @@ export function sanitizeFormFields(parsed: { name?: unknown; fields?: unknown })
     .slice(0, MAX_NAME_LENGTH);
 
   const rawFields = Array.isArray(parsed.fields) ? parsed.fields : [];
+  const seenIds = new Set<string>();
   const fields = rawFields
     .filter((f) => f && typeof f === "object")
     .slice(0, MAX_FIELDS)
-    .map(sanitizeOne);
+    .map(sanitizeOne)
+    .map((field) => {
+      // Two fields sharing an id would share one answer slot.
+      const id = seenIds.has(field.id) ? crypto.randomUUID() : field.id;
+      seenIds.add(id);
+      return id === field.id ? field : { ...field, id };
+    });
 
   return { name: name || "New form", fields };
 }
