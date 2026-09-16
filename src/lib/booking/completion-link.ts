@@ -33,7 +33,8 @@ export interface BookingCompletionRecord {
   phone: string;
   clientName: string | null;
   treatment: string | null;
-  status: "pending" | "completed" | "expired";
+  /** cancelled/dismissed are staff closures from Pending Bookings — see closeCompletionLink. */
+  status: "pending" | "completed" | "expired" | "cancelled" | "dismissed";
   expiresAt: string;
   createdAt: string;
   deliveryChannel: DeliveryChannel | null;
@@ -148,10 +149,13 @@ export type CompleteBookingResult =
   | { ok: true }
   | { ok: false; error: string; errors?: Record<string, string> };
 
-/** Re-validates, patches the SAME calendar event (no duplicate booking), upserts the Client record, marks the link consumed, and triggers the existing confirmation email. */
+/** Re-validates, patches the SAME calendar event (no duplicate booking), upserts the Client record, marks the link consumed, and triggers the existing confirmation email.
+ * `byStaff` is the Pending Bookings path, where staff enter details collected over the phone —
+ * the client's link window no longer matters there, so an expired link is accepted. */
 export async function completeBookingLink(
   token: string,
   input: Partial<CompleteBookingInput>,
+  opts: { byStaff?: boolean } = {},
 ): Promise<CompleteBookingResult> {
   const found = await getCompletionLink(token);
   if (!found) return { ok: false, error: "This link is invalid." };
@@ -160,8 +164,15 @@ export async function completeBookingLink(
   if (link.status === "completed") {
     return { ok: false, error: "This booking has already been completed." };
   }
-  if (link.status === "expired") {
+  if (link.status === "cancelled" || link.status === "dismissed" || booking.cancelled) {
+    return { ok: false, error: "This appointment is no longer active." };
+  }
+  if (link.status === "expired" && !opts.byStaff) {
     return { ok: false, error: "This link has expired. Please contact the clinic directly." };
+  }
+  // Would otherwise send a "confirmed" email for an appointment that already happened.
+  if (!booking.startTime || new Date(booking.startTime).getTime() <= Date.now()) {
+    return { ok: false, error: "This appointment has already started or passed." };
   }
 
   const errors = validateCompletionInput(input);
@@ -199,4 +210,22 @@ export async function completeBookingLink(
   }).catch((err) => console.error("[completion-link] confirmation email failed:", err));
 
   return { ok: true };
+}
+
+/** Takes a still-open link off the Pending Bookings worklist without completing it. Returns false
+ * when there was no open link to close (already completed or closed). The DB status stays
+ * "pending" until the expiry cron runs, so both are treated as open. */
+export async function closeCompletionLink(
+  token: string,
+  status: "cancelled" | "dismissed",
+): Promise<boolean> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from(TABLE)
+    .update({ status })
+    .eq("token", token)
+    .in("status", ["pending", "expired"])
+    .select("token");
+  if (error) throw new Error(`closeCompletionLink: ${error.message}`);
+  return (data ?? []).length > 0;
 }

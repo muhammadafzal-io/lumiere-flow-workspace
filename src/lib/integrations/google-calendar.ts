@@ -905,6 +905,8 @@ export type CalendarBookingDetails = {
   practitionerName: string;
   room: string;
   notes: string;
+  /** Google keeps deleted events retrievable by id with status "cancelled" instead of 404ing. */
+  cancelled: boolean;
 };
 
 export async function getCalendarBookingDetails(eventId: string): Promise<CalendarBookingDetails> {
@@ -928,6 +930,7 @@ export async function getCalendarBookingDetails(eventId: string): Promise<Calend
     practitionerName: parsed.practitioner ?? fromSummary.practitionerName ?? "",
     room: parsed.room ?? "",
     notes: parsed.notes,
+    cancelled: event.status === "cancelled",
   };
 }
 

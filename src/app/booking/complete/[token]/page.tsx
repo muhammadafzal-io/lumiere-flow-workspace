@@ -48,7 +48,18 @@ export default async function CompleteBookingPage({
 
   const { link, booking } = found;
 
-  if (link.status === "expired") {
+  if (link.status === "cancelled" || booking.cancelled) {
+    return (
+      <Shell>
+        <MessageCard
+          title="This appointment was cancelled"
+          body="Please contact the clinic directly if you'd like to book again."
+        />
+      </Shell>
+    );
+  }
+
+  if (link.status === "expired" || link.status === "dismissed") {
     return (
       <Shell>
         <MessageCard

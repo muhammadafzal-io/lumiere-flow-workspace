@@ -111,6 +111,7 @@ describe("prepareCancelRescheduleInput", () => {
       practitionerName: "Dr. A",
       room: "Room 1",
       notes: "",
+      cancelled: false,
     });
 
     const input: Record<string, unknown> = {
@@ -139,6 +140,7 @@ describe("prepareCancelRescheduleInput", () => {
       practitionerName: "Dr. A",
       room: "Room 1",
       notes: "",
+      cancelled: false,
     });
 
     const input: Record<string, unknown> = {
@@ -167,6 +169,7 @@ describe("prepareCancelRescheduleInput", () => {
       practitionerName: "Dr. B",
       room: "Room 2",
       notes: "",
+      cancelled: false,
     });
     findApptMock.mockResolvedValue({
       eventId: "evt_real_owner",
