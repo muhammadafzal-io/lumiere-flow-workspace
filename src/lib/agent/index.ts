@@ -659,11 +659,19 @@ export async function executeTool(
 
           const clientEmail = (input.client_email as string | undefined) || clientRecord?.email;
 
-          // Voice bookings are always Pending at creation (birthday can never be collected on
-          // this channel, so a voice booking is never "complete" here even for a returning
-          // client whose CRM record already has an email on file) — the real confirmation is
-          // sent later by completeBookingLink() once the registration form is submitted.
-          // Sending it here too would prematurely "confirm" a booking that's still Pending.
+          // A voice booking is complete when the booking has a real name and the client has an
+          // email and birthday — given on this call or already on their CRM record.
+          const profileComplete =
+            resolvedClientName !== PENDING_NAME_PLACEHOLDER &&
+            !!clientEmail &&
+            !!(
+              normalizeBirthdayForStorage(String(input.birthday ?? "")) ||
+              normalizeBirthdayForStorage(String(clientRecord?.birthday ?? ""))
+            );
+
+          // An incomplete voice booking stays Pending — its confirmation is sent later by
+          // completeBookingLink() once the registration form is submitted, so sending it here
+          // would prematurely "confirm" it. A complete voice booking is confirmed right away.
           //
           // Deferred via Next's after() rather than awaited: sendBookingConfirmationEmail does a
           // lot of work (form lookups, cross-sell/upsell computation, the actual provider send)
@@ -674,7 +682,7 @@ export async function executeTool(
           // Vercel — the serverless instance can freeze the moment the response is sent otherwise.
           // confirmation_email_sent now means "the send was scheduled" rather than "delivery
           // confirmed" — an actual failure still gets logged, just after the tool has returned.
-          const confirmationEmailSent = !isVoice && !!clientEmail;
+          const confirmationEmailSent = (!isVoice || profileComplete) && !!clientEmail;
           if (confirmationEmailSent) {
             flow?.step("book:send confirmation email", { to: clientEmail });
             const sendConfirmationEmail = () =>
@@ -746,10 +754,6 @@ export async function executeTool(
           // Completion link is a voice-only concept — chat already collected everything inline
           // (validateBookAppointment required it above), so there's nothing left to complete and
           // no link should ever be created for chat/Discord bookings.
-          const profileComplete =
-            resolvedClientName !== PENDING_NAME_PLACEHOLDER &&
-            !!clientEmail &&
-            !!normalizeBirthdayForStorage(String(input.birthday ?? ""));
           let completionLink: Awaited<ReturnType<typeof deliverCompletionLink>> | null = null;
           if (isVoice && !profileComplete) {
             flow?.step("book:deliver completion link", { eventId: appt.id });
