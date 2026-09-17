@@ -45,5 +45,6 @@ export function mapCustomerRow(row: any): Customer {
     visits,
     payments: [],
     appointments: row["Appointments"] ?? "",
+    created_at: row.created_at ?? undefined,
   };
 }

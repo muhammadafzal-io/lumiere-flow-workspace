@@ -28,6 +28,23 @@ export async function listPendingCompletions(): Promise<BookingCompletionRecord[
   return (data ?? []).map(mapCompletionRow);
 }
 
+/** Which of these calendar events are voice bookings still waiting on the client's details. */
+export async function listPendingEventIds(eventIds: string[]): Promise<Set<string>> {
+  const pending = new Set<string>();
+  const sb = getSupabase();
+  // Chunked so a long history doesn't produce an over-long request URL.
+  for (let i = 0; i < eventIds.length; i += 100) {
+    const { data, error } = await sb
+      .from(TABLE)
+      .select("event_id")
+      .in("event_id", eventIds.slice(i, i + 100))
+      .eq("status", "pending");
+    if (error) throw new Error(`listPendingEventIds: ${error.message}`);
+    for (const row of data ?? []) pending.add(String(row.event_id));
+  }
+  return pending;
+}
+
 /** The open (not yet completed, not yet expired) link for a phone number, if any — used to warn about a likely duplicate booking. */
 export async function findOpenCompletionByPhone(
   phone: string,

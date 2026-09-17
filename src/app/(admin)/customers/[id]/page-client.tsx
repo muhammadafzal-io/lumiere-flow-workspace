@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { ArrowLeft, Loader2, Pencil, CheckCheck, Hourglass, Inbox } from "lucide-react";
+import { ArrowLeft, Loader2, Pencil, ChevronDown, History } from "lucide-react";
 import { toast } from "sonner";
 import type { Customer } from "@/lib/types";
 import type { CalendarEvent, RequiredFormStatus } from "@/types";
@@ -33,6 +33,17 @@ import { AccessGate } from "@/components/rbac/AccessGate";
 import { useCurrentUser } from "@/lib/current-user-context";
 import { FormResponseDialog } from "@/components/forms/FormResponseDialog";
 import { StaffFillFormDialog } from "@/components/forms/StaffFillFormDialog";
+import { RequiredFormRow } from "@/components/forms/RequiredFormRow";
+import {
+  AppointmentStatePill,
+  ClientHistoryPanel,
+} from "@/components/customers/ClientHistoryPanel";
+import {
+  appointmentState,
+  completedVisitKeys,
+  type CancellationEntry,
+  type ReviewEntry,
+} from "@/lib/customers/appointment-brief";
 
 interface CustomerProfileResponse {
   customer: Customer;
@@ -42,11 +53,14 @@ interface CustomerProfileResponse {
     past: CalendarEvent[];
     lookbackDays: number;
     truncated: boolean;
+    pendingEventIds?: string[];
+    cancellations?: CancellationEntry[];
   };
   treatments: TreatmentSummary[];
   practitioners: PractitionerSummary[];
   communications: { emails: EmailSendLogEntry[]; followups: FollowupSendEntry[]; total: number };
   timeline: TimelineEntry[];
+  reviews?: ReviewEntry[];
   meta: { matchedBy: "id" | "phone" | "name" | "unmatched"; generatedAt: string };
 }
 
@@ -74,7 +88,9 @@ function toEditForm(c: Customer): EditForm {
 
 function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleString(undefined, {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -107,84 +123,26 @@ const FORM_STATUS_PRIORITY: Record<RequiredFormStatus["status"], number> = {
   COMPLETED: 2,
 };
 
-function RequiredFormRow({
-  form,
-  treatment,
-  startTime,
-  marking,
-  onViewResponse,
-  onMarkComplete,
-  onFillOnBehalf,
+function AppointmentRow({
+  appointment: a,
+  state,
 }: {
-  form: RequiredFormStatus;
-  treatment: string;
-  startTime: string;
-  marking: boolean;
-  onViewResponse: (formId: string) => void;
-  onMarkComplete: (formId: string) => void;
-  onFillOnBehalf: (formId: string) => void;
+  appointment: CalendarEvent;
+  state: ReturnType<typeof appointmentState>;
 }) {
   return (
-    <div className="px-3 py-2.5">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="font-medium truncate">{form.formName}</div>
-          <div className="text-muted-foreground text-xs mt-0.5">
-            {treatment} · {formatDateTime(startTime)}
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {form.status === "COMPLETED" && (
-            <span className="text-xs text-success flex items-center gap-1">
-              <CheckCheck className="h-3.5 w-3.5" /> Completed
-            </span>
-          )}
-          {form.status === "SUBMITTED" && (
-            <span className="text-xs text-info flex items-center gap-1">
-              <Inbox className="h-3.5 w-3.5" /> Submitted
-            </span>
-          )}
-          {form.status === "PENDING" && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <Hourglass className="h-3.5 w-3.5" /> Pending
-            </span>
-          )}
-          {form.status === "PENDING" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={() => onFillOnBehalf(form.id)}
-            >
-              Fill on Behalf
-            </Button>
-          )}
-          {form.status !== "PENDING" && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={() => onViewResponse(form.id)}
-            >
-              View Response
-            </Button>
-          )}
-          {form.status === "SUBMITTED" && (
-            <Button
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              disabled={marking}
-              onClick={() => onMarkComplete(form.id)}
-            >
-              {marking ? <Loader2 className="h-3 w-3 mr-1 animate-spin" /> : "Mark Complete"}
-            </Button>
-          )}
+    <div className="px-3 py-2.5 flex justify-between items-center gap-3">
+      <div className="min-w-0">
+        <div className="font-medium break-words">{a.treatment || "Appointment"}</div>
+        <div className="text-muted-foreground text-xs mt-0.5">
+          {a.practitioner || "Unassigned"} · {a.room || "—"}
         </div>
       </div>
-      <div className="text-muted-foreground text-xs mt-1">
-        {form.sentAt && <>Sent {formatDateTime(form.sentAt)}</>}
-        {form.submittedAt && <> · Submitted {formatDateTime(form.submittedAt)}</>}
-        {form.completedAt && <> · Completed {formatDateTime(form.completedAt)}</>}
+      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+        <span className="text-muted-foreground text-xs whitespace-nowrap">
+          {formatDateTime(a.startTime)}
+        </span>
+        {state !== "past" && state !== "upcoming" && <AppointmentStatePill state={state} />}
       </div>
     </div>
   );
@@ -206,6 +164,7 @@ export default function CustomerProfilePage() {
   const [viewingResponseId, setViewingResponseId] = useState<string | null>(null);
   const [markingFormId, setMarkingFormId] = useState<string | null>(null);
   const [fillingFormId, setFillingFormId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -374,6 +333,13 @@ export default function CustomerProfilePage() {
     meta,
   } = profile;
 
+  const cancellations = appointments.cancellations ?? [];
+  const stateCtx = {
+    now: Date.now(),
+    pending: new Set(appointments.pendingEventIds ?? []),
+    completed: completedVisitKeys(customer),
+  };
+
   // Flattens every required form across every booking (upcoming + past) into one list — the
   // per-booking breakdown lives on the appointment itself (AppointmentSlideOver), this view is
   // the customer-centric rollup asked for separately. Pending forms surface first so staff see
@@ -482,7 +448,6 @@ export default function CustomerProfilePage() {
             <TabsTrigger value="practitioners">Practitioners</TabsTrigger>
             <TabsTrigger value="communications">Communications</TabsTrigger>
             <TabsTrigger value="timeline">Timeline</TabsTrigger>
-            <TabsTrigger value="notes">Notes</TabsTrigger>
           </TabsList>
 
           {/* Overview */}
@@ -538,6 +503,16 @@ export default function CustomerProfilePage() {
                     placeholder="e.g. Botox, HydraFacial"
                   />
                 </div>
+                <div>
+                  <Label className="text-xs">Notes</Label>
+                  <Textarea
+                    value={form.notes}
+                    onChange={field("notes")}
+                    placeholder="Notes about this customer…"
+                    rows={5}
+                    className="mt-1"
+                  />
+                </div>
               </div>
             ) : (
               <>
@@ -588,6 +563,34 @@ export default function CustomerProfilePage() {
 
           {/* Appointments */}
           <TabsContent value="appointments" className="mt-4 space-y-5">
+            <div className="space-y-3">
+              <Button
+                variant={showHistory ? "secondary" : "outline"}
+                size="sm"
+                aria-expanded={showHistory}
+                aria-controls="client-history"
+                onClick={() => setShowHistory((v) => !v)}
+              >
+                <History className="h-3.5 w-3.5 mr-1.5" />
+                {showHistory ? "Hide client history" : "View client history"}
+                <ChevronDown
+                  className={`h-3.5 w-3.5 ml-1.5 transition-transform ${showHistory ? "rotate-180" : ""}`}
+                  aria-hidden
+                />
+              </Button>
+              {showHistory && (
+                <div id="client-history">
+                  <ClientHistoryPanel
+                    source={profile}
+                    matchedBy={meta.matchedBy}
+                    markingFormId={markingFormId}
+                    onViewResponse={setViewingResponseId}
+                    onMarkComplete={markFormComplete}
+                    onFillOnBehalf={setFillingFormId}
+                  />
+                </div>
+              )}
+            </div>
             <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
                 Upcoming
@@ -595,55 +598,72 @@ export default function CustomerProfilePage() {
               {appointments.upcoming.length > 0 ? (
                 <div className="rounded-md border divide-y text-sm">
                   {appointments.upcoming.map((a) => (
-                    <div key={a.id} className="px-3 py-2.5 flex justify-between items-center">
-                      <div>
-                        <div className="font-medium">{a.treatment}</div>
-                        <div className="text-muted-foreground text-xs mt-0.5">
-                          {a.practitioner || "unassigned"} · {a.room || "—"}
-                        </div>
-                      </div>
-                      <div className="text-muted-foreground text-xs">
-                        {formatDateTime(a.startTime)}
-                      </div>
-                    </div>
+                    <AppointmentRow
+                      key={a.id}
+                      appointment={a}
+                      state={appointmentState(a, stateCtx)}
+                    />
                   ))}
                 </div>
               ) : (
                 <EmptyState>No upcoming appointments.</EmptyState>
               )}
             </div>
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                Past
-              </div>
-              {appointments.past.length > 0 ? (
-                <>
-                  <div className="rounded-md border divide-y text-sm">
-                    {appointments.past.map((a) => (
-                      <div key={a.id} className="px-3 py-2.5 flex justify-between items-center">
-                        <div>
-                          <div className="font-medium">{a.treatment}</div>
-                          <div className="text-muted-foreground text-xs mt-0.5">
-                            {a.practitioner || "unassigned"} · {a.room || "—"}
+            {/* The client history above already lists past services and cancellations. */}
+            {!showHistory && (
+              <>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                    Past
+                  </div>
+                  {appointments.past.length > 0 ? (
+                    <>
+                      <div className="rounded-md border divide-y text-sm">
+                        {appointments.past.map((a) => (
+                          <AppointmentRow
+                            key={a.id}
+                            appointment={a}
+                            state={appointmentState(a, stateCtx)}
+                          />
+                        ))}
+                      </div>
+                      {appointments.truncated && (
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Showing the last {appointments.lookbackDays} days — there may be earlier
+                          visits not shown here.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <EmptyState>No past appointments recorded.</EmptyState>
+                  )}
+                </div>
+                {cancellations.length > 0 && (
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                      Cancelled
+                    </div>
+                    <div className="rounded-md border divide-y text-sm">
+                      {cancellations.map((c) => (
+                        <div
+                          key={c.id}
+                          className="px-3 py-2.5 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1"
+                        >
+                          <div className="min-w-0 break-words">{c.details}</div>
+                          <div className="text-muted-foreground text-xs whitespace-nowrap">
+                            Cancelled {formatDateTime(c.timestamp)}
                           </div>
                         </div>
-                        <div className="text-muted-foreground text-xs">
-                          {formatDateTime(a.startTime)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                  {appointments.truncated && (
+                      ))}
+                    </div>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Showing the last {appointments.lookbackDays} days — there may be earlier
-                      visits not shown here.
+                      Cancelled appointments are removed from the calendar, so only the logged
+                      cancellation is shown.
                     </p>
-                  )}
-                </>
-              ) : (
-                <EmptyState>No past appointments recorded.</EmptyState>
-              )}
-            </div>
+                  </div>
+                )}
+              </>
+            )}
           </TabsContent>
 
           {/* Forms */}
@@ -654,8 +674,7 @@ export default function CustomerProfilePage() {
                   <RequiredFormRow
                     key={form.id}
                     form={form}
-                    treatment={appointment.treatment}
-                    startTime={appointment.startTime}
+                    subtitle={`${appointment.treatment} · ${formatDateTime(appointment.startTime)}`}
                     marking={markingFormId === form.id}
                     onViewResponse={setViewingResponseId}
                     onMarkComplete={markFormComplete}
@@ -769,23 +788,6 @@ export default function CustomerProfilePage() {
               </div>
             ) : (
               <EmptyState>No activity recorded yet.</EmptyState>
-            )}
-          </TabsContent>
-
-          {/* Notes */}
-          <TabsContent value="notes" className="mt-4">
-            {editMode && form ? (
-              <Textarea
-                value={form.notes}
-                onChange={field("notes")}
-                placeholder="Notes about this customer…"
-                rows={8}
-                className="max-w-2xl"
-              />
-            ) : (
-              <div className="rounded-md border p-4 min-h-[120px] text-sm max-w-2xl">
-                {customer.notes || <span className="text-muted-foreground">No notes yet.</span>}
-              </div>
             )}
           </TabsContent>
         </Tabs>

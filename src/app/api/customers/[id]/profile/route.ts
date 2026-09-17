@@ -5,6 +5,8 @@ import { getAppointmentHistoryForContact } from "@/lib/integrations/google-calen
 import { readEmailSendLog } from "@/lib/integrations/email-send-log";
 import { readFollowupSendsForClient } from "@/lib/retention/followup-sends";
 import { readActivityLogForClient } from "@/lib/integrations/activity-log";
+import { readReviewRequestsForClient } from "@/lib/retention/review-request";
+import { listPendingEventIds } from "@/lib/booking/completion-followups";
 import {
   computeCustomerStatistics,
   groupPractitioners,
@@ -40,7 +42,7 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
     const customer = mapCustomerRow(row);
     const tz = await getClinicTimezone();
 
-    const [history, communicationsResult, followups, activityRows] = await Promise.all([
+    const [history, communicationsResult, followups, activityRows, reviews] = await Promise.all([
       getAppointmentHistoryForContact(
         { id: customer.id, phone: customer.phone, name: customer.name },
         { pastDays, futureDays },
@@ -48,6 +50,7 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
       readEmailSendLog({ clientId: id, limit: 200 }),
       readFollowupSendsForClient(id, 100),
       readActivityLogForClient(id, { phone: customer.phone, limit: 200 }),
+      readReviewRequestsForClient(id),
     ]);
 
     const statistics = computeCustomerStatistics(customer, history, activityRows);
@@ -62,9 +65,12 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
     );
 
     const allEventIds = [...history.upcoming, ...history.past].map((e) => e.id);
-    const requiredFormsByEvent = await listRequiredFormsForEvents(allEventIds).catch(
-      () => new Map<string, RequiredFormTrackingRecord[]>(),
-    );
+    const [requiredFormsByEvent, pendingEventIds] = await Promise.all([
+      listRequiredFormsForEvents(allEventIds).catch(
+        () => new Map<string, RequiredFormTrackingRecord[]>(),
+      ),
+      listPendingEventIds(allEventIds).catch(() => new Set<string>()),
+    ]);
     const withRequiredForms = (events: CalendarEvent[]): CalendarEvent[] =>
       events.map((e) => ({
         ...e,
@@ -88,6 +94,17 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
         past: withRequiredForms(history.past),
         lookbackDays: pastDays,
         truncated: history.truncated,
+        // Voice bookings still waiting on the client's registration details.
+        pendingEventIds: [...pendingEventIds],
+        // Cancelling deletes the calendar event, so the activity log is the only record left.
+        cancellations: activityRows
+          .filter((r) => r.eventType === "cancellation")
+          .map((r) => ({
+            id: r.id,
+            timestamp: r.timestamp,
+            details: r.details,
+            platform: r.platform,
+          })),
       },
       treatments,
       practitioners,
@@ -97,6 +114,7 @@ export async function GET(req: NextRequest, ctx: RouteCtx) {
         total: communicationsResult.entries.length + followups.length,
       },
       timeline,
+      reviews,
       meta: {
         matchedBy: history.matchedBy,
         generatedAt: new Date().toISOString(),

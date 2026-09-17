@@ -30,6 +30,41 @@ export interface ReviewRequestOutcome {
   sentiment?: FollowupSentiment;
 }
 
+export interface ReviewRequestEntry {
+  id: string;
+  appointmentId: string;
+  sentiment: string;
+  status: "SENT" | "FAILED" | "SKIPPED";
+  feedback: string;
+  createdAt: string;
+}
+
+/** Review requests (and the follow-up reply that triggered each) for one client, newest first —
+ * the customer profile's feedback history. */
+export async function readReviewRequestsForClient(
+  clientId: string,
+  limit = 50,
+): Promise<ReviewRequestEntry[]> {
+  const { data, error } = await getSupabase()
+    .from(TABLE)
+    .select("id, appointment_id, sentiment, status, trigger_response, created_at")
+    .eq("client_id", clientId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.warn("[review-request] readReviewRequestsForClient failed:", error.message);
+    return [];
+  }
+  return (data ?? []).map((row) => ({
+    id: String(row.id),
+    appointmentId: String(row.appointment_id),
+    sentiment: row.sentiment ?? "",
+    status: row.status,
+    feedback: row.trigger_response ?? "",
+    createdAt: row.created_at,
+  }));
+}
+
 async function logReviewRequest(row: {
   appointmentId: string;
   clientId?: string;
