@@ -3,6 +3,8 @@ import { getEventsByRange } from "@/lib/integrations/google-calendar";
 import { requireApiPermission } from "@/lib/rbac/guard";
 import { listPendingCompletions } from "@/lib/booking/completion-followups";
 import { listRequiredFormsForEvents, type RequiredFormTrackingRecord } from "@/lib/forms/tracking";
+import { getApprovalsForEvents, type BookingApproval } from "@/lib/booking/approvals";
+import { deriveBookingStatus } from "@/lib/booking/approval-status";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -46,9 +48,14 @@ export async function GET(req: NextRequest) {
     const requiredFormsByEvent = await listRequiredFormsForEvents(events.map((e) => e.id)).catch(
       () => new Map<string, RequiredFormTrackingRecord[]>(),
     );
+    // Bookings of services that need the head practitioner's sign-off. Absent for every other
+    // booking, which keeps the existing pending/confirmed derivation untouched.
+    const approvalsByEvent = await getApprovalsForEvents(events.map((e) => e.id)).catch(
+      () => new Map<string, BookingApproval>(),
+    );
     const eventsWithStatus = events.map((e) => ({
       ...e,
-      status: pendingEventIds.has(e.id) ? ("pending" as const) : ("confirmed" as const),
+      status: deriveBookingStatus(approvalsByEvent.get(e.id)?.status, pendingEventIds.has(e.id)),
       requiredForms: (requiredFormsByEvent.get(e.id) ?? []).map((f) => ({
         id: f.id,
         formName: f.formName,

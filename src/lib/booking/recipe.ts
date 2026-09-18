@@ -79,6 +79,8 @@ export interface ServiceRow {
   durationMinutes: number;
   onlineBookable: boolean;
   requiresConsultation: boolean;
+  /** Bookings of this service wait on the head practitioner's sign-off. */
+  requiresApproval: boolean;
   minNoticeHours: number;
   maxAdvanceDays: number;
   status: string;
@@ -147,6 +149,7 @@ function mapServiceRow(r: any): ServiceRow {
     durationMinutes: r["DurationMinutes"] ?? 60,
     onlineBookable: r["OnlineBookable"] ?? true,
     requiresConsultation: r["RequiresConsultation"] ?? false,
+    requiresApproval: r["RequiresApproval"] ?? false,
     minNoticeHours: r["MinNoticeHours"] ?? 0,
     maxAdvanceDays: r["MaxAdvanceDays"] ?? 365,
     status: r["Status"] ?? "Active",

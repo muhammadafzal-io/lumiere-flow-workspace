@@ -25,7 +25,14 @@ export type TriggerType =
   | "Visit count"
   | "Custom";
 export type MsgStatus = "Delivered" | "Opened" | "Replied" | "Failed" | "Sent";
-export type AppointmentStatus = "confirmed" | "pending" | "completed" | "cancelled" | "no_show";
+export type AppointmentStatus =
+  | "confirmed"
+  | "pending"
+  | "completed"
+  | "cancelled"
+  | "no_show"
+  | "awaiting_approval"
+  | "rejected";
 export type AppointmentSource = "ai_booked" | "manual";
 
 export interface Visit {

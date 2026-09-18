@@ -10,6 +10,7 @@ import {
 import { phonesMatch } from "@/lib/phone";
 import { addCalendarDays, dateInZone } from "@/lib/booking/dates";
 import { getSupabase } from "@/lib/supabase";
+import { closeBookingApprovalForEvent } from "@/lib/booking/approvals";
 
 /**
  * Resource-specific scheduling data resolved from a Service's recipe (Rooms/Equipment/
@@ -882,6 +883,9 @@ export async function cancelCalendarEvent(eventId: string): Promise<{
   const { data: event } = await calendar.events.get({ calendarId: calId, eventId });
   await calendar.events.delete({ calendarId: calId, eventId });
   invalidateEventsRangeCache();
+  // A cancelled booking must stop sitting in the head practitioner's queue looking actionable.
+  // Best-effort: the queue also closes rows whose event has gone, so this is the eager path.
+  await closeBookingApprovalForEvent(eventId);
   const { treatment, clientName } = resolveEventClient(
     event.summary ?? "",
     event.description ?? "",

@@ -8,6 +8,7 @@ import {
   type ClinicHoursSchedule,
 } from "@/lib/booking/clinic-hours";
 import { requireApiPermission } from "@/lib/rbac/guard";
+import { invalidateHeadPractitionerCache } from "@/lib/booking/head-practitioner";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,7 @@ export async function GET() {
             (settingsRow["BusinessHoursSchedule"] as ClinicHoursSchedule | null) ||
             DEFAULT_CLINIC_HOURS,
           googleReviewUrl: settingsRow["Google Review URL"] || "",
+          headPractitionerId: settingsRow["HeadPractitionerId"] || "",
         }
       : null;
 
@@ -134,6 +136,7 @@ export async function PATCH(req: Request) {
       businessHours,
       businessHoursSchedule,
       googleReviewUrl,
+      headPractitionerId,
     } = body;
 
     const fields: Record<string, unknown> = {};
@@ -144,6 +147,11 @@ export async function PATCH(req: Request) {
     if (businessHoursSchedule !== undefined)
       fields["BusinessHoursSchedule"] = businessHoursSchedule;
     if (googleReviewUrl !== undefined) fields["Google Review URL"] = googleReviewUrl || null;
+    // Who signs off bookings of services configured to require it. Cleared with an empty value.
+    if (headPractitionerId !== undefined) {
+      fields["HeadPractitionerId"] = headPractitionerId || null;
+      invalidateHeadPractitionerCache();
+    }
 
     if (recordId) {
       const { data, error } = await sb

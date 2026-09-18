@@ -8,6 +8,7 @@ import {
   Calendar as CalendarIcon,
   Clock,
   ShieldCheck,
+  Stamp,
   FileText,
   ListPlus,
   TrendingUp,
@@ -36,6 +37,12 @@ export const NAV_ITEMS: NavItem[] = [
     url: "/pending-bookings",
     icon: Clock,
     module: "pending_bookings",
+  },
+  {
+    title: "Approvals",
+    url: "/approvals",
+    icon: Stamp,
+    module: "booking_approvals",
   },
   { title: "Waitlist", url: "/waitlist", icon: ListPlus, module: "waitlist" },
   {

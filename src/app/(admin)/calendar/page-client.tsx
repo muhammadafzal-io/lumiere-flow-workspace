@@ -216,7 +216,7 @@ export default function CalendarPage() {
             notes: string;
             room: string;
             practitioner: string;
-            status?: "pending" | "confirmed";
+            status?: "pending" | "confirmed" | "awaiting_approval" | "rejected";
             requiredForms?: RequiredFormStatus[];
           }) => {
             const matchedPrac = practitioners.find(
@@ -248,7 +248,14 @@ export default function CalendarPage() {
               // practitioner's calendar filter.
               practitioner_id: matchedPrac?.id ?? "",
               room: e.room || "",
-              status: e.status === "pending" ? ("pending" as const) : ("confirmed" as const),
+              // Bookings waiting on (or refused) the head practitioner's sign-off carry that
+              // through from the API; everything else keeps the original pending/confirmed split.
+              status:
+                e.status === "pending" ||
+                e.status === "awaiting_approval" ||
+                e.status === "rejected"
+                  ? e.status
+                  : ("confirmed" as const),
               source: "manual" as const,
               notes: e.notes ?? "",
               price: 0,

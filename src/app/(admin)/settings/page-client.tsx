@@ -42,6 +42,8 @@ interface ClinicSettings {
   businessHours: string;
   businessHoursSchedule: WeeklyHours;
   googleReviewUrl: string;
+  /** Practitioner who signs off bookings of services configured to require it. */
+  headPractitionerId: string;
 }
 
 interface ChannelStatus {
@@ -144,6 +146,7 @@ interface ServiceItem {
   durationMinutes: number;
   onlineBookable: boolean;
   requiresConsultation: boolean;
+  requiresApproval: boolean;
   minNoticeHours: number;
   maxAdvanceDays: number;
   waitlistCap: number | null;
@@ -251,6 +254,7 @@ const DEFAULT_CLINIC: ClinicSettings = {
   businessHours: "",
   businessHoursSchedule: DEFAULT_BUSINESS_HOURS,
   googleReviewUrl: "",
+  headPractitionerId: "",
 };
 
 const PRESET_COLORS = [
@@ -310,9 +314,11 @@ function toDateInputValue(value: string | null): string {
 
 function ClinicTab({
   initial,
+  team,
   onSaved,
 }: {
   initial: ClinicSettings;
+  team: TeamMember[];
   onSaved: (updated: ClinicSettings) => void;
 }) {
   const [form, setForm] = useState(initial);
@@ -379,6 +385,33 @@ function ClinicTab({
         <div className="col-span-2">
           <Label>Address</Label>
           <Input value={form.address} onChange={field("address")} className="mt-1.5" />
+        </div>
+        <div className="col-span-2">
+          <Label>Head practitioner</Label>
+          <Select
+            value={form.headPractitionerId || "none"}
+            onValueChange={(value) =>
+              setForm((f) => ({ ...f, headPractitionerId: value === "none" ? "" : value }))
+            }
+          >
+            <SelectTrigger className="w-full h-9 mt-1.5">
+              <SelectValue placeholder="No head practitioner" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No head practitioner</SelectItem>
+              {team
+                .filter((m) => (m.status ?? "Active") === "Active")
+                .map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name}
+                  </SelectItem>
+                ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">
+            Signs off bookings for services with &quot;Head practitioner sign-off&quot; switched on,
+            and is emailed when one comes in.
+          </p>
         </div>
         <div className="col-span-2">
           <Label>Google Review URL</Label>
@@ -1665,6 +1698,7 @@ function ServicesTab({
     durationMinutes: 60,
     onlineBookable: true,
     requiresConsultation: false,
+    requiresApproval: false,
     minNoticeHours: 0,
     maxAdvanceDays: 365,
     waitlistCap: null,
@@ -1717,6 +1751,7 @@ function ServicesTab({
         durationMinutes: 60,
         onlineBookable: true,
         requiresConsultation: false,
+        requiresApproval: false,
         minNoticeHours: 0,
         maxAdvanceDays: 365,
         waitlistCap: null,
@@ -1818,6 +1853,7 @@ function ServicesTab({
         DurationMinutes: form.durationMinutes ?? 60,
         OnlineBookable: form.onlineBookable ?? true,
         RequiresConsultation: form.requiresConsultation ?? false,
+        RequiresApproval: form.requiresApproval ?? false,
         MinNoticeHours: form.minNoticeHours ?? 0,
         MaxAdvanceDays: form.maxAdvanceDays ?? 365,
         WaitlistCap: form.waitlistCap ?? null,
@@ -2056,6 +2092,15 @@ function ServicesTab({
                   checked={form.requiresConsultation ?? false}
                   onCheckedChange={(checked) =>
                     setForm((f) => ({ ...f, requiresConsultation: checked }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-md border px-3 h-9">
+                <Label className="mb-0">Head practitioner sign-off</Label>
+                <Switch
+                  checked={form.requiresApproval ?? false}
+                  onCheckedChange={(checked) =>
+                    setForm((f) => ({ ...f, requiresApproval: checked }))
                   }
                 />
               </div>
@@ -2894,6 +2939,7 @@ export default function SettingsPage() {
           ) : (
             <ClinicTab
               initial={clinic}
+              team={data?.team ?? []}
               onSaved={(updated) => setData((d) => d && { ...d, clinic: updated })}
             />
           )}

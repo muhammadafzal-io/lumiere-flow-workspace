@@ -21,6 +21,7 @@ type LogRow = OpsLogEntry & { id: string };
 
 const EVENT_TYPES = [
   "booking",
+  "approval",
   "escalation",
   "inquiry",
   "no-show",

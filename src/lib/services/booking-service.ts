@@ -36,6 +36,8 @@ import {
   isDateOpen,
 } from "@/lib/booking/clinic-hours";
 import { flowAsync, logFlowStep } from "@/lib/voice/flow-context";
+import { openBookingApproval } from "@/lib/booking/approvals";
+import { notifyHeadPractitionerOfPendingApproval } from "@/lib/booking/head-practitioner";
 
 export interface BookingRequest {
   clientName: string;
@@ -99,6 +101,8 @@ export interface BookingResult {
   practitionerName: string;
   room: string;
   equipment?: string[];
+  /** True when this booking is waiting on the head practitioner's sign-off. */
+  requiresApproval?: boolean;
 }
 
 export interface AvailabilityRequest {
@@ -832,6 +836,28 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     ...cleanup,
   });
 
+  // Services configured to need the head practitioner's sign-off open an approval alongside the
+  // booking rather than blocking it: the slot, room, practitioner, forms and confirmation all
+  // behave exactly as they do for any other booking, and this record is what marks it as awaiting
+  // sign-off. Best-effort, like the completion link and form tracking — the event is already on
+  // the calendar by this point and must never be failed by bookkeeping that runs after it.
+  if (recipe?.service.requiresApproval) {
+    await openBookingApproval({
+      eventId: result.id,
+      serviceId: recipe.service.id,
+      serviceName: recipe.service.name,
+    });
+    // Not awaited: the queue in the admin UI is the reliable channel, so a slow mail provider must
+    // not hold up the booking reply the client is waiting on.
+    void notifyHeadPractitionerOfPendingApproval({
+      serviceName: recipe.service.name,
+      clientName: request.clientName,
+      startTime: bookingStartTime,
+      practitionerName: request.practitionerName,
+      timezone,
+    });
+  }
+
   return {
     id: result.id,
     clientName: request.clientName,
@@ -841,6 +867,7 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
     practitionerName: request.practitionerName,
     room: request.room,
     equipment: resolvedEquipment,
+    requiresApproval: recipe?.service.requiresApproval ?? false,
   };
 }
 

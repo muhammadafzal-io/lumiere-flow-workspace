@@ -124,7 +124,8 @@ export type EventType =
   | "campaign"
   | "followup"
   | "waitlist"
-  | "review-request";
+  | "review-request"
+  | "approval";
 
 export interface OpsLogEntry {
   timestamp: string;

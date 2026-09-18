@@ -136,6 +136,7 @@ function mapService(r: any) {
     durationMinutes: r["DurationMinutes"] ?? 60,
     onlineBookable: r["OnlineBookable"] ?? true,
     requiresConsultation: r["RequiresConsultation"] ?? false,
+    requiresApproval: r["RequiresApproval"] ?? false,
     minNoticeHours: r["MinNoticeHours"] ?? 0,
     maxAdvanceDays: r["MaxAdvanceDays"] ?? 365,
     waitlistCap: r["WaitlistCap"] ?? null,
@@ -261,6 +262,7 @@ export async function POST(req: Request) {
       DurationMinutes,
       OnlineBookable,
       RequiresConsultation,
+      RequiresApproval,
       MinNoticeHours,
       MaxAdvanceDays,
       WaitlistCap,
@@ -323,6 +325,7 @@ export async function POST(req: Request) {
         DurationMinutes: DurationMinutes ?? 60,
         OnlineBookable: OnlineBookable ?? true,
         RequiresConsultation: RequiresConsultation ?? false,
+        RequiresApproval: RequiresApproval ?? false,
         MinNoticeHours: MinNoticeHours ?? 0,
         MaxAdvanceDays: MaxAdvanceDays ?? 365,
         WaitlistCap: WaitlistCap ?? null,
@@ -442,6 +445,7 @@ export async function PATCH(req: Request) {
     if (body.OnlineBookable !== undefined) fields["OnlineBookable"] = body.OnlineBookable;
     if (body.RequiresConsultation !== undefined)
       fields["RequiresConsultation"] = body.RequiresConsultation;
+    if (body.RequiresApproval !== undefined) fields["RequiresApproval"] = body.RequiresApproval;
     if (body.MinNoticeHours !== undefined) fields["MinNoticeHours"] = body.MinNoticeHours;
     if (body.MaxAdvanceDays !== undefined) fields["MaxAdvanceDays"] = body.MaxAdvanceDays;
     if (body.WaitlistCap !== undefined) fields["WaitlistCap"] = body.WaitlistCap;

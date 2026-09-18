@@ -71,6 +71,8 @@ function statusPill(s: AppointmentStatus) {
     completed: "bg-muted text-muted-foreground border-border",
     cancelled: "bg-destructive/10 text-destructive border-destructive/20",
     no_show: "bg-destructive/10 text-destructive border-destructive/20",
+    awaiting_approval: "bg-warning/15 text-warning-foreground border-warning/30",
+    rejected: "bg-destructive/10 text-destructive border-destructive/20",
   };
   const label: Record<AppointmentStatus, string> = {
     confirmed: "Confirmed",
@@ -78,6 +80,8 @@ function statusPill(s: AppointmentStatus) {
     completed: "Completed",
     cancelled: "Cancelled",
     no_show: "No-show",
+    awaiting_approval: "Awaiting sign-off",
+    rejected: "Sign-off rejected",
   };
   return (
     <span className={`inline-flex px-2 py-0.5 text-[11px] font-medium rounded-md border ${map[s]}`}>
