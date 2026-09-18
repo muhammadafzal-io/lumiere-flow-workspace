@@ -30,7 +30,11 @@ import {
   type VoiceBookingSession,
 } from "@/lib/voice/voice-booking-session";
 import { classifyUserTranscript } from "@/lib/voice/transcript-filter";
-import { shouldCancelResponseForRejectedTranscript } from "@/lib/voice/response-guard";
+import {
+  shouldCancelResponseForRejectedTranscript,
+  shouldNudgeSilentAgent,
+  SILENT_AGENT_NUDGE_MS,
+} from "@/lib/voice/response-guard";
 import {
   createVoiceMetrics,
   summarizeVoiceMetrics,
@@ -154,6 +158,8 @@ export default function VoiceCall({
   const ignoreUserSpeechRef = useRef(false);
   const flowLogRef = useRef(createVoiceFlowLogger(sessionId, "client"));
   const metricsRef = useRef(createVoiceMetrics());
+  const responseActiveRef = useRef(false);
+  const silentAgentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const completionLinksRef = useRef<string[]>([]);
 
   const sendDc = useCallback((payload: Record<string, unknown>) => {
@@ -260,6 +266,10 @@ export default function VoiceCall({
     if (resumeTimerRef.current) {
       clearTimeout(resumeTimerRef.current);
       resumeTimerRef.current = null;
+    }
+    if (silentAgentTimerRef.current) {
+      clearTimeout(silentAgentTimerRef.current);
+      silentAgentTimerRef.current = null;
     }
     if (micUnmuteTimerRef.current) {
       clearTimeout(micUnmuteTimerRef.current);
@@ -400,6 +410,11 @@ export default function VoiceCall({
         }
 
         case "response.created":
+          responseActiveRef.current = true;
+          if (silentAgentTimerRef.current) {
+            clearTimeout(silentAgentTimerRef.current);
+            silentAgentTimerRef.current = null;
+          }
           responseHadToolCallRef.current = false;
           if (toolFetchCountRef.current === 0) clearProcessing();
           // The model has already started generating a response — the "AI went silent after a
@@ -474,6 +489,25 @@ export default function VoiceCall({
             break;
           }
           metricsRef.current.transcriptAccepted();
+          // Watchdog: the caller has said something real. If nothing at all is generated within a
+          // few seconds, ask the model to speak rather than leaving the caller on a silent line.
+          if (silentAgentTimerRef.current) clearTimeout(silentAgentTimerRef.current);
+          silentAgentTimerRef.current = setTimeout(() => {
+            silentAgentTimerRef.current = null;
+            const nudgeDc = dcRef.current;
+            if (
+              nudgeDc?.readyState === "open" &&
+              shouldNudgeSilentAgent({
+                responseActive: responseActiveRef.current,
+                aiSpeaking: aiSpeakingRef.current,
+                toolFetchInFlight: toolFetchCountRef.current > 0,
+                callEnding: intentionalStopRef.current,
+              })
+            ) {
+              flowLogRef.current.step("voice_silent_agent_nudged");
+              nudgeDc.send(JSON.stringify({ type: "response.create" }));
+            }
+          }, SILENT_AGENT_NUDGE_MS);
 
           syncTranscript((prev) => {
             // Find the placeholder by its stable ID
@@ -559,6 +593,7 @@ export default function VoiceCall({
         case "response.done": {
           aiSpeakingRef.current = false;
           setAiSpeaking(false);
+          responseActiveRef.current = false;
           metricsRef.current.responseUsage(
             (event.response as { usage?: RealtimeUsage } | undefined)?.usage,
           );

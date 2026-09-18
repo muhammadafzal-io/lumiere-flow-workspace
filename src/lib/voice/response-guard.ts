@@ -40,3 +40,32 @@ export function shouldCancelResponseForRejectedTranscript(
   if (input.reason === "echo") return { cancel: false, skippedBecause: "echo_heuristic" };
   return { cancel: true };
 }
+
+/** How long a caller's answer may go unanswered before the agent is nudged to speak. */
+export const SILENT_AGENT_NUDGE_MS = 4_000;
+
+export interface SilentAgentInput {
+  /** A response is currently being generated. */
+  responseActive: boolean;
+  /** The agent is currently speaking. */
+  aiSpeaking: boolean;
+  /** A tool call is still running; its own recovery nudge covers that case. */
+  toolFetchInFlight: boolean;
+  /** The call is ending or already gone. */
+  callEnding: boolean;
+}
+
+/**
+ * Whether to ask the agent to respond after a caller turn produced no reply at all.
+ *
+ * Without this, any path that leaves the model with nothing in flight — a cancelled response, a
+ * dropped event, a turn the model simply didn't answer — ends the conversation silently, with the
+ * caller waiting on a line that will never speak again. The nudge is a single deterministic
+ * response.create per caller turn: no extra call happens when the agent is already speaking or
+ * generating.
+ */
+export function shouldNudgeSilentAgent(input: SilentAgentInput): boolean {
+  return (
+    !input.responseActive && !input.aiSpeaking && !input.toolFetchInFlight && !input.callEnding
+  );
+}

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { shouldCancelResponseForRejectedTranscript } from "../response-guard";
+import {
+  shouldCancelResponseForRejectedTranscript,
+  shouldNudgeSilentAgent,
+} from "../response-guard";
 
 const base = { hasTrackedUserTurn: true, toolRoundInFlight: false } as const;
 
@@ -50,5 +53,34 @@ describe("shouldCancelResponseForRejectedTranscript", () => {
         toolRoundInFlight: true,
       }),
     ).toMatchObject({ cancel: false, skippedBecause: "untracked_audio" });
+  });
+});
+
+describe("shouldNudgeSilentAgent", () => {
+  const quiet = {
+    responseActive: false,
+    aiSpeaking: false,
+    toolFetchInFlight: false,
+    callEnding: false,
+  };
+
+  it("nudges when the caller's turn produced nothing at all", () => {
+    expect(shouldNudgeSilentAgent(quiet)).toBe(true);
+  });
+
+  it("stays quiet when a response is already being generated", () => {
+    expect(shouldNudgeSilentAgent({ ...quiet, responseActive: true })).toBe(false);
+  });
+
+  it("stays quiet while the agent is speaking", () => {
+    expect(shouldNudgeSilentAgent({ ...quiet, aiSpeaking: true })).toBe(false);
+  });
+
+  it("leaves a running tool call to its own recovery nudge", () => {
+    expect(shouldNudgeSilentAgent({ ...quiet, toolFetchInFlight: true })).toBe(false);
+  });
+
+  it("never speaks into a call that is ending", () => {
+    expect(shouldNudgeSilentAgent({ ...quiet, callEnding: true })).toBe(false);
   });
 });
