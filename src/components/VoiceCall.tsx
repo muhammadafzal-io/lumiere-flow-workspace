@@ -29,7 +29,12 @@ import {
   VOICE_CANCEL_RESCHEDULE_TOOLS,
   type VoiceBookingSession,
 } from "@/lib/voice/voice-booking-session";
-import { shouldRejectUserTranscript } from "@/lib/voice/transcript-filter";
+import { classifyUserTranscript } from "@/lib/voice/transcript-filter";
+import {
+  createVoiceMetrics,
+  summarizeVoiceMetrics,
+  type RealtimeUsage,
+} from "@/lib/voice/session-metrics";
 
 type CallStatus = "idle" | "connecting" | "active" | "reconnecting" | "error";
 
@@ -146,6 +151,7 @@ export default function VoiceCall({
   const micUnmuteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ignoreUserSpeechRef = useRef(false);
   const flowLogRef = useRef(createVoiceFlowLogger(sessionId, "client"));
+  const metricsRef = useRef(createVoiceMetrics());
   const completionLinksRef = useRef<string[]>([]);
 
   const sendDc = useCallback((payload: Record<string, unknown>) => {
@@ -278,13 +284,18 @@ export default function VoiceCall({
     if (audioRef.current) {
       audioRef.current.srcObject = null;
     }
+    const callSeconds = callActiveAtRef.current ? (Date.now() - callActiveAtRef.current) / 1000 : 0;
+    flowLogRef.current.step(
+      "voice_session_completed",
+      summarizeVoiceMetrics(metricsRef.current.snapshot(), callSeconds),
+    );
     onClose(completionLinksRef.current.length > 0 ? completionLinksRef.current : undefined);
   }, [onClose]);
 
   // FIX #2: handleDataChannelMessage is stable — deps are only stable refs and callbacks
   const handleDataChannelMessage = useCallback(
     async (raw: string) => {
-      const rejectPhantomInput = (targetId: string | null) => {
+      const rejectPhantomInput = (targetId: string | null, cancelResponse = true) => {
         pendingUserIdRef.current = null;
         setUserSpeaking(false);
         if (targetId) {
@@ -293,7 +304,18 @@ export default function VoiceCall({
           );
         }
         sendDc({ type: "input_audio_buffer.clear" });
-        sendDc({ type: "response.cancel" });
+        // Cancelling the in-flight response is what actually saves the (expensive) spoken reply to
+        // noise. It is skipped while a tool round is in play: that response is the booking
+        // confirmation the caller is waiting to hear, and a stray cough transcribing at the wrong
+        // moment must never silence it.
+        const toolRoundInFlight =
+          toolFetchCountRef.current > 0 ||
+          responseHadToolCallRef.current ||
+          pendingToolCallsRef.current.length > 0;
+        if (cancelResponse && !toolRoundInFlight) {
+          sendDc({ type: "response.cancel" });
+          metricsRef.current.responseCancelled();
+        }
       };
 
       let event: Record<string, unknown>;
@@ -387,6 +409,7 @@ export default function VoiceCall({
             break;
           }
           setUserSpeaking(true);
+          metricsRef.current.speechDetected();
           break;
 
         case "input_audio_buffer.speech_stopped": {
@@ -413,6 +436,8 @@ export default function VoiceCall({
           const text = (event.transcript as string | undefined)?.trim();
           const targetId = pendingUserIdRef.current;
           if (!text) {
+            metricsRef.current.transcriptRejected("empty");
+            flowLogRef.current.step("voice_empty_transcript_ignored");
             rejectPhantomInput(targetId);
             break;
           }
@@ -423,15 +448,23 @@ export default function VoiceCall({
             ? Date.now() - callActiveAtRef.current
             : undefined;
 
-          if (
-            shouldRejectUserTranscript(text, {
-              lastAssistantText: lastAssistant,
-              msSinceCallActive,
-            })
-          ) {
-            rejectPhantomInput(targetId);
+          const verdict = classifyUserTranscript(text, {
+            lastAssistantText: lastAssistant,
+            msSinceCallActive,
+          });
+          if (verdict.reject) {
+            metricsRef.current.transcriptRejected(verdict.reason);
+            flowLogRef.current.step("voice_nonproductive_transcript_ignored", {
+              reason: verdict.reason,
+              transcriptLength: text.length,
+            });
+            // "echo" is the one heuristic reason that can misfire on a caller genuinely repeating
+            // the agent's words, so it only hides the line — it never cancels a reply a real
+            // caller may be waiting on.
+            rejectPhantomInput(targetId, verdict.reason !== "echo");
             break;
           }
+          metricsRef.current.transcriptAccepted();
 
           syncTranscript((prev) => {
             // Find the placeholder by its stable ID
@@ -504,6 +537,7 @@ export default function VoiceCall({
             toolName,
             args: summarizeForFlowLog(parsedArgs),
           });
+          metricsRef.current.toolCalled(toolName);
           pendingToolCallsRef.current.push({
             callId: event.call_id as string,
             toolName,
@@ -516,6 +550,9 @@ export default function VoiceCall({
         case "response.done": {
           aiSpeakingRef.current = false;
           setAiSpeaking(false);
+          metricsRef.current.responseUsage(
+            (event.response as { usage?: RealtimeUsage } | undefined)?.usage,
+          );
 
           const allCalls = pendingToolCallsRef.current.splice(0);
           const endCallItem = allCalls.find((c) => c.toolName === "end_call");

@@ -86,29 +86,40 @@ function isLikelyEcho(userText: string, assistantText: string): boolean {
   return overlap / uWords.size >= 0.65 && uWords.size >= 3;
 }
 
-/** Returns true when a user transcription should be discarded. */
-export function shouldRejectUserTranscript(
+export type TranscriptVerdict =
+  | { reject: false }
+  | { reject: true; reason: "empty" | "junk" | "too_short" | "greeting_noise" | "echo" };
+
+/**
+ * Why a transcription is being discarded, not just whether. The caller needs the distinction:
+ * "empty"/"junk"/"too_short" are confident non-speech, while "echo" is a heuristic that can
+ * misfire on a caller genuinely repeating what the agent just said — so only the confident
+ * reasons are safe to act on beyond hiding the line.
+ */
+export function classifyUserTranscript(
   text: string,
   ctx: TranscriptFilterContext = {},
-): boolean {
+): TranscriptVerdict {
   const raw = text.trim();
-  if (!raw) return true;
+  if (!raw) return { reject: true, reason: "empty" };
 
   const norm = normalize(raw);
-  if (!norm) return true;
+  if (!norm) return { reject: true, reason: "empty" };
 
-  if (VALID_SHORT.has(norm)) return false;
+  if (VALID_SHORT.has(norm)) return { reject: false };
 
-  if (/^\d[\d:.\-\s+()]{2,}$/.test(raw)) return false;
-  if (raw.includes("@") && raw.includes(".")) return false;
+  if (/^\d[\d:.\-\s+()]{2,}$/.test(raw)) return { reject: false };
+  if (raw.includes("@") && raw.includes(".")) return { reject: false };
 
   for (const pattern of JUNK_PATTERNS) {
-    if (pattern.test(raw) || pattern.test(norm)) return true;
+    if (pattern.test(raw) || pattern.test(norm)) return { reject: true, reason: "junk" };
   }
 
-  if (norm.length < 3 && !/^\d+$/.test(norm)) return true;
+  if (norm.length < 3 && !/^\d+$/.test(norm)) return { reject: true, reason: "too_short" };
 
-  if (wordCount(raw) === 1 && norm.length < 4 && !/^\d+$/.test(norm)) return true;
+  if (wordCount(raw) === 1 && norm.length < 4 && !/^\d+$/.test(norm)) {
+    return { reject: true, reason: "too_short" };
+  }
 
   // Right after the opening greeting: drop ultra-short noise only (not names or treatments)
   if (
@@ -118,12 +129,20 @@ export function shouldRejectUserTranscript(
     norm.length < 4 &&
     !/^\d+$/.test(norm)
   ) {
-    return true;
+    return { reject: true, reason: "greeting_noise" };
   }
 
   if (ctx.lastAssistantText && isLikelyEcho(raw, ctx.lastAssistantText)) {
-    return true;
+    return { reject: true, reason: "echo" };
   }
 
-  return false;
+  return { reject: false };
+}
+
+/** Returns true when a user transcription should be discarded. */
+export function shouldRejectUserTranscript(
+  text: string,
+  ctx: TranscriptFilterContext = {},
+): boolean {
+  return classifyUserTranscript(text, ctx).reject;
 }
