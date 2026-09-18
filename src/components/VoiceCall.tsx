@@ -30,10 +30,12 @@ import {
   type VoiceBookingSession,
 } from "@/lib/voice/voice-booking-session";
 import { classifyUserTranscript } from "@/lib/voice/transcript-filter";
+import { shouldCancelResponseForRejectedTranscript } from "@/lib/voice/response-guard";
 import {
   createVoiceMetrics,
   summarizeVoiceMetrics,
   type RealtimeUsage,
+  type TranscriptRejectionReason,
 } from "@/lib/voice/session-metrics";
 
 type CallStatus = "idle" | "connecting" | "active" | "reconnecting" | "error";
@@ -295,7 +297,7 @@ export default function VoiceCall({
   // FIX #2: handleDataChannelMessage is stable — deps are only stable refs and callbacks
   const handleDataChannelMessage = useCallback(
     async (raw: string) => {
-      const rejectPhantomInput = (targetId: string | null, cancelResponse = true) => {
+      const rejectPhantomInput = (targetId: string | null, reason: TranscriptRejectionReason) => {
         pendingUserIdRef.current = null;
         setUserSpeaking(false);
         if (targetId) {
@@ -303,18 +305,28 @@ export default function VoiceCall({
             prev.filter((l) => (l as TranscriptLine & { _id?: string })._id !== targetId),
           );
         }
-        sendDc({ type: "input_audio_buffer.clear" });
-        // Cancelling the in-flight response is what actually saves the (expensive) spoken reply to
-        // noise. It is skipped while a tool round is in play: that response is the booking
-        // confirmation the caller is waiting to hear, and a stray cough transcribing at the wrong
-        // moment must never silence it.
-        const toolRoundInFlight =
-          toolFetchCountRef.current > 0 ||
-          responseHadToolCallRef.current ||
-          pendingToolCallsRef.current.length > 0;
-        if (cancelResponse && !toolRoundInFlight) {
+        const decision = shouldCancelResponseForRejectedTranscript({
+          reason,
+          // A placeholder exists only for audio the call was tracking as a user turn; audio
+          // captured while the agent was speaking, or during a tool round, never gets one.
+          hasTrackedUserTurn: targetId !== null,
+          toolRoundInFlight:
+            toolFetchCountRef.current > 0 ||
+            responseHadToolCallRef.current ||
+            pendingToolCallsRef.current.length > 0,
+        });
+        if (decision.cancel) {
+          // Clearing the input buffer alongside the cancel drops the noise that prompted the
+          // reply. It is deliberately NOT done when the cancel is skipped, since that audio may
+          // be the caller genuinely talking over the agent.
+          sendDc({ type: "input_audio_buffer.clear" });
           sendDc({ type: "response.cancel" });
           metricsRef.current.responseCancelled();
+        } else {
+          flowLogRef.current.step("voice_response_cancel_skipped", {
+            reason,
+            skippedBecause: decision.skippedBecause ?? "unknown",
+          });
         }
       };
 
@@ -438,7 +450,7 @@ export default function VoiceCall({
           if (!text) {
             metricsRef.current.transcriptRejected("empty");
             flowLogRef.current.step("voice_empty_transcript_ignored");
-            rejectPhantomInput(targetId);
+            rejectPhantomInput(targetId, "empty");
             break;
           }
 
@@ -458,10 +470,7 @@ export default function VoiceCall({
               reason: verdict.reason,
               transcriptLength: text.length,
             });
-            // "echo" is the one heuristic reason that can misfire on a caller genuinely repeating
-            // the agent's words, so it only hides the line — it never cancels a reply a real
-            // caller may be waiting on.
-            rejectPhantomInput(targetId, verdict.reason !== "echo");
+            rejectPhantomInput(targetId, verdict.reason);
             break;
           }
           metricsRef.current.transcriptAccepted();
