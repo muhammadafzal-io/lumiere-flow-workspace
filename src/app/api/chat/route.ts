@@ -1,5 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
+import {
+  MESSAGE_TOO_LONG_CODE,
+  MESSAGE_TOO_LONG_TEXT,
+  USER_MESSAGE_HARD_LIMIT_TOKENS,
+  USER_MESSAGE_SOFT_LIMIT_TOKENS,
+  validateUserMessageLength,
+} from "@/lib/agent/message-limits";
 
 export const maxDuration = 60;
 
@@ -14,6 +21,29 @@ export async function POST(req: NextRequest) {
   const { sessionId, message, history = [] } = body;
   if (!sessionId || !message?.trim()) {
     return NextResponse.json({ error: "sessionId and message are required" }, { status: 400 });
+  }
+
+  // Size check runs here — after the existing required-field validation, before runAgent() — so an
+  // oversized paste never reaches OpenAI. Counts only this message; history is not included.
+  const length = await validateUserMessageLength(message);
+  if (length.hardExceeded) {
+    console.warn("[api/chat] user message rejected", {
+      sessionId,
+      user_message_tokens: length.tokens,
+      hard_limit: USER_MESSAGE_HARD_LIMIT_TOKENS,
+      message_rejected: true,
+    });
+    return NextResponse.json(
+      { error: MESSAGE_TOO_LONG_CODE, message: MESSAGE_TOO_LONG_TEXT },
+      { status: 400 },
+    );
+  }
+  if (length.softExceeded) {
+    console.warn("[api/chat] user message over soft limit", {
+      sessionId,
+      user_message_tokens: length.tokens,
+      soft_limit: USER_MESSAGE_SOFT_LIMIT_TOKENS,
+    });
   }
 
   const startedAt = Date.now();

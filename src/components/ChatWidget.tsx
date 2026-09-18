@@ -78,6 +78,18 @@ export default function ChatWidget({
       // row can add up) means the server never got as far as returning a real reply, distinct
       // from a genuine network failure below. Both land in the catch block, but distinguishing
       // them lets the message actually say what happened instead of a generic "connection" guess.
+      // A message the server refused for being too long is a normal, explainable outcome, not a
+      // failure: show the server's own wording and — unlike every other path here — keep it OUT of
+      // agentHistory, since it was never processed and would otherwise bloat every later request.
+      if (res.status === 400) {
+        const rejected = await res.json().catch(() => null);
+        if (rejected?.error === "MESSAGE_TOO_LONG" && typeof rejected.message === "string") {
+          setMessages((prev) => [...prev, { role: "assistant", text: rejected.message }]);
+          return;
+        }
+        throw new Error(`http_${res.status}`);
+      }
+
       if (!res.ok) throw new Error(`http_${res.status}`);
 
       const data: {
