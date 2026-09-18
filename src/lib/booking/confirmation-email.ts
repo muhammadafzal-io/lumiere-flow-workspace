@@ -26,6 +26,8 @@ import {
 } from "@/lib/booking/treatment-recommendation";
 import { getAppointmentHistoryForContact } from "@/lib/integrations/google-calendar";
 import { trackRequiredForms } from "@/lib/forms/tracking";
+import { getPhotoRequestByEvent, photoUploadUrl } from "@/lib/booking/photos";
+import { photoInstructions } from "@/lib/booking/photo-rules";
 
 /**
  * Cross-sell (add-ons) and upsell (Rate Card offers) are presented HERE — in this same
@@ -229,6 +231,33 @@ export async function sendBookingConfirmationEmail(opts: {
         ).flat()
       : [];
 
+  // A treatment-area photo can't be collected over chat or a phone call, so the client gets their
+  // own upload link here — the same way required consent forms reach them.
+  const photoRequest = opts.eventId
+    ? await getPhotoRequestByEvent(opts.eventId).catch(() => null)
+    : null;
+  const photoLines =
+    photoRequest && photoRequest.status !== "CANCELLED"
+      ? [
+          ``,
+          photoRequest.requirement === "REQUIRED"
+            ? `Before your appointment: ${photoInstructions(photoRequest.instructions, photoRequest.serviceName)} (button below)`
+            : `Optional: ${photoInstructions(photoRequest.instructions, photoRequest.serviceName)} You can skip this if you'd rather not.`,
+        ]
+      : [];
+  const photoCtas =
+    photoRequest && photoRequest.status !== "CANCELLED"
+      ? [
+          {
+            label:
+              photoRequest.requirement === "REQUIRED"
+                ? "Upload your photo"
+                : "Add a photo (optional)",
+            url: photoUploadUrl(photoRequest.token),
+          },
+        ]
+      : [];
+
   const offerContent = opts.eventId
     ? await buildPostBookingOfferLines({
         eventId: opts.eventId,
@@ -269,6 +298,7 @@ export async function sendBookingConfirmationEmail(opts: {
       `Location: ${clinic.address}`,
       opts.notes ? `Notes: ${opts.notes}` : "",
       ...formatInHouseFormLinks([...inHouseLinks, ...addonFormLinks]),
+      ...photoLines,
       ...offerContent.lines,
       ``,
       `Need to change anything? Reply to this email or contact us ${businessHoursLabel}.`,
@@ -278,7 +308,11 @@ export async function sendBookingConfirmationEmail(opts: {
     ]
       .filter((line) => line !== undefined)
       .join("\n"),
-    ctas: [...formLinksToCtas([...inHouseLinks, ...addonFormLinks]), ...offerContent.ctas],
+    ctas: [
+      ...formLinksToCtas([...inHouseLinks, ...addonFormLinks]),
+      ...photoCtas,
+      ...offerContent.ctas,
+    ],
   });
 
   await logEvent("booking", opts.clientName, `Booking confirmation email sent to ${opts.to}`, {

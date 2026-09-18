@@ -3,6 +3,7 @@
  * of qualified practitioners — into concrete candidates and per-resource scheduling data
  * that the booking engine (google-calendar.ts) can check against.
  */
+import { parsePhotoRequirement, type PhotoRequirement } from "@/lib/booking/photo-rules";
 import { getSupabase } from "@/lib/supabase";
 import {
   zonedHourToUtc,
@@ -81,6 +82,10 @@ export interface ServiceRow {
   requiresConsultation: boolean;
   /** Bookings of this service wait on the head practitioner's sign-off. */
   requiresApproval: boolean;
+  /** Whether the client is asked for a photo of the treatment area, and how firmly. */
+  photoRequirement: PhotoRequirement;
+  /** What to photograph, in the clinic's words — generic wording is used when empty. */
+  photoInstructions: string | null;
   minNoticeHours: number;
   maxAdvanceDays: number;
   status: string;
@@ -150,6 +155,8 @@ function mapServiceRow(r: any): ServiceRow {
     onlineBookable: r["OnlineBookable"] ?? true,
     requiresConsultation: r["RequiresConsultation"] ?? false,
     requiresApproval: r["RequiresApproval"] ?? false,
+    photoRequirement: parsePhotoRequirement(r["PhotoRequirement"]),
+    photoInstructions: r["PhotoInstructions"] ?? null,
     minNoticeHours: r["MinNoticeHours"] ?? 0,
     maxAdvanceDays: r["MaxAdvanceDays"] ?? 365,
     status: r["Status"] ?? "Active",

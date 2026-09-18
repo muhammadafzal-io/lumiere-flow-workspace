@@ -137,6 +137,8 @@ function mapService(r: any) {
     onlineBookable: r["OnlineBookable"] ?? true,
     requiresConsultation: r["RequiresConsultation"] ?? false,
     requiresApproval: r["RequiresApproval"] ?? false,
+    photoRequirement: r["PhotoRequirement"] ?? "NONE",
+    photoInstructions: r["PhotoInstructions"] ?? "",
     minNoticeHours: r["MinNoticeHours"] ?? 0,
     maxAdvanceDays: r["MaxAdvanceDays"] ?? 365,
     waitlistCap: r["WaitlistCap"] ?? null,
@@ -263,6 +265,8 @@ export async function POST(req: Request) {
       OnlineBookable,
       RequiresConsultation,
       RequiresApproval,
+      PhotoRequirement,
+      PhotoInstructions,
       MinNoticeHours,
       MaxAdvanceDays,
       WaitlistCap,
@@ -326,6 +330,8 @@ export async function POST(req: Request) {
         OnlineBookable: OnlineBookable ?? true,
         RequiresConsultation: RequiresConsultation ?? false,
         RequiresApproval: RequiresApproval ?? false,
+        PhotoRequirement: PhotoRequirement ?? "NONE",
+        PhotoInstructions: PhotoInstructions || null,
         MinNoticeHours: MinNoticeHours ?? 0,
         MaxAdvanceDays: MaxAdvanceDays ?? 365,
         WaitlistCap: WaitlistCap ?? null,
@@ -446,6 +452,9 @@ export async function PATCH(req: Request) {
     if (body.RequiresConsultation !== undefined)
       fields["RequiresConsultation"] = body.RequiresConsultation;
     if (body.RequiresApproval !== undefined) fields["RequiresApproval"] = body.RequiresApproval;
+    if (body.PhotoRequirement !== undefined) fields["PhotoRequirement"] = body.PhotoRequirement;
+    if (body.PhotoInstructions !== undefined)
+      fields["PhotoInstructions"] = body.PhotoInstructions || null;
     if (body.MinNoticeHours !== undefined) fields["MinNoticeHours"] = body.MinNoticeHours;
     if (body.MaxAdvanceDays !== undefined) fields["MaxAdvanceDays"] = body.MaxAdvanceDays;
     if (body.WaitlistCap !== undefined) fields["WaitlistCap"] = body.WaitlistCap;

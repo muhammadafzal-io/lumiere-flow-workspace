@@ -11,6 +11,7 @@ import { phonesMatch } from "@/lib/phone";
 import { addCalendarDays, dateInZone } from "@/lib/booking/dates";
 import { getSupabase } from "@/lib/supabase";
 import { closeBookingApprovalForEvent } from "@/lib/booking/approvals";
+import { closePhotoRequestForEvent } from "@/lib/booking/photos";
 
 /**
  * Resource-specific scheduling data resolved from a Service's recipe (Rooms/Equipment/
@@ -886,6 +887,7 @@ export async function cancelCalendarEvent(eventId: string): Promise<{
   // A cancelled booking must stop sitting in the head practitioner's queue looking actionable.
   // Best-effort: the queue also closes rows whose event has gone, so this is the eager path.
   await closeBookingApprovalForEvent(eventId);
+  await closePhotoRequestForEvent(eventId);
   const { treatment, clientName } = resolveEventClient(
     event.summary ?? "",
     event.description ?? "",

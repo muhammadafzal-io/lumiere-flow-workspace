@@ -61,6 +61,7 @@ import {
 } from "@/lib/calendar-utils";
 import { useCurrentUser } from "@/lib/current-user-context";
 import { isAppointmentPast } from "@/lib/appointment-lock";
+import { AppointmentPhotos } from "@/components/booking/AppointmentPhotos";
 import { FormResponseDialog } from "@/components/forms/FormResponseDialog";
 import { StaffFillFormDialog } from "@/components/forms/StaffFillFormDialog";
 
@@ -474,6 +475,8 @@ export function AppointmentSlideOver({
                 </div>
               </section>
             )}
+
+            <AppointmentPhotos eventId={a.id} />
 
             {/* Notes */}
             <section>

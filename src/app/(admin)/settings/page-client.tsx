@@ -147,6 +147,8 @@ interface ServiceItem {
   onlineBookable: boolean;
   requiresConsultation: boolean;
   requiresApproval: boolean;
+  photoRequirement: "NONE" | "OPTIONAL" | "REQUIRED";
+  photoInstructions: string;
   minNoticeHours: number;
   maxAdvanceDays: number;
   waitlistCap: number | null;
@@ -1699,6 +1701,8 @@ function ServicesTab({
     onlineBookable: true,
     requiresConsultation: false,
     requiresApproval: false,
+    photoRequirement: "NONE",
+    photoInstructions: "",
     minNoticeHours: 0,
     maxAdvanceDays: 365,
     waitlistCap: null,
@@ -1752,6 +1756,8 @@ function ServicesTab({
         onlineBookable: true,
         requiresConsultation: false,
         requiresApproval: false,
+        photoRequirement: "NONE",
+        photoInstructions: "",
         minNoticeHours: 0,
         maxAdvanceDays: 365,
         waitlistCap: null,
@@ -1854,6 +1860,8 @@ function ServicesTab({
         OnlineBookable: form.onlineBookable ?? true,
         RequiresConsultation: form.requiresConsultation ?? false,
         RequiresApproval: form.requiresApproval ?? false,
+        PhotoRequirement: form.photoRequirement ?? "NONE",
+        PhotoInstructions: form.photoInstructions ?? "",
         MinNoticeHours: form.minNoticeHours ?? 0,
         MaxAdvanceDays: form.maxAdvanceDays ?? 365,
         WaitlistCap: form.waitlistCap ?? null,
@@ -2094,6 +2102,43 @@ function ServicesTab({
                     setForm((f) => ({ ...f, requiresConsultation: checked }))
                   }
                 />
+              </div>
+              <div className="col-span-2">
+                <Label>Treatment-area photo</Label>
+                <Select
+                  value={form.photoRequirement ?? "NONE"}
+                  onValueChange={(value) =>
+                    setForm((f) => ({
+                      ...f,
+                      photoRequirement: value as ServiceItem["photoRequirement"],
+                    }))
+                  }
+                >
+                  <SelectTrigger className="w-full h-9 mt-1.5">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="NONE">Not required</SelectItem>
+                    <SelectItem value="OPTIONAL">Optional</SelectItem>
+                    <SelectItem value="REQUIRED">Required</SelectItem>
+                  </SelectContent>
+                </Select>
+                {form.photoRequirement !== "NONE" && (
+                  <>
+                    <Input
+                      value={form.photoInstructions ?? ""}
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, photoInstructions: e.target.value }))
+                      }
+                      placeholder="Please upload a clear photo of the area you'd like treated."
+                      className="mt-1.5"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      What the client is asked to photograph. Leave blank for generic wording. The
+                      client gets a private upload link with their confirmation.
+                    </p>
+                  </>
+                )}
               </div>
               <div className="flex items-center justify-between rounded-md border px-3 h-9">
                 <Label className="mb-0">Head practitioner sign-off</Label>

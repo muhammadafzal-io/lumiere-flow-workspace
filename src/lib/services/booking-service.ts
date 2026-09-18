@@ -38,6 +38,8 @@ import {
 import { flowAsync, logFlowStep } from "@/lib/voice/flow-context";
 import { openBookingApproval } from "@/lib/booking/approvals";
 import { notifyHeadPractitionerOfPendingApproval } from "@/lib/booking/head-practitioner";
+import { openPhotoRequest } from "@/lib/booking/photos";
+import { needsPhotoRequest } from "@/lib/booking/photo-rules";
 
 export interface BookingRequest {
   clientName: string;
@@ -855,6 +857,20 @@ export async function bookAppointment(request: BookingRequest): Promise<BookingR
       startTime: bookingStartTime,
       practitionerName: request.practitionerName,
       timezone,
+    });
+  }
+
+  // Services that ask for a photo of the treatment area open a request alongside the booking. The
+  // client is never asked during booking: neither chat nor voice can carry an image, so the link
+  // goes out with the confirmation, exactly like the required consent forms already do.
+  if (recipe && needsPhotoRequest(recipe.service.photoRequirement)) {
+    await openPhotoRequest({
+      eventId: result.id,
+      serviceId: recipe.service.id,
+      clientId: request.clientId ?? null,
+      serviceName: recipe.service.name,
+      requirement: recipe.service.photoRequirement as "OPTIONAL" | "REQUIRED",
+      instructions: recipe.service.photoInstructions,
     });
   }
 
