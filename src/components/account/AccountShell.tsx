@@ -45,10 +45,11 @@ export function AccountShell({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch("/api/account/me", { cache: "no-store" });
       if (res.status === 401) {
-        // No session at all — never show a bare account screen (or even the sign-in form) to an
-        // anonymous visitor who landed on a deep /account/* link. Send them to the branded public
-        // page instead, which now carries its own clear "My account login" entry point.
-        router.replace("/");
+        // No session at all — send them straight to the sign-in page, the same way the staff
+        // AuthGate sends a signed-out visitor to /login. (Sign-in itself now lives outside this
+        // shell — see account/(app)/layout.tsx — so this can never bounce someone who is already
+        // on their way to sign in back out again.)
+        router.replace("/account/sign-in");
         return;
       }
       const data = await res.json().catch(() => null);

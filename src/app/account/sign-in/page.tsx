@@ -1,13 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { getSupabaseBrowser } from "@/lib/supabase-auth/client";
 import { AccountCard } from "@/components/account/AccountUI";
 
+const CALLBACK_ERRORS: Record<string, string> = {
+  missing_code: "That sign-in link was incomplete. Please try again.",
+  sign_in_failed: "That sign-in didn't complete. Please try again.",
+};
+
 export default function AccountSignInPage() {
+  const params = useSearchParams();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Surfaces why /account/auth/callback sent someone back here instead of into their account.
+  useEffect(() => {
+    const reason = params.get("error");
+    if (reason && CALLBACK_ERRORS[reason]) setError(CALLBACK_ERRORS[reason]);
+  }, [params]);
 
   const signIn = async () => {
     setBusy(true);
