@@ -47,7 +47,7 @@ export default function ChangePasswordPage() {
         return;
       }
 
-      router.push("/");
+      router.push("/dashboard");
       router.refresh();
     } finally {
       setSubmitting(false);

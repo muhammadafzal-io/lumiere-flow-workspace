@@ -21,14 +21,14 @@ export function AppSidebar() {
   const path = usePathname();
   const { clinicName, can } = useCurrentUser();
   const displayName = clinicName ?? "Lumière";
-  const isActive = (url: string) => (url === "/" ? path === "/" : path.startsWith(url));
+  const isActive = (url: string) => path === url || path.startsWith(`${url}/`);
 
   const visibleItems = NAV_ITEMS.filter((item) => can(item.module));
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader className="px-4 py-5">
-        <Link href="/" className="flex items-center gap-2">
+        <Link href="/dashboard" className="flex items-center gap-2">
           <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center text-primary-foreground text-sm font-semibold">
             {displayName.trim().charAt(0).toUpperCase() || "L"}
           </div>

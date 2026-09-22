@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node book-flow12.mjs)",
+      "Bash(node verify-invaliddate2.mjs)",
+      "Bash(node login2.mjs)",
+      "Bash(node repro-re002-ui.mjs)",
+      "Bash(curl -sf http://localhost:3001)",
+      "Bash(node repro-re004d.mjs)",
+      "Bash(node repro-re002.mjs)",
+      "Bash(node repro-re003b.mjs)",
+      "Bash(npx eslint *)",
+      "Bash(lsof -i :3001 -sTCP:LISTEN -t)",
+      "Bash(node -e ' *)",
+      "Bash(curl -s \"http://localhost:3001/api/activity?limit=3\" -H \"Cookie: $\\(cat cookie-header.txt\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>console.log\\(d.slice\\(0,600\\)\\)\\)\")",
+      "Bash(curl -s \"http://localhost:3001/api/activity?limit=5\" -H \"Cookie: $\\(cat cookie-header.txt\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{try{console.log\\(JSON.parse\\(d\\)\\)}catch\\(e\\){console.log\\(d.slice\\(0,500\\)\\)}}\\)\")",
+      "Bash(curl -s \"http://localhost:3001/api/activity?limit=500\" -H \"Cookie: $\\(cat cookie-header.txt\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{const j=JSON.parse\\(d\\); const found = j.entries.find\\(e=>e.clientName==='QA ActivityLog Test'\\); console.log\\(JSON.stringify\\(found,null,2\\)\\)}\\)\")",
+      "Bash(curl -s \"http://localhost:3001/api/calendar/events?from=2026-08-01&to=2026-08-06\" -H \"Cookie: $\\(cat cookie-header.txt\\)\")",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\);process.stdin.on\\('end',\\(\\)=>{try{const j=JSON.parse\\(d\\); console.log\\('event count:', \\(j.events||j\\).length\\)}catch\\(e\\){console.log\\(d.slice\\(0,300\\)\\)}}\\)\")",
+      "Bash(rm -f src/lib/settings/service-form-links.ts src/lib/settings/__tests__/service-form-links.test.ts src/app/api/required-forms/[id]/complete/route.ts src/lib/booking/__tests__/confirmation-email.test.ts)",
+      "Bash(rmdir \"src/app/api/required-forms/[id]/complete\")"
+    ]
+  }
+}

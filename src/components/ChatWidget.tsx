@@ -170,7 +170,12 @@ export default function ChatWidget({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 chat-scroll">
+      <div
+        className="flex-1 overflow-y-auto p-4 space-y-3 chat-scroll"
+        role="log"
+        aria-live="polite"
+        aria-label={`Conversation with ${clinicName}`}
+      >
         {messages.map((m, i) => (
           <ChatMessage key={i} role={m.role} text={m.text} />
         ))}
@@ -194,7 +199,7 @@ export default function ChatWidget({
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-lumiere-ivory bg-white px-4 py-3 flex-shrink-0">
+      <div className="border-t border-lumiere-ivory bg-white px-4 py-3 flex-shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {composerReady ? (
           <div className="flex items-end gap-2">
             <textarea

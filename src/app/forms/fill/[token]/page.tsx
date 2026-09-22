@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-muted/30 px-4 py-10">
+    <div className="min-h-screen w-full flex items-center justify-center bg-lumiere-cream px-4 py-10">
       {children}
     </div>
   );
@@ -20,7 +20,7 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function MessageCard({ title, body }: { title: string; body: string }) {
   return (
-    <div className="w-full max-w-md rounded-2xl border bg-card shadow-sm p-8 text-center space-y-2">
+    <div className="w-full max-w-md rounded-2xl border border-lumiere-ivory bg-white shadow-sm p-8 text-center space-y-2">
       <h1 className="text-lg font-semibold">{title}</h1>
       <p className="text-sm text-muted-foreground">{body}</p>
     </div>

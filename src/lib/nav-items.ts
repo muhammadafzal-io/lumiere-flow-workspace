@@ -28,7 +28,7 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: NavItem[] = [
-  { title: "Dashboard", url: "/", icon: LayoutDashboard, module: "dashboard" },
+  { title: "Dashboard", url: "/dashboard", icon: LayoutDashboard, module: "dashboard" },
   { title: "Rules & Campaigns", url: "/rules", icon: Zap, module: "rules" },
   { title: "Retention Flows", url: "/flows", icon: Repeat, module: "flows" },
   { title: "Calendar", url: "/calendar", icon: CalendarIcon, module: "calendar" },

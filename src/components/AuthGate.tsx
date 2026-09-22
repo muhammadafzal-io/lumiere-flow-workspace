@@ -11,7 +11,7 @@ import { NAV_ITEMS } from "@/lib/nav-items";
  * so a signed-out visitor never sees any of it, not even the nav chrome. Also redirects a
  * signed-in user still on a temp password to /change-password before showing anything else.
  *
- * "/" (Dashboard) is the fixed post-login landing route, not something the user typed — so a
+ * "/dashboard" is the fixed post-login landing route, not something the user typed — so a
  * user without dashboard:View would otherwise land straight on an Access Denied screen with no
  * way to reach anything they actually have permission for (the sidebar correctly hides
  * Dashboard, but nothing was moving them off of it). Redirect to their first permitted nav item
@@ -26,7 +26,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   // Only "block and redirect" when there's somewhere to send them — a user with truly zero
   // permissions falls through to the Dashboard page's own Access Denied screen instead of
   // spinning forever waiting for a redirect that will never happen.
-  const redirectingFromDashboard = pathname === "/" && !can("dashboard") && !!firstAccessible;
+  const redirectingFromDashboard =
+    pathname === "/dashboard" && !can("dashboard") && !!firstAccessible;
 
   useEffect(() => {
     if (loading) return;
