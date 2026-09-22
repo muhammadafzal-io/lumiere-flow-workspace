@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, Clock, Gift, Home, Loader2, LogOut, Plus, User } from "lucide-react";
+import { CalendarDays, Clock, Gift, Home, Loader2, LogOut, User } from "lucide-react";
 import { getSupabaseBrowser } from "@/lib/supabase-auth/client";
 import { AccountCard, AccountError, PrimaryButton } from "@/components/account/AccountUI";
 import { AccountContext, type AccountIdentity } from "@/lib/account/use-account-context";
@@ -18,7 +18,6 @@ import { AccountContext, type AccountIdentity } from "@/lib/account/use-account-
 
 const NAV = [
   { href: "/account", label: "Home", icon: Home },
-  { href: "/account/book", label: "Book", icon: Plus },
   { href: "/account/appointments", label: "Visits", icon: CalendarDays },
   { href: "/account/history", label: "History", icon: Clock },
   { href: "/account/offers", label: "Offers", icon: Gift },
@@ -159,7 +158,7 @@ export function AccountShell({ children }: { children: React.ReactNode }) {
 
         {/* Bottom tabs on phones — where a thumb actually reaches. */}
         <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-lumiere-navy/10 bg-lumiere-cream/95 backdrop-blur sm:hidden">
-          <div className="grid grid-cols-6">
+          <div className="grid grid-cols-5">
             {NAV.map((item) => {
               const Icon = item.icon;
               const active = pathname === item.href;
