@@ -152,6 +152,40 @@ export function PrimaryButton({
   );
 }
 
+/**
+ * A pill-styled segmented control — the tab language used everywhere else in the portal (buttons,
+ * badges), so a page picking between two or three views doesn't invent its own toggle style.
+ */
+export function Tabs<T extends string>({
+  value,
+  onChange,
+  options,
+}: {
+  value: T;
+  onChange: (value: T) => void;
+  options: { value: T; label: string }[];
+}) {
+  return (
+    <div className="inline-flex rounded-full border border-lumiere-navy/15 bg-white p-1">
+      {options.map((option) => {
+        const active = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+              active ? "bg-lumiere-navy text-white" : "text-lumiere-navy/60 hover:text-lumiere-navy"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function SecondaryButton({
   children,
   onClick,

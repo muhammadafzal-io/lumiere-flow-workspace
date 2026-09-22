@@ -9,6 +9,8 @@ import {
   AccountEmpty,
   AccountError,
   AccountLoading,
+  SecondaryButton,
+  Tabs,
 } from "@/components/account/AccountUI";
 
 interface AppointmentsResponse {
@@ -16,32 +18,36 @@ interface AppointmentsResponse {
   past: CustomerAppointment[];
 }
 
+// A visit history can run to dozens of rows for a long-standing client — load a first page and
+// let them ask for more rather than dumping every visit into one unbroken scroll.
+const PAGE_SIZE = 8;
+
 export default function AccountAppointmentsPage() {
   const [tab, setTab] = useState<"upcoming" | "past">("upcoming");
+  const [visible, setVisible] = useState(PAGE_SIZE);
   const { data, loading, error, reload } = useAccountData<AppointmentsResponse>(
     "/api/account/appointments",
   );
 
-  const list = data ? (tab === "upcoming" ? data.upcoming : data.past) : [];
+  const full = data ? (tab === "upcoming" ? data.upcoming : data.past) : [];
+  const list = full.slice(0, visible);
 
   return (
     <div>
       <PageHeader title="Appointments" />
 
-      <div className="flex gap-1.5 mb-4">
-        {(["upcoming", "past"] as const).map((key) => (
-          <button
-            key={key}
-            onClick={() => setTab(key)}
-            className={`rounded-lg px-3 py-1.5 text-sm capitalize transition-colors ${
-              tab === key
-                ? "bg-lumiere-navy text-white"
-                : "bg-white border border-lumiere-ivory text-lumiere-navy"
-            }`}
-          >
-            {key}
-          </button>
-        ))}
+      <div className="mb-4">
+        <Tabs
+          value={tab}
+          onChange={(key) => {
+            setTab(key);
+            setVisible(PAGE_SIZE);
+          }}
+          options={[
+            { value: "upcoming", label: "Upcoming" },
+            { value: "past", label: "Past" },
+          ]}
+        />
       </div>
 
       {loading ? (
@@ -61,11 +67,20 @@ export default function AccountAppointmentsPage() {
           }
         />
       ) : (
-        <div className="space-y-3">
-          {list.map((appointment) => (
-            <AppointmentCard key={appointment.id} appointment={appointment} />
-          ))}
-        </div>
+        <>
+          <div className="space-y-3">
+            {list.map((appointment) => (
+              <AppointmentCard key={appointment.id} appointment={appointment} />
+            ))}
+          </div>
+          {full.length > visible && (
+            <div className="mt-4 flex justify-center">
+              <SecondaryButton onClick={() => setVisible((v) => v + PAGE_SIZE)}>
+                Show more
+              </SecondaryButton>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

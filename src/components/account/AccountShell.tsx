@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CalendarDays, Clock, Gift, Home, Loader2, LogOut, Plus, User } from "lucide-react";
 import { getSupabaseBrowser } from "@/lib/supabase-auth/client";
 import { AccountCard, AccountError, PrimaryButton } from "@/components/account/AccountUI";
+import { AccountContext, type AccountIdentity } from "@/lib/account/use-account-context";
 
 /**
  * The customer shell: top bar on desktop, thumb-reachable tabs on mobile.
@@ -113,60 +114,72 @@ export function AccountShell({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // The client's own CRM record name is the identity used everywhere else in their account
+  // (bookings, appointments) — preferred over the Google account's own profile name, which can
+  // differ or be blank. "there" is only reached if somehow neither exists.
+  const fullName = me?.profile?.name?.trim() || me?.session?.name?.trim() || "";
+  const identity: AccountIdentity = {
+    name: fullName,
+    firstName: fullName.split(/\s+/)[0] || "there",
+    email: me?.session?.email ?? null,
+  };
+
   return (
-    <div className="min-h-screen bg-lumiere-cream">
-      <header className="sticky top-0 z-30 border-b border-lumiere-navy/10 bg-lumiere-cream/90 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
-          <Link
-            href="/"
-            className="font-serif text-lg font-medium tracking-tight text-lumiere-navy transition-opacity hover:opacity-70"
-          >
-            Lumière
-          </Link>
-          <nav className="hidden items-center gap-1 sm:flex">
+    <AccountContext.Provider value={identity}>
+      <div className="min-h-screen bg-lumiere-cream">
+        <header className="sticky top-0 z-30 border-b border-lumiere-navy/10 bg-lumiere-cream/90 backdrop-blur">
+          <div className="mx-auto flex h-16 max-w-5xl items-center justify-between gap-4 px-4 sm:px-6">
+            <Link
+              href="/"
+              className="font-serif text-lg font-medium tracking-tight text-lumiere-navy transition-opacity hover:opacity-70"
+            >
+              Lumière
+            </Link>
+            <nav className="hidden items-center gap-1 sm:flex">
+              {NAV.map((item) => {
+                const active = pathname === item.href;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] transition-colors ${
+                      active ? "text-lumiere-navy" : "text-lumiere-navy/55 hover:text-lumiere-navy"
+                    }`}
+                  >
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+            <SignOutButton />
+          </div>
+        </header>
+
+        <main className="mx-auto max-w-5xl px-4 py-10 pb-28 sm:px-6 sm:pb-14">{children}</main>
+
+        {/* Bottom tabs on phones — where a thumb actually reaches. */}
+        <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-lumiere-navy/10 bg-lumiere-cream/95 backdrop-blur sm:hidden">
+          <div className="grid grid-cols-6">
             {NAV.map((item) => {
+              const Icon = item.icon;
               const active = pathname === item.href;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] transition-colors ${
-                    active ? "text-lumiere-navy" : "text-lumiere-navy/55 hover:text-lumiere-navy"
+                  className={`flex flex-col items-center gap-0.5 py-2 text-[10px] ${
+                    active ? "text-lumiere-navy" : "text-lumiere-muted"
                   }`}
                 >
+                  <Icon className="h-4 w-4" />
                   {item.label}
                 </Link>
               );
             })}
-          </nav>
-          <SignOutButton />
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-5xl px-4 py-10 pb-28 sm:px-6 sm:pb-14">{children}</main>
-
-      {/* Bottom tabs on phones — where a thumb actually reaches. */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-lumiere-navy/10 bg-lumiere-cream/95 backdrop-blur sm:hidden">
-        <div className="grid grid-cols-6">
-          {NAV.map((item) => {
-            const Icon = item.icon;
-            const active = pathname === item.href;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex flex-col items-center gap-0.5 py-2 text-[10px] ${
-                  active ? "text-lumiere-navy" : "text-lumiere-muted"
-                }`}
-              >
-                <Icon className="h-4 w-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
-    </div>
+          </div>
+        </nav>
+      </div>
+    </AccountContext.Provider>
   );
 }
 

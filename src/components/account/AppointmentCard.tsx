@@ -47,9 +47,14 @@ export function AppointmentCard({
       </div>
 
       {appointment.notes && (
-        <p className="mt-2 text-xs text-lumiere-muted whitespace-pre-wrap break-words">
-          {appointment.notes}
-        </p>
+        <div className="mt-3 pt-3 border-t border-lumiere-ivory">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-lumiere-muted/80">
+            Notes
+          </div>
+          <p className="mt-1 text-xs text-lumiere-muted whitespace-pre-wrap break-words">
+            {appointment.notes}
+          </p>
+        </div>
       )}
 
       {appointment.actions.length > 0 && (

@@ -3,8 +3,10 @@
 import Link from "next/link";
 import type { CustomerAppointment } from "@/lib/account/visible";
 import { useAccountData } from "@/lib/account/use-account-data";
+import { useAccountIdentity } from "@/lib/account/use-account-context";
 import { AppointmentCard } from "@/components/account/AppointmentCard";
 import {
+  AccountCard,
   PageHeader,
   AccountEmpty,
   AccountError,
@@ -30,6 +32,7 @@ interface AppointmentsResponse {
 }
 
 export default function AccountHome() {
+  const identity = useAccountIdentity();
   const appts = useAccountData<AppointmentsResponse>("/api/account/appointments");
   const offersResult = useAccountData<{ offers: Offer[] }>("/api/account/offers");
 
@@ -51,7 +54,9 @@ export default function AccountHome() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Your account" />
+      <PageHeader
+        title={identity?.firstName ? `Welcome back, ${identity.firstName}` : "Your account"}
+      />
 
       <section>
         <SectionLabel>Next appointment</SectionLabel>
@@ -87,13 +92,10 @@ export default function AccountHome() {
           <SectionLabel>Your offers</SectionLabel>
           <div className="space-y-2">
             {offers.slice(0, 2).map((offer) => (
-              <div
-                key={offer.id}
-                className="rounded-2xl border border-lumiere-ivory bg-white px-4 py-3"
-              >
+              <AccountCard key={offer.id} className="px-4 py-3">
                 <div className="text-sm font-medium text-lumiere-navy">{offer.name}</div>
                 <div className="text-xs text-lumiere-muted mt-0.5">{offer.detail}</div>
-              </div>
+              </AccountCard>
             ))}
           </div>
           {offers.length > 2 && (
