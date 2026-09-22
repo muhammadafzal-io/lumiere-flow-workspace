@@ -15,6 +15,29 @@ const FORM_ASSIGNMENTS = "ServiceFormAssignments";
 const ADDON_LINKS = "ServiceAddonLinks";
 const OFFERS = "ServiceOffers";
 
+/**
+ * PostgREST reports a column it doesn't recognise as "Could not find the 'X' column of 'Y' in the
+ * schema cache" (PGRST204) — which is exactly what every save on this route did when
+ * migrations/create_booking_photos.sql hadn't been run yet: the edit form always sends
+ * PhotoRequirement/PhotoInstructions, so every single save failed with a bare "Failed to update
+ * service" that gave no hint why. Detected here so that specific, fixable cause is surfaced
+ * instead of swallowed — the same "tell the user which migration to run" pattern already used for
+ * BookingPhotosUnavailableError and BookingApprovalsUnavailableError elsewhere in the app.
+ */
+function missingColumnResponse(err: unknown): { error: string } | null {
+  const message = err instanceof Error ? err.message : String(err);
+  const match = message.match(/Could not find the '(\w+)' column of '(\w+)'/);
+  if (!match) return null;
+  const [, column, table] = match;
+  const migrationHint =
+    column === "PhotoRequirement" || column === "PhotoInstructions"
+      ? " Run migrations/create_booking_photos.sql in Supabase, then try again."
+      : column === "RequiresApproval" || column === "HeadPractitionerId"
+        ? " Run migrations/create_booking_approvals.sql in Supabase, then try again."
+        : " A database migration for this hasn't been run yet.";
+  return { error: `The '${column}' column is missing from '${table}'.${migrationHint}` };
+}
+
 /** Validates the shape of an incoming addOns array (a list of { serviceId, price?, durationMinutes?
  * } — add-ons are real Services selected from the catalog, never manually-typed names) before it
  * ever touches the DB. `mainServiceId` is null on create (the id doesn't exist yet, so
@@ -380,6 +403,8 @@ export async function POST(req: Request) {
     return NextResponse.json({ service: mapService(svc) });
   } catch (err) {
     console.error("POST /api/settings/services error:", err);
+    const missing = missingColumnResponse(err);
+    if (missing) return NextResponse.json(missing, { status: 503 });
     return NextResponse.json({ error: "Failed to create service" }, { status: 500 });
   }
 }
@@ -523,6 +548,8 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ service: mapService(svc) });
   } catch (err) {
     console.error("PATCH /api/settings/services error:", err);
+    const missing = missingColumnResponse(err);
+    if (missing) return NextResponse.json(missing, { status: 503 });
     return NextResponse.json({ error: "Failed to update service" }, { status: 500 });
   }
 }
