@@ -70,6 +70,8 @@ export function ClientNotesPanel({
   const [loadingMore, setLoadingMore] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [draftShared, setDraftShared] = useState(false);
+  const [editShared, setEditShared] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -137,12 +139,13 @@ export function ClientNotesPanel({
       const res = await fetch(`/api/customers/${clientId}/notes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: valid.body, eventId }),
+        body: JSON.stringify({ body: valid.body, eventId, sharedWithClient: draftShared }),
       });
       if (!res.ok) throw new Error(await readError(res, "Could not save the note."));
       const { note } = (await res.json()) as { note: ClientNote };
       setNotes((prev) => [note, ...prev]);
       setDraft("");
+      setDraftShared(false);
       toast.success("Note added");
     } catch (e) {
       toast.error((e as Error).message);
@@ -162,7 +165,7 @@ export function ClientNotesPanel({
       const res = await fetch(`/api/customers/${clientId}/notes/${noteId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: valid.body }),
+        body: JSON.stringify({ body: valid.body, sharedWithClient: editShared }),
       });
       if (!res.ok) throw new Error(await readError(res, "Could not update the note."));
       const { note } = (await res.json()) as { note: ClientNote };
@@ -214,6 +217,15 @@ export function ClientNotesPanel({
             maxLength={CLIENT_NOTE_MAX_LENGTH}
             aria-label="New note"
           />
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={draftShared}
+              onChange={(e) => setDraftShared(e.target.checked)}
+              className="h-3.5 w-3.5"
+            />
+            Share with client — they&apos;ll see this note in their portal
+          </label>
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] text-muted-foreground tabular-nums">
               {draft.length > CLIENT_NOTE_MAX_LENGTH - 500 &&
@@ -254,6 +266,11 @@ export function ClientNotesPanel({
                     <span className="font-medium text-foreground">{note.authorName}</span> ·{" "}
                     {formatNoteTime(note.createdAt, tz)}
                     {note.updatedAt && " · edited"}
+                    {note.sharedWithClient && (
+                      <span className="ml-1.5 inline-flex px-1.5 py-0.5 rounded bg-success/10 text-success text-[10px]">
+                        Shared with client
+                      </span>
+                    )}
                     {fromThis ? (
                       <span className="ml-1.5 inline-flex px-1.5 py-0.5 rounded bg-primary/10 text-primary text-[10px]">
                         This appointment
@@ -273,6 +290,7 @@ export function ClientNotesPanel({
                           onClick={() => {
                             setEditingId(note.id);
                             setEditDraft(note.body);
+                            setEditShared(note.sharedWithClient);
                           }}
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -301,6 +319,15 @@ export function ClientNotesPanel({
                       maxLength={CLIENT_NOTE_MAX_LENGTH}
                       aria-label="Edit note"
                     />
+                    <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={editShared}
+                        onChange={(e) => setEditShared(e.target.checked)}
+                        className="h-3.5 w-3.5"
+                      />
+                      Share with client
+                    </label>
                     <div className="flex justify-end gap-2">
                       <Button
                         size="sm"

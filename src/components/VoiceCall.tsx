@@ -1,5 +1,6 @@
 "use client";
 
+import { BotAvatar } from "@/components/BotAvatar";
 import { useState, useRef, useCallback, useEffect } from "react";
 import { normalizeEmail } from "@/lib/email";
 import { requestVoiceMicrophoneStream } from "@/lib/voice/microphone-constraints";
@@ -221,7 +222,10 @@ export default function VoiceCall({
   }, [transcript]);
 
   useEffect(() => {
-    transcriptEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Scroll the transcript itself. scrollIntoView would also scroll every ancestor — including the
+    // page's overflow-hidden booking section — sliding the whole widget up under its own top edge.
+    const list = transcriptEndRef.current?.parentElement;
+    list?.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
   }, [transcript]);
 
   useEffect(() => {
@@ -1169,12 +1173,7 @@ export default function VoiceCall({
       {/* ── Header ── */}
       <div className="px-5 py-3.5 flex items-center gap-3 flex-shrink-0 border-b border-white/[0.07]">
         <div className="relative flex-shrink-0">
-          <div
-            className="w-9 h-9 rounded-full flex items-center justify-center shadow-md"
-            style={{ background: "linear-gradient(135deg, #c4687a, #8b2e42)" }}
-          >
-            <span className="font-serif font-bold text-white text-sm">L</span>
-          </div>
+          <BotAvatar className="h-10 w-10 shadow-md" />
           {status === "active" && (
             <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-400 rounded-full border-2 border-[#0e1929]" />
           )}
@@ -1254,12 +1253,7 @@ export default function VoiceCall({
               className="relative w-20 h-20 rounded-full flex items-center justify-center border border-white/10"
               style={{ background: "rgba(251,191,36,0.08)" }}
             >
-              <span
-                className="font-serif font-bold text-2xl"
-                style={{ color: "rgba(251,191,36,0.8)" }}
-              >
-                L
-              </span>
+              <BotAvatar className="h-16 w-16 opacity-80" />
             </div>
           </div>
           <div className="text-center">
@@ -1294,9 +1288,7 @@ export default function VoiceCall({
               className="relative w-20 h-20 rounded-full flex items-center justify-center border border-white/10"
               style={{ background: "rgba(196,104,122,0.12)" }}
             >
-              <span className="font-serif font-bold text-2xl" style={{ color: "#c4687a" }}>
-                L
-              </span>
+              <BotAvatar className="h-16 w-16" />
             </div>
           </div>
           <div className="text-center">
@@ -1319,29 +1311,29 @@ export default function VoiceCall({
       {status !== "connecting" && status !== "reconnecting" && (
         <>
           {/* Visualizer */}
-          <div className="flex flex-col items-center justify-center py-7 gap-2.5 flex-shrink-0">
-            <div className="relative flex items-center justify-center w-28 h-28">
+          <div className="flex flex-col items-center justify-center py-4 gap-2 flex-shrink-0">
+            <div className="relative flex items-center justify-center w-20 h-20">
               {aiSpeaking && (
                 <>
                   <span
-                    className="absolute w-28 h-28 rounded-full animate-ping"
+                    className="absolute w-20 h-20 rounded-full animate-ping"
                     style={{ background: "rgba(196,104,122,0.12)" }}
                   />
                   <span
                     className="absolute rounded-full animate-pulse"
-                    style={{ width: 88, height: 88, background: "rgba(196,104,122,0.18)" }}
+                    style={{ width: 64, height: 64, background: "rgba(196,104,122,0.18)" }}
                   />
                 </>
               )}
               {userSpeaking && (
                 <>
                   <span
-                    className="absolute w-28 h-28 rounded-full animate-ping"
+                    className="absolute w-20 h-20 rounded-full animate-ping"
                     style={{ background: "rgba(96,165,250,0.12)" }}
                   />
                   <span
                     className="absolute rounded-full animate-pulse"
-                    style={{ width: 88, height: 88, background: "rgba(96,165,250,0.18)" }}
+                    style={{ width: 64, height: 64, background: "rgba(96,165,250,0.18)" }}
                   />
                 </>
               )}
@@ -1349,8 +1341,8 @@ export default function VoiceCall({
                 <span
                   className="absolute rounded-full"
                   style={{
-                    width: 72,
-                    height: 72,
+                    width: 56,
+                    height: 56,
                     border: "2px solid transparent",
                     borderTopColor: "rgba(196,104,122,0.7)",
                     borderRightColor: "rgba(196,104,122,0.3)",
@@ -1359,7 +1351,7 @@ export default function VoiceCall({
                 />
               )}
               <div
-                className="relative w-16 h-16 rounded-full flex items-center justify-center transition-all duration-500"
+                className="relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-full transition-all duration-500"
                 style={{
                   background: userSpeaking
                     ? "linear-gradient(135deg, #60a5fa, #2563eb)"
@@ -1416,20 +1408,7 @@ export default function VoiceCall({
                     ))}
                   </div>
                 ) : (
-                  <svg
-                    className="w-6 h-6"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    style={{ color: "rgba(255,255,255,0.35)" }}
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M12 18.364V21m0-2.636a9 9 0 01-9-9 9 9 0 0118 0 9 9 0 01-9 9z"
-                    />
-                  </svg>
+                  <BotAvatar className="h-full w-full opacity-90" />
                 )}
               </div>
             </div>

@@ -36,6 +36,7 @@ function mapNoteRow(row: any): ClientNote {
     body: row.body ?? "",
     authorUserId: row.author_user_id ?? null,
     authorName: row.author_name ?? "Staff",
+    sharedWithClient: row.shared_with_client === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? null,
   };
@@ -78,6 +79,7 @@ export async function createClientNote(input: {
   clientId: string;
   eventId?: string | null;
   body: string;
+  sharedWithClient?: boolean;
   author: { id: string; name: string };
 }): Promise<ClientNote> {
   const { data, error } = await getSupabase()
@@ -88,6 +90,9 @@ export async function createClientNote(input: {
       body: input.body,
       author_user_id: input.author.id,
       author_name: input.author.name,
+      // Only sent when true, so notes still save on a database that hasn't had
+      // migrations/add_client_notes_shared_flag.sql run yet.
+      ...(input.sharedWithClient ? { shared_with_client: true } : {}),
     })
     .select("*")
     .single();
@@ -99,10 +104,15 @@ export async function updateClientNote(
   clientId: string,
   noteId: string,
   body: string,
+  sharedWithClient?: boolean,
 ): Promise<ClientNote | null> {
   const { data, error } = await getSupabase()
     .from(TABLE)
-    .update({ body, updated_at: new Date().toISOString() })
+    .update({
+      body,
+      updated_at: new Date().toISOString(),
+      ...(sharedWithClient === undefined ? {} : { shared_with_client: sharedWithClient }),
+    })
     .eq("id", noteId)
     .eq("client_id", clientId)
     .select("*")
@@ -120,4 +130,22 @@ export async function deleteClientNote(clientId: string, noteId: string): Promis
     .select("id");
   if (error) fail("deleteClientNote", error);
   return (data ?? []).length > 0;
+}
+
+/** The notes a staff member has chosen to share with this client — and nothing else. This is the
+ * only path by which a ClientNotes row can reach the customer portal. */
+export async function listSharedClientNotes(clientId: string): Promise<ClientNote[]> {
+  const { data, error } = await getSupabase()
+    .from(TABLE)
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("shared_with_client", true)
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) {
+    // Column not created yet → nothing is shared, which is the safe answer.
+    if (/shared_with_client|column/i.test(error.message ?? "") || isMissingTable(error)) return [];
+    fail("listSharedClientNotes", error);
+  }
+  return (data ?? []).map(mapNoteRow);
 }

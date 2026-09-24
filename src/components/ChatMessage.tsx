@@ -1,5 +1,6 @@
 "use client";
 
+import { BotAvatar } from "@/components/BotAvatar";
 interface ChatMessageProps {
   role: "user" | "assistant";
   text: string;
@@ -10,11 +11,7 @@ export default function ChatMessage({ role, text }: ChatMessageProps) {
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-slide-up`}>
-      {!isUser && (
-        <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs text-primary-foreground font-serif font-bold mr-2 mt-1 flex-shrink-0">
-          L
-        </div>
-      )}
+      {!isUser && <BotAvatar className="mr-2 mt-1 h-8 w-8 flex-shrink-0" />}
       <div
         className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
           isUser

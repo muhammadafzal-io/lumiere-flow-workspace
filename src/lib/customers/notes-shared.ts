@@ -10,6 +10,8 @@ export interface ClientNote {
   body: string;
   authorUserId: string | null;
   authorName: string;
+  /** Whether the client can see this note in their portal (default: internal only). */
+  sharedWithClient: boolean;
   createdAt: string;
   updatedAt: string | null;
 }

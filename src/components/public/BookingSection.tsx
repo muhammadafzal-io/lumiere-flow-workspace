@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X } from "lucide-react";
 import ChatWidget from "@/components/ChatWidget";
-import { CalendarPreview } from "@/components/public/CalendarPreview";
+import { FloatingChatDemo } from "@/components/public/FloatingChatDemo";
 import { Reveal } from "@/components/public/PublicChrome";
 
 /**
@@ -39,7 +39,7 @@ const STEPS = [
  */
 export function BookingBand({ treatmentNames = [], ...props }: ClinicProps) {
   return (
-    <section id="book" className="relative scroll-mt-16 overflow-hidden bg-panel">
+    <section id="book" className="relative scroll-mt-16 overflow-clip bg-panel">
       {/* Ambient glow — the same "soft depth behind the object" language the hero's blobs use,
           just in the panel's own darker register so the section still reads as one dark ground. */}
       <div
@@ -88,18 +88,13 @@ export function BookingBand({ treatmentNames = [], ...props }: ClinicProps) {
             {/* The calendar mark, peeking out top-right at a slight tilt — a second card in the
                 stack, not the main event. Hidden below lg: there isn't room for two cards to read
                 as layered rather than just cramped once the column narrows. */}
-            <div
-              aria-hidden
-              className="pointer-events-none absolute -right-4 top-4 hidden w-56 rotate-[12deg] drop-shadow-2xl transition-transform duration-500 lg:block xl:w-72"
-            >
-              <div className="overflow-hidden rounded-2xl ring-1 ring-white/20">
-                <CalendarPreview treatments={treatmentNames} clinicName={props.clinicName} />
-              </div>
+            <div className="absolute -right-16 top-20 z-0 hidden lg:block xl:-right-20">
+              <FloatingChatDemo treatment={treatmentNames[0] ?? "a treatment"} />
             </div>
 
             {/* The widget sits in a padded frame — a lighter glass border around the white card —
                 so it reads as a mounted object rather than a panel filling its column. */}
-            <div className="relative mt-8 rounded-[1.75rem] bg-white/[0.14] p-3 shadow-[0_40px_80px_-30px_rgba(0,0,0,0.7)] ring-1 ring-white/30 sm:p-5 lg:mr-28 xl:mr-40">
+            <div className="relative z-10 mt-8 rounded-[1.75rem] bg-white/[0.14] p-3 shadow-[0_40px_80px_-30px_rgba(0,0,0,0.7)] ring-1 ring-white/30 sm:p-5 lg:mr-24 xl:mr-32">
               <div className="overflow-hidden rounded-2xl bg-white shadow-[0_30px_60px_-20px_rgba(0,0,0,0.45)]">
                 <div className="h-[540px] sm:h-[600px]">
                   <ChatWidget {...props} />

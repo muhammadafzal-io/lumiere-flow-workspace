@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Clock, Sparkles } from "lucide-react";
+import { Clock, Sparkles, Stethoscope } from "lucide-react";
 import type { CustomerAppointment } from "@/lib/account/visible";
 import { useAccountData } from "@/lib/account/use-account-data";
 import { AppointmentCard } from "@/components/account/AppointmentCard";
 import { PersonalNotes } from "@/components/account/PersonalNotes";
+import { Timeline } from "@/components/account/Timeline";
+import type { CustomerTimeline } from "@/lib/account/timeline";
 import {
   PageHeader,
   AccountCard,
@@ -60,6 +62,7 @@ function fmtDate(iso: string | null): string {
 export default function AccountHistoryPage() {
   const { data: history, loading, error, reload } = useAccountData<History>("/api/account/history");
   const visits = useAccountData<AppointmentsResponse>("/api/account/appointments");
+  const timeline = useAccountData<CustomerTimeline>("/api/account/timeline");
   const [visitsVisible, setVisitsVisible] = useState(PAGE_SIZE);
   const [treatmentsVisible, setTreatmentsVisible] = useState(PAGE_SIZE);
   const [practitionersVisible, setPractitionersVisible] = useState(PAGE_SIZE);
@@ -113,6 +116,49 @@ export default function AccountHistoryPage() {
               </AccountCard>
             ))}
           </div>
+
+          {(timeline.data?.practitionerNotes.length ?? 0) > 0 && (
+            <section>
+              <SectionLabel>From your practitioners</SectionLabel>
+              <div className="flex flex-wrap gap-4">
+                {timeline.data!.practitionerNotes.map((note) => (
+                  <AccountCard
+                    key={note.id}
+                    className="flex min-w-[16rem] flex-[1_1_20rem] flex-col gap-3 bg-primary/[0.05] p-5 ring-1 ring-primary/20"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                        <Stethoscope className="h-4 w-4" />
+                      </span>
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-foreground">
+                          {note.authorName}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {fmtDate(note.createdAt)}
+                          {note.fromVisit ? ` · ${note.fromVisit}` : ""}
+                        </div>
+                      </div>
+                    </div>
+                    <p className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/80">
+                      {note.body}
+                    </p>
+                  </AccountCard>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section>
+            <SectionLabel>Timeline</SectionLabel>
+            {timeline.loading ? (
+              <AccountLoading rows={3} />
+            ) : timeline.error ? (
+              <AccountError message={timeline.error} onRetry={timeline.reload} />
+            ) : (
+              <Timeline items={timeline.data?.items ?? []} />
+            )}
+          </section>
 
           <section>
             <SectionLabel>Past visits</SectionLabel>

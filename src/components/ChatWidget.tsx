@@ -1,5 +1,6 @@
 "use client";
 
+import { BotAvatar } from "@/components/BotAvatar";
 import { useState, useRef, useEffect, useCallback } from "react";
 import ChatMessage from "./ChatMessage";
 import VoiceCall from "./VoiceCall";
@@ -23,7 +24,10 @@ function getSessionId(): string {
 function welcomeMessage(clinicName: string): Message {
   return {
     role: "assistant",
-    text: `Hi! I'm ${clinicName}'s virtual assistant. 💛\n\nI can help you with:\n• Services & pricing\n• Booking an appointment\n• Prep & aftercare info\n• Anything else about the spa\n\nWhat can I help you with today?`,
+    // Says only what the assistant genuinely does: availability comes from the live calendar,
+    // bookings go through the same engine staff use, and prep/aftercare come from the clinic's own
+    // guidance. Plain text with "•" bullets, because the message renders as text, not markdown.
+    text: `Hi, I'm the virtual assistant for ${clinicName}. I can:\n\n• Show real availability and book your appointment\n• Explain our treatments, prices and how long each takes\n• Share preparation and aftercare guidance\n\nWhat would you like to do today?`,
   };
 }
 
@@ -160,9 +164,7 @@ export default function ChatWidget({
         />
       )}
       <div className="bg-panel px-5 py-4 flex items-center gap-3 flex-shrink-0">
-        <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
-          <span className="font-serif font-bold text-primary-foreground text-sm">L</span>
-        </div>
+        <BotAvatar className="h-10 w-10 flex-shrink-0 ring-2 ring-white/30" />
         <div>
           <p className="text-panel-foreground font-semibold text-sm leading-tight">{clinicName}</p>
           <p className="text-primary text-xs">AI Front Desk • {location}</p>
@@ -185,9 +187,7 @@ export default function ChatWidget({
 
         {loading && (
           <div className="flex justify-start animate-fade-in">
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs text-primary-foreground font-serif font-bold mr-2 mt-1 flex-shrink-0">
-              L
-            </div>
+            <BotAvatar className="mr-2 mt-1 h-8 w-8 flex-shrink-0" />
             <div className="bg-card rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border flex items-center gap-1">
               {[0, 1, 2].map((i) => (
                 <span

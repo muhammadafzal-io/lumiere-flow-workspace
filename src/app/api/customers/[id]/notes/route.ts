@@ -50,6 +50,7 @@ export async function POST(req: NextRequest, ctx: RouteCtx) {
       clientId: id,
       eventId: typeof body.eventId === "string" ? body.eventId.slice(0, 256) : null,
       body: valid.body,
+      sharedWithClient: body.sharedWithClient === true,
       author: { id: check.userId, name: userRow?.Name ?? "Staff" },
     });
     return NextResponse.json({ note }, { status: 201 });

@@ -52,7 +52,12 @@ export async function PATCH(req: NextRequest, ctx: RouteCtx) {
     const owned = await loadOwnedNote(id, noteId, check.userId);
     if ("response" in owned) return owned.response;
 
-    const note = await updateClientNote(id, noteId, valid.body);
+    const note = await updateClientNote(
+      id,
+      noteId,
+      valid.body,
+      typeof body.sharedWithClient === "boolean" ? body.sharedWithClient : undefined,
+    );
     if (!note) return NextResponse.json({ error: "Note not found" }, { status: 404 });
     return NextResponse.json({ note });
   } catch (error) {
