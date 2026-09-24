@@ -297,6 +297,18 @@ function rowToPractitioner(row: Record<string, unknown>): Practitioner {
   };
 }
 
+export async function getPractitionerById(id: string): Promise<Practitioner | null> {
+  const sb = getSupabase();
+  const { data, error } = await sb
+    .from("Practitioners")
+    .select("*")
+    .eq("id", id)
+    .eq("Status", "Active")
+    .maybeSingle();
+  if (error) throw new Error(`getPractitionerById: ${error.message}`);
+  return data ? rowToPractitioner(data as Record<string, unknown>) : null;
+}
+
 export async function getPractitioners(filter?: { specialty?: string }): Promise<Practitioner[]> {
   const sb = getSupabase();
   const { data, error } = await sb.from("Practitioners").select("*").eq("Status", "Active");

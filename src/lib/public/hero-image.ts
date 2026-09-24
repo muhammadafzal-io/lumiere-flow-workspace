@@ -12,7 +12,7 @@ import path from "path";
  * Landscape works best — it is cropped to a tall frame on phones and a wide one on desktop.
  */
 
-const CANDIDATES = ["hero.jpg", "hero.jpeg", "hero.png", "hero.webp", "hero.avif"];
+const CANDIDATES = ["hero.svg", "hero.jpg", "hero.jpeg", "hero.png", "hero.webp", "hero.avif"];
 
 export function findHeroImage(): string | null {
   try {

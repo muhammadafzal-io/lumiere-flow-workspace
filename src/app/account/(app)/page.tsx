@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { CalendarDays, Gift } from "lucide-react";
 import type { CustomerAppointment } from "@/lib/account/visible";
 import { useAccountData } from "@/lib/account/use-account-data";
 import { useAccountIdentity } from "@/lib/account/use-account-context";
@@ -12,7 +13,6 @@ import {
   AccountError,
   AccountLoading,
   SectionLabel,
-  SecondaryButton,
 } from "@/components/account/AccountUI";
 
 interface Offer {
@@ -53,72 +53,111 @@ export default function AccountHome() {
   const actionable = [...upcoming, ...past].filter((a) => a.actions.length > 0);
 
   return (
-    <div className="space-y-6">
+    <>
       <PageHeader
-        title={identity?.firstName ? `Welcome back, ${identity.firstName}` : "Your account"}
-      />
+        eyebrow="Your account"
+        title={identity?.firstName ? `Welcome back, ${identity.firstName}` : "Welcome back"}
+        subtitle={
+          next
+            ? "Here's what's coming up, and anything waiting on you."
+            : "Nothing on the calendar yet — pick a time whenever you're ready."
+        }
+      >
+        <Link
+          href="/account/book"
+          className="rounded-full bg-white px-6 py-3 text-sm font-medium text-primary transition-all hover:shadow-[0_10px_40px_-10px_rgba(255,255,255,0.5)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+        >
+          Book an appointment
+        </Link>
+        <Link
+          href="/account/appointments"
+          className="rounded-full border border-white/30 px-6 py-3 text-sm font-medium text-panel-foreground transition-colors hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+        >
+          All appointments
+        </Link>
+      </PageHeader>
 
-      <section>
-        <SectionLabel>Next appointment</SectionLabel>
-        {next ? (
-          <AppointmentCard appointment={next} featured />
-        ) : (
-          <AccountEmpty
-            title="Nothing booked yet"
-            body="Pick a treatment and a time that suits you."
-            action={{ label: "Book an appointment", href: "/account/book" }}
-          />
-        )}
-      </section>
-
-      {actionable.length > 0 && (
+      <div className="space-y-10">
         <section>
-          <SectionLabel>Needs you</SectionLabel>
-          <div className="space-y-3">
-            {actionable.slice(0, 3).map((appointment) => (
-              <AppointmentCard key={appointment.id} appointment={appointment} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="flex flex-wrap gap-2">
-        <SecondaryButton href="/account/book">Book again</SecondaryButton>
-        <SecondaryButton href="/account/appointments">All appointments</SecondaryButton>
-      </section>
-
-      {offers.length > 0 && (
-        <section>
-          <SectionLabel>Your offers</SectionLabel>
-          <div className="space-y-2">
-            {offers.slice(0, 2).map((offer) => (
-              <AccountCard key={offer.id} className="px-4 py-3">
-                <div className="text-sm font-medium text-lumiere-navy">{offer.name}</div>
-                <div className="text-xs text-lumiere-muted mt-0.5">{offer.detail}</div>
-              </AccountCard>
-            ))}
-          </div>
-          {offers.length > 2 && (
-            <Link
-              href="/account/offers"
-              className="text-xs text-lumiere-navy underline mt-2 inline-block"
-            >
-              See all {offers.length}
-            </Link>
+          <SectionLabel>Next appointment</SectionLabel>
+          {next ? (
+            <AppointmentCard appointment={next} featured onChanged={reload} />
+          ) : (
+            <AccountEmpty
+              icon={CalendarDays}
+              title="Nothing booked yet"
+              body="Pick a treatment and a time that suits you."
+              action={{ label: "Book an appointment", href: "/account/book" }}
+            />
           )}
         </section>
-      )}
 
-      {past.length > 0 && (
-        <section>
-          <SectionLabel>Recently</SectionLabel>
-          <div className="space-y-3">
-            {past.slice(0, 2).map((appointment) => (
-              <AppointmentCard key={appointment.id} appointment={appointment} />
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
+        {actionable.length > 0 && (
+          <section>
+            <SectionLabel>Needs you</SectionLabel>
+            <div className="flex flex-wrap gap-4">
+              {actionable.slice(0, 3).map((appointment) => (
+                <AppointmentCard
+                  key={appointment.id}
+                  appointment={appointment}
+                  onChanged={reload}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {offers.length > 0 && (
+          <section>
+            <SectionLabel>Your offers</SectionLabel>
+            <div className="flex flex-wrap gap-4">
+              {offers.slice(0, 2).map((offer) => (
+                <Link
+                  key={offer.id}
+                  href="/account/offers"
+                  className="flex min-w-[16rem] flex-[1_1_20rem]"
+                >
+                  <AccountCard
+                    interactive
+                    className="flex h-full w-full items-start gap-3 bg-primary/[0.07] px-5 py-4"
+                  >
+                    <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                      <Gift className="h-4 w-4" />
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-medium text-foreground">{offer.name}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground">{offer.detail}</div>
+                    </div>
+                  </AccountCard>
+                </Link>
+              ))}
+            </div>
+            {offers.length > 2 && (
+              <Link
+                href="/account/offers"
+                className="mt-3 inline-block text-xs text-primary hover:underline"
+              >
+                See all {offers.length}
+              </Link>
+            )}
+          </section>
+        )}
+
+        {past.length > 0 && (
+          <section>
+            <SectionLabel>Recently</SectionLabel>
+            <div className="flex flex-wrap gap-4">
+              {past.slice(0, 2).map((appointment) => (
+                <AppointmentCard
+                  key={appointment.id}
+                  appointment={appointment}
+                  onChanged={reload}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </>
   );
 }

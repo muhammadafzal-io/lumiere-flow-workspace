@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CalendarDays } from "lucide-react";
 import type { CustomerAppointment } from "@/lib/account/visible";
 import { useAccountData } from "@/lib/account/use-account-data";
 import { AppointmentCard } from "@/components/account/AppointmentCard";
@@ -34,7 +35,11 @@ export default function AccountAppointmentsPage() {
 
   return (
     <div>
-      <PageHeader title="Appointments" />
+      <PageHeader
+        eyebrow="Visits"
+        title="Appointments"
+        subtitle="What's coming up, and where you've been."
+      />
 
       <div className="mb-4">
         <Tabs
@@ -56,6 +61,7 @@ export default function AccountAppointmentsPage() {
         <AccountError message={error} onRetry={reload} />
       ) : list.length === 0 ? (
         <AccountEmpty
+          icon={CalendarDays}
           title={tab === "upcoming" ? "Nothing coming up" : "No past visits yet"}
           body={
             tab === "upcoming"
@@ -68,9 +74,9 @@ export default function AccountAppointmentsPage() {
         />
       ) : (
         <>
-          <div className="space-y-3">
+          <div className="flex flex-wrap gap-4">
             {list.map((appointment) => (
-              <AppointmentCard key={appointment.id} appointment={appointment} />
+              <AppointmentCard key={appointment.id} appointment={appointment} onChanged={reload} />
             ))}
           </div>
           {full.length > visible && (

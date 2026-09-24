@@ -5,7 +5,12 @@ export const DEFAULT_APP_URL = "https://lumiere-flow-workspace-htt1.vercel.app";
 export const WIDGET_URL = `${DEFAULT_APP_URL}/widget`;
 
 export function getAppBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") || DEFAULT_APP_URL;
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim().replace(/\/$/, "");
+  // A localhost value copied from a dev .env must never reach a real client: in production it would
+  // put "http://localhost:3000/…" into emails and SMS. Fall back to the canonical URL instead.
+  const isLocal = !!configured && /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured);
+  if (!configured || (isLocal && process.env.NODE_ENV === "production")) return DEFAULT_APP_URL;
+  return configured;
 }
 
 export function getWidgetUrl(): string {

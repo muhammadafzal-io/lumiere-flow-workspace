@@ -1,21 +1,15 @@
 import type { Metadata } from "next";
-import { Poppins } from "next/font/google";
+// Self-hosted directly from the package rather than next/font/google: next/font still has to
+// download these same files from Google once at build/dev-compile time, which is a single point
+// of failure whenever that network call doesn't go through (it repeatedly didn't, mid-project).
+// @fontsource ships the files in the package itself, so there's nothing to fetch at build time —
+// only the one-time `npm install` needs network, same as any other dependency.
+import "@fontsource/poppins/latin-300.css";
+import "@fontsource/poppins/latin-400.css";
+import "@fontsource/poppins/latin-500.css";
+import "@fontsource/poppins/latin-600.css";
 import "./globals.css";
 import { getClinicConfig } from "@/lib/clinic-config";
-
-/**
- * The app's typeface, self-hosted by next/font rather than fetched from a CDN at runtime.
- *
- * Until now `--font-sans` named Inter without anything ever loading it, so every surface —
- * including the client-facing widget — rendered in the browser's default UI font, and `font-serif`
- * fell back to Times. Poppins now carries both roles: headings and running text.
- */
-const poppins = Poppins({
-  subsets: ["latin"],
-  weight: ["300", "400", "500", "600"],
-  variable: "--font-body",
-  display: "swap",
-});
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={poppins.variable}>
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

@@ -32,6 +32,8 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -56,6 +58,11 @@
 
 :root {
   --radius: 0.625rem;
+  /* The app's one typeface, self-hosted via @fontsource/poppins (imported in layout.tsx) rather
+     than fetched from Google at request time — no runtime dependency on an external font CDN for
+     visitors, and no build-time dependency on it for dev/CI either. --font-sans and --font-serif
+     below both resolve to this, so headings and running text share one voice throughout. */
+  --font-body: "Poppins", ui-sans-serif, system-ui, sans-serif;
   --background: oklch(0.995 0.002 240);
   --foreground: oklch(0.18 0.02 240);
   --card: oklch(1 0 0);
@@ -77,6 +84,11 @@
   --warning: oklch(0.75 0.15 75);
   --warning-foreground: oklch(0.2 0.02 75);
   --info: oklch(0.6 0.13 240);
+  /* The inverted, full-bleed surfaces — the booking band, the footer, the chat widget's header.
+     Deliberately the same hue as --primary (180), just far darker, so a dark section reads as the
+     deep end of the portal's own teal rather than an unrelated navy or a flat near-black. */
+  --panel: oklch(0.24 0.045 180);
+  --panel-foreground: oklch(0.98 0.005 180);
   --border: oklch(0.92 0.005 240);
   --input: oklch(0.94 0.005 240);
   --ring: oklch(0.52 0.09 180);
@@ -125,11 +137,11 @@
     background: transparent;
   }
   .chat-scroll::-webkit-scrollbar-thumb {
-    background: #c4a882;
+    background: var(--color-primary);
     border-radius: 2px;
   }
   .chat-html a {
-    color: var(--color-lumiere-rose);
+    color: var(--color-primary);
     text-decoration: underline;
     overflow-wrap: break-word;
     word-break: break-all;
@@ -139,7 +151,7 @@
     font-weight: 600;
   }
   .chat-html code {
-    background: var(--color-lumiere-ivory);
+    background: var(--color-muted);
     padding: 0 0.25rem;
     border-radius: 0.25rem;
     font-size: 0.875rem;
@@ -246,6 +258,365 @@
     transform-box: fill-box;
     transform-origin: center;
     animation: badgePop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  }
+
+  /* Hero headline: each line sits in its own clipping box so it can rise up from underneath a
+     mask rather than just fading in place — the "typographic craft" pass on the page's biggest
+     type. The wrapper (not this class) owns overflow:hidden. */
+  @keyframes lineReveal {
+    from {
+      transform: translateY(115%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+  .animate-line-reveal {
+    display: inline-block;
+    animation: lineReveal 700ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  /* The dot riding the hero's orbit mark (HeroOrbitMark) — travels the arc and back rather than
+     jumping, since the path is a partial ring, not a closed loop. */
+  @keyframes orbitDot {
+    from {
+      offset-distance: 0%;
+    }
+    to {
+      offset-distance: 100%;
+    }
+  }
+  /* Hidden unless the browser can actually put it on the path — otherwise (Safari 15 and older)
+     the dot would strand itself at the SVG's origin and read as a rendering bug. The arc still
+     draws in on its own either way. */
+  .animate-orbit-dot {
+    display: none;
+  }
+  @supports (offset-path: path("M0,0 L1,1")) {
+    .animate-orbit-dot {
+      display: initial;
+      offset-rotate: 0deg;
+      animation: orbitDot 3.4s ease-in-out infinite alternate;
+    }
+  }
+
+  /* The hero visual (HeroVisual): scroll parallax and cursor tilt, both driven by CSS custom
+     properties the component updates in a scroll/pointermove handler rather than by React state —
+     re-rendering on every mousemove would be far too much churn for a purely visual effect. The
+     short transition is what makes the tilt feel like it's "catching up" to the cursor instead of
+     snapping straight to it. */
+  .hero-card {
+    --hero-tilt-x: 0deg;
+    --hero-tilt-y: 0deg;
+    --hero-parallax: 0px;
+    transform: perspective(1200px) rotateX(var(--hero-tilt-x)) rotateY(var(--hero-tilt-y))
+      translateY(var(--hero-parallax));
+    transition: transform 200ms ease-out;
+    will-change: transform;
+  }
+
+  /* Ambient blobs behind the hero card — a slow, wide drift, never a loop that's obviously
+     "bouncing," so it reads as atmosphere rather than a spinner. */
+  @keyframes blobDrift {
+    0%,
+    100% {
+      transform: translate(0, 0) scale(1);
+    }
+    50% {
+      transform: translate(-16px, 14px) scale(1.08);
+    }
+  }
+  .animate-blob-drift {
+    animation: blobDrift 14s ease-in-out infinite;
+  }
+  .animate-blob-drift-slow {
+    animation: blobDrift 19s ease-in-out infinite reverse;
+  }
+
+  /* The honest floating badge on the hero card — a gentle bob, like it's resting on the surface
+     rather than pinned flat to it. */
+  @keyframes float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-6px);
+    }
+  }
+  .animate-float {
+    animation: float 3.6s ease-in-out infinite;
+  }
+}
+
+/* Orbiting blobs — two soft ellipses that lap the inside edge of a panel, tumbling as they go, so
+   a flat tinted block reads as lit from something moving behind it. Drawn entirely by the panel's
+   own ::before/::after: no extra elements, no JS. The panel is a size container, so every offset,
+   size and path below is in cqw (1% of the panel's own width) and the effect scales with it;
+   overflow clips the blobs when they swing past the rounded edge. z-index -1 inside an isolated
+   stacking context keeps them above the panel's background and below all of its content.
+   Recolour per panel with --orbit-a / --orbit-b. */
+.orbit-panel {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  container-type: inline-size;
+}
+.orbit-panel::before,
+.orbit-panel::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  border-radius: 50%;
+  filter: blur(12px);
+  pointer-events: none;
+}
+.orbit-panel::before {
+  width: 24cqw;
+  height: 14cqw;
+  background: var(--orbit-a, color-mix(in oklch, var(--color-primary) 38%, transparent));
+  animation: orbitA 16s linear infinite;
+}
+.orbit-panel::after {
+  width: 37cqw;
+  height: 14cqw;
+  background: var(--orbit-b, color-mix(in oklch, var(--color-primary) 30%, transparent));
+  animation: orbitB 16s linear infinite;
+}
+@keyframes orbitA {
+  0% {
+    transform: translate(82cqw, 18cqw) rotate(58deg);
+  }
+  20% {
+    transform: translate(58cqw, -2cqw) rotate(38deg);
+  }
+  40% {
+    transform: translate(20cqw, -6cqw) rotate(-10deg);
+  }
+  55% {
+    transform: translate(-4cqw, 8cqw) rotate(-60deg);
+  }
+  75% {
+    transform: translate(28cqw, 30cqw) rotate(-120deg);
+  }
+  90% {
+    transform: translate(66cqw, 34cqw) rotate(-200deg);
+  }
+  100% {
+    transform: translate(82cqw, 18cqw) rotate(-302deg);
+  }
+}
+@keyframes orbitB {
+  0% {
+    transform: translate(60cqw, 26cqw) rotate(6deg);
+  }
+  20% {
+    transform: translate(38cqw, 6cqw) rotate(-20deg);
+  }
+  40% {
+    transform: translate(8cqw, 0cqw) rotate(-96deg);
+  }
+  60% {
+    transform: translate(2cqw, 16cqw) rotate(-150deg);
+  }
+  80% {
+    transform: translate(34cqw, 24cqw) rotate(-210deg);
+  }
+  100% {
+    transform: translate(60cqw, 26cqw) rotate(-354deg);
+  }
+}
+/* On a phone the panel is narrow and tall, so the same cqw path would hug a strip along the top —
+   bigger blobs and a longer vertical lap keep it visible down the whole stack. */
+@media (max-width: 767px) {
+  .orbit-panel::before {
+    width: 60cqw;
+    height: 36cqw;
+    animation-name: orbitASm;
+    animation-duration: 12s;
+  }
+  .orbit-panel::after {
+    width: 76cqw;
+    height: 46cqw;
+    animation-name: orbitBSm;
+    animation-duration: 12s;
+  }
+}
+@keyframes orbitASm {
+  0% {
+    transform: translate(58cqw, 20cqw) rotate(60deg);
+  }
+  25% {
+    transform: translate(52cqw, 90cqw) rotate(0deg);
+  }
+  50% {
+    transform: translate(-10cqw, 150cqw) rotate(-70deg);
+  }
+  75% {
+    transform: translate(-14cqw, 70cqw) rotate(-160deg);
+  }
+  100% {
+    transform: translate(58cqw, 20cqw) rotate(-300deg);
+  }
+}
+@keyframes orbitBSm {
+  0% {
+    transform: translate(10cqw, 120cqw) rotate(8deg);
+  }
+  25% {
+    transform: translate(30cqw, 60cqw) rotate(-40deg);
+  }
+  50% {
+    transform: translate(40cqw, 0cqw) rotate(-120deg);
+  }
+  75% {
+    transform: translate(6cqw, 50cqw) rotate(-220deg);
+  }
+  100% {
+    transform: translate(10cqw, 120cqw) rotate(-352deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orbit-panel::before,
+  .orbit-panel::after {
+    animation: none;
+  }
+  .orbit-panel::before {
+    transform: translate(58cqw, -2cqw) rotate(38deg);
+  }
+  .orbit-panel::after {
+    transform: translate(8cqw, 0cqw) rotate(-96deg);
+  }
+}
+
+/* Arch cards — a dome-topped card washed with a colour from its top-right corner. At rest only the
+   icon and label show; on hover (or keyboard focus) the card lifts, the icon pops up out of the
+   arch with a springy overshoot, the description unfolds and a colour bar slides in along the
+   bottom edge. Below 1024px, or on any device without hover, the description and bar are simply
+   always shown so touch users lose nothing. Colour comes from --door-glow / --door-bar. */
+.door-card {
+  position: relative;
+  z-index: 0;
+  display: flex;
+  min-height: 15rem;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem 1.25rem 0;
+  border-radius: 50% 50% 14px 14px / 42% 42% 14px 14px;
+  background: radial-gradient(
+    circle at 100% 0,
+    var(--door-glow) 0,
+    var(--door-glow) 25%,
+    #fff 60%
+  );
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.door-pop {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  height: 5rem;
+  width: 5rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.door-content {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 0 1.5rem;
+  text-align: center;
+}
+.door-desc {
+  display: block;
+  max-height: 0;
+  margin-top: 0;
+  overflow: hidden;
+  opacity: 0;
+  transition: all 0.4s;
+}
+.door-bar {
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 12px;
+  border-radius: 0 0 14px 14px;
+  background: var(--door-bar);
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+@media (hover: hover) and (min-width: 1024px) {
+  .door-card:hover,
+  .door-card:focus-visible {
+    z-index: 1;
+    justify-content: flex-start;
+    transform: scale(1.02);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.13);
+    outline: none;
+  }
+  .door-card:hover .door-pop,
+  .door-card:focus-visible .door-pop {
+    transform: translateY(-2.25rem) scale(1.15);
+  }
+  .door-card:hover .door-desc,
+  .door-card:focus-visible .door-desc {
+    max-height: 12rem;
+    margin-top: 0.75rem;
+    opacity: 1;
+  }
+  .door-card:hover .door-bar,
+  .door-card:focus-visible .door-bar {
+    opacity: 1;
+  }
+}
+@media not all and (hover: hover) and (min-width: 1024px) {
+  .door-card {
+    justify-content: flex-start;
+  }
+  .door-desc {
+    max-height: none;
+    margin-top: 0.5rem;
+    opacity: 1;
+  }
+  .door-bar {
+    opacity: 1;
+  }
+}
+.door-card:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-ring);
+}
+@media (prefers-reduced-motion: reduce) {
+  .door-card:hover,
+  .door-card:focus-visible,
+  .door-card:hover .door-pop,
+  .door-card:focus-visible .door-pop {
+    transform: none;
+  }
+}
+
+/* The closing section's line network sways a few pixels, out of step with the nodes riding it. */
+@keyframes networkSway {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(10px);
+  }
+}
+.network-sway {
+  animation: networkSway 12s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .network-sway {
+    animation: none;
   }
 }
 

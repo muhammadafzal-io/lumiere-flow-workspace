@@ -993,7 +993,13 @@ export async function updateCalendarBookingEmail(eventId: string, email: string)
  */
 export async function patchCalendarBookingFields(
   eventId: string,
-  fields: { clientName?: string; email?: string; clientId?: string; notes?: string },
+  fields: {
+    clientName?: string;
+    email?: string;
+    phone?: string;
+    clientId?: string;
+    notes?: string;
+  },
 ): Promise<void> {
   const calendar = getCalendarClient();
   const calId = calendarId();
@@ -1005,6 +1011,9 @@ export async function patchCalendarBookingFields(
   }
   if (fields.email) {
     description = setDescriptionEmail(description, fields.email);
+  }
+  if (fields.phone) {
+    description = setDescriptionField(description, "Contact:", fields.phone, "Client:");
   }
   if (fields.clientId) {
     description = setDescriptionField(description, "Client ID:", fields.clientId);
@@ -1021,6 +1030,57 @@ export async function patchCalendarBookingFields(
 
   await calendar.events.patch({ calendarId: calId, eventId, requestBody });
   invalidateEventsRangeCache();
+}
+
+/**
+ * Carries a client's changed details onto their calendar bookings, so a name, phone or email
+ * edited on their profile (by the client in the portal, or by staff) shows up on the calendar too —
+ * the event title ("<treatment> — <name>"), and the Client / Contact / Email lines the whole
+ * system reads back.
+ *
+ * Events are found by the client's PREVIOUS details plus their id (a booking may match by any of
+ * the three), then stamped with the client's id so they keep matching after the phone or name
+ * changes. Best-effort and bounded: a calendar failure must never fail the profile save, so each
+ * event is patched independently and errors are only logged. Upcoming visits come first when
+ * there are more than the cap.
+ */
+export async function syncClientDetailsToCalendar(input: {
+  clientId: string;
+  previous: { name?: string; phone?: string };
+  next: { name?: string; phone?: string; email?: string };
+}): Promise<{ updated: number; failed: number }> {
+  const { clientId, previous, next } = input;
+  if (!next.name && !next.phone && !next.email) return { updated: 0, failed: 0 };
+
+  const history = await getAppointmentHistoryForContact({
+    id: clientId,
+    phone: previous.phone,
+    name: previous.name,
+  });
+  const events = [...history.upcoming, ...history.past].slice(0, 80);
+
+  let updated = 0;
+  let failed = 0;
+  for (let i = 0; i < events.length; i += 5) {
+    const results = await Promise.allSettled(
+      events.slice(i, i + 5).map((event) =>
+        patchCalendarBookingFields(event.id, {
+          clientName: next.name,
+          phone: next.phone,
+          email: next.email,
+          clientId,
+        }),
+      ),
+    );
+    for (const r of results) {
+      if (r.status === "fulfilled") updated++;
+      else {
+        failed++;
+        console.error("[syncClientDetailsToCalendar] event patch failed:", r.reason);
+      }
+    }
+  }
+  return { updated, failed };
 }
 
 /** Reschedule a calendar event to a new start/end time. Returns old and new start times. */

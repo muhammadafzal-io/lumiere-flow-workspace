@@ -11,15 +11,15 @@ export default function ChatMessage({ role, text }: ChatMessageProps) {
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-slide-up`}>
       {!isUser && (
-        <div className="w-7 h-7 rounded-full bg-lumiere-navy flex items-center justify-center text-xs text-lumiere-cream font-serif font-bold mr-2 mt-1 flex-shrink-0">
+        <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs text-primary-foreground font-serif font-bold mr-2 mt-1 flex-shrink-0">
           L
         </div>
       )}
       <div
         className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
           isUser
-            ? "bg-lumiere-navy text-white rounded-tr-sm"
-            : "bg-white text-lumiere-navy rounded-tl-sm shadow-sm border border-lumiere-ivory"
+            ? "bg-primary text-primary-foreground rounded-tr-sm"
+            : "bg-card text-foreground rounded-tl-sm shadow-sm border"
         }`}
       >
         {isUser ? (

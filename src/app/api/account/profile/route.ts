@@ -4,12 +4,15 @@ import { getSupabase } from "@/lib/supabase";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
 import { normalizeEmail } from "@/lib/agent/booking-guards";
 import { isFullName } from "@/lib/agent/client-name";
+import { getAvatarVersion } from "@/lib/account/avatar";
+import { syncClientDetailsToCalendar } from "@/lib/integrations/google-calendar";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   const check = await requireCustomer();
   if (!check.ok) return check.response;
+  const avatarVersion = await getAvatarVersion(check.customer.id);
 
   // Re-resolved on every request (requireCustomer reads the Clients row fresh each call, and the
   // route is force-dynamic) — a change staff make, or one the client makes from another device,
@@ -26,6 +29,7 @@ export async function GET() {
         // admin profile lets staff edit both, so the client can now do the same for themselves.
         treatmentInterest: customer.treatments.join(", "),
         clientSince: customer.created_at ?? null,
+        avatarVersion,
       },
     },
     { headers: { "Cache-Control": "no-store" } },
@@ -99,6 +103,21 @@ export async function PATCH(req: NextRequest) {
       .update(fields)
       .eq("id", check.customer.id);
     if (error) throw new Error(error.message);
+
+    // A changed name or phone must show up on the calendar too, not only on the profile. Failures
+    // there are logged and never fail the save — the profile itself has already been updated.
+    const nameChanged = fields["Name"] !== undefined && fields["Name"] !== check.customer.name;
+    const phoneChanged = fields["Phone"] !== undefined && fields["Phone"] !== check.customer.phone;
+    if (nameChanged || phoneChanged) {
+      await syncClientDetailsToCalendar({
+        clientId: check.customer.id,
+        previous: { name: check.customer.name, phone: check.customer.phone },
+        next: {
+          name: nameChanged ? String(fields["Name"]) : undefined,
+          phone: phoneChanged ? String(fields["Phone"]) : undefined,
+        },
+      }).catch((err) => console.error("[account/profile] calendar sync failed:", err));
+    }
 
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -14,29 +14,31 @@ export function PractitionerMark({ name, index = 0 }: { name: string; index?: nu
       .replace(/^Dr\.?\s*/i, "")
       .slice(0, 1)
       .toUpperCase() || "?";
-  const accent = index % 2 === 0 ? "#c4a882" : "#1b2a4a";
+  // The admin portal's own primary/foreground pair, alternating so a row of marks doesn't read
+  // as identical repeats — the same role the rose/navy pairing played before.
+  const accent = index % 2 === 0 ? "var(--color-primary)" : "var(--color-foreground)";
 
   return (
     <div className="relative h-24 w-24 flex-shrink-0">
       <svg viewBox="0 0 96 96" role="img" aria-hidden className="h-24 w-24">
-        <circle cx="48" cy="48" r="47" fill="#f5efe6" />
+        <circle cx="48" cy="48" r="47" fill="var(--color-muted)" />
         <circle cx="48" cy="48" r="47" fill="none" stroke={accent} strokeWidth="1" opacity="0.4" />
         {/* Head-and-shoulders mark, clipped to the circle — generic by design. */}
         <clipPath id={`mark-clip-${initial}-${index}`}>
           <circle cx="48" cy="48" r="47" />
         </clipPath>
         <g clipPath={`url(#mark-clip-${initial}-${index})`} opacity="0.9">
-          <circle cx="48" cy="40" r="15" fill="#1b2a4a" opacity="0.14" />
+          <circle cx="48" cy="40" r="15" fill="var(--color-foreground)" opacity="0.14" />
           <path
             d="M14 100 C 14 74, 30 62, 48 62 C 66 62, 82 74, 82 100 Z"
-            fill="#1b2a4a"
+            fill="var(--color-foreground)"
             opacity="0.14"
           />
         </g>
       </svg>
       {/* Monogram badge — the one legible identifier, so the mark still reads as "this person". */}
       <span
-        className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full font-serif text-sm font-medium text-white ring-2 ring-lumiere-cream"
+        className="absolute bottom-0 right-0 flex h-8 w-8 items-center justify-center rounded-full font-serif text-sm font-medium text-primary-foreground ring-2 ring-background"
         style={{ backgroundColor: accent }}
       >
         {initial}

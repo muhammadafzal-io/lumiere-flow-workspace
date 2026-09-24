@@ -11,6 +11,9 @@ import {
   PrimaryButton,
   SecondaryButton,
 } from "@/components/account/AccountUI";
+import { AvatarEditor } from "@/components/account/AvatarEditor";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 interface Profile {
   name: string;
@@ -89,9 +92,25 @@ export default function AccountProfilePage() {
 
   return (
     <div>
-      <PageHeader title="Your details" subtitle="Keep these up to date so we can reach you." />
+      <PageHeader
+        eyebrow="Profile"
+        title="Your details"
+        subtitle="Keep these up to date so we can reach you."
+      />
 
-      <AccountCard className="p-5 space-y-4 max-w-lg">
+      <AccountCard className="mb-5 max-w-2xl space-y-4 bg-primary/[0.04] p-5 sm:p-6">
+        <AvatarEditor name={profile.name || profile.email || ""} />
+        <div className="min-w-0 border-t pt-4">
+          <div className="truncate font-serif text-xl font-medium text-foreground">
+            {profile.name || "Your profile"}
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {profile.clientSince ? `Client since ${fmtDate(profile.clientSince)}` : profile.email}
+          </div>
+        </div>
+      </AccountCard>
+
+      <AccountCard className="max-w-2xl space-y-5 p-5 sm:p-7">
         {editing && form ? (
           <>
             <Field
@@ -118,9 +137,9 @@ export default function AccountProfilePage() {
               placeholder="e.g. Botox, HydraFacial"
             />
             <div>
-              <div className="text-xs text-lumiere-muted">Email</div>
-              <div className="text-sm text-lumiere-navy mt-0.5">{profile.email || "—"}</div>
-              <p className="text-[11px] text-lumiere-muted mt-1">
+              <div className="text-xs text-muted-foreground">Email</div>
+              <div className="text-sm text-foreground mt-0.5">{profile.email || "—"}</div>
+              <p className="text-[11px] text-muted-foreground mt-1">
                 This is how we recognise your account — contact the clinic to change it.
               </p>
             </div>
@@ -145,12 +164,15 @@ export default function AccountProfilePage() {
           </>
         ) : (
           <>
-            <Row label="Full name" value={profile.name} />
-            <Row label="Phone" value={profile.phone} />
-            <Row label="Email" value={profile.email} />
-            <Row label="Birthday" value={profile.birthday?.slice(0, 10) ?? ""} />
-            <Row label="Treatments you're interested in" value={profile.treatmentInterest} />
-            <Row label="Client since" value={fmtDate(profile.clientSince)} />
+            <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2">
+              <Row label="Full name" value={profile.name} />
+              <Row label="Phone" value={profile.phone} />
+              <Row label="Email" value={profile.email} />
+              <Row label="Birthday" value={profile.birthday?.slice(0, 10) ?? ""} />
+              <div className="sm:col-span-2">
+                <Row label="Treatments you're interested in" value={profile.treatmentInterest} />
+              </div>
+            </div>
             {saved && <p className="text-sm text-success">Saved.</p>}
             <SecondaryButton
               onClick={() => {
@@ -171,8 +193,8 @@ export default function AccountProfilePage() {
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-xs text-lumiere-muted">{label}</div>
-      <div className="text-sm text-lumiere-navy mt-0.5 break-words">{value || "—"}</div>
+      <div className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
+      <div className="mt-1 text-sm text-foreground break-words">{value || "—"}</div>
     </div>
   );
 }
@@ -192,17 +214,18 @@ function Field({
   inputMode?: "tel" | "text";
   placeholder?: string;
 }) {
+  const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
-    <label className="block">
-      <span className="text-xs text-lumiere-muted">{label}</span>
-      <input
+    <div className="space-y-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
         type={type}
         inputMode={inputMode}
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="mt-1 w-full rounded-lg border border-lumiere-ivory bg-lumiere-cream px-3 py-2.5 text-sm text-lumiere-navy focus:outline-none focus:ring-2 focus:ring-lumiere-rose"
       />
-    </label>
+    </div>
   );
 }

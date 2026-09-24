@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, Loader2 } from "lucide-react";
+import { Check, Loader2 } from "lucide-react";
+import { useAccountData } from "@/lib/account/use-account-data";
 import {
   PageHeader,
   AccountCard,
@@ -10,9 +12,17 @@ import {
   AccountError,
   AccountLoading,
   PrimaryButton,
-  SecondaryButton,
-  SectionLabel,
 } from "@/components/account/AccountUI";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 interface Service {
   id: string;
@@ -22,90 +32,185 @@ interface Service {
   requiresConsultation: boolean;
 }
 
+interface TeamMember {
+  id: string;
+  name: string;
+  color: string;
+  qualifications: string[];
+}
+
 interface Slot {
   startTime: string;
   endTime: string;
   practitioner: string | null;
 }
 
-/** The next 14 days as pickable dates — the engine still decides which of them have any slots. */
-function nextDays(count: number): { value: string; label: string }[] {
-  const out: { value: string; label: string }[] = [];
-  for (let i = 0; i < count; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    out.push({
-      value: d.toLocaleDateString("en-CA"),
-      label: d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }),
-    });
-  }
-  return out;
+interface Profile {
+  name: string;
+  phone: string;
+  email: string;
+  birthday: string;
 }
 
+const ANY = "__any__";
+
+const toDateInput = (d: Date) => d.toLocaleDateString("en-CA");
+const fmtTime = (iso: string) =>
+  new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+
 /**
- * Booking, one decision per screen: treatment → day → time → confirm.
+ * Book an appointment — laid out exactly like the admin portal's "New appointment" form: the
+ * client's details on top, then treatment + practitioner, date + available slot, notes, and one
+ * button. The same fields in the same order, so a client and the front desk are looking at the
+ * same thing.
  *
- * Every rule stays in the engine: the slots shown come from the same availability check the chat
- * agent uses, and the booking goes through the same endpoint, so clinic hours, practitioner
- * qualifications, rooms, equipment, consultation requirements and notice windows all behave
- * identically to a chat booking.
+ * What differs is only what a client must not choose: they are always the client (details come
+ * from their own profile, read-only here — edit them under Profile), rooms are assigned by the
+ * clinic, and the confirmation email always goes to the address on file. Every rule still lives in
+ * the engine: slots come from the same availability check, the booking goes through the same
+ * endpoint the chat uses, and a refusal shows the clinic's own wording.
  */
+/** A detail that's already on the client's profile is locked here (read-only) so the booking, the
+ * confirmation and the calendar all carry exactly what the clinic has on file; a detail still
+ * missing is left open to fill in. Changing a locked one is done under Profile, which then updates
+ * the calendar as well. */
+const LOCKED = "cursor-not-allowed bg-muted/60 text-muted-foreground";
+
 export default function AccountBookPage() {
   const router = useRouter();
-  const [services, setServices] = useState<Service[]>([]);
-  const [loadingServices, setLoadingServices] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const profileResult = useAccountData<{ profile: Profile }>("/api/account/profile");
+  const profile = profileResult.data?.profile ?? null;
 
-  const [service, setService] = useState<Service | null>(null);
-  const [date, setDate] = useState<string | null>(null);
-  const [slots, setSlots] = useState<Slot[] | null>(null);
+  const [services, setServices] = useState<Service[]>([]);
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [loadingMeta, setLoadingMeta] = useState(true);
+  const [metaError, setMetaError] = useState<string | null>(null);
+
+  const [practitionerId, setPractitionerId] = useState<string>(ANY);
+  const [treatment, setTreatment] = useState("");
+  const [date, setDate] = useState(() => toDateInput(new Date()));
+  const [slots, setSlots] = useState<Slot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
-  const [slot, setSlot] = useState<Slot | null>(null);
-  const [booking, setBooking] = useState(false);
+  const [slotStart, setSlotStart] = useState("");
+  const [notes, setNotes] = useState("");
+  // The client's details, all editable — seeded once from their profile.
+  const [clientName, setClientName] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
+  const [clientEmail, setClientEmail] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [seeded, setSeeded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshSlots, setRefreshSlots] = useState(0);
   const [booked, setBooked] = useState<{
     treatment: string;
     startTime: string;
     requiresApproval: boolean;
+    emailedTo: string | null;
   } | null>(null);
 
   useEffect(() => {
-    fetch("/api/account/services")
-      .then((r) => r.json())
-      .then((json) => setServices(json.services ?? []))
-      .catch(() => setError("We couldn't load our treatments."))
-      .finally(() => setLoadingServices(false));
+    if (!profile || seeded) return;
+    setClientName(profile.name ?? "");
+    setClientPhone(profile.phone ?? "");
+    setClientEmail(profile.email ?? "");
+    setBirthday(profile.birthday?.slice(0, 10) ?? "");
+    setSeeded(true);
+  }, [profile, seeded]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([
+      fetch("/api/account/services").then((r) => (r.ok ? r.json() : Promise.reject(r))),
+      fetch("/api/account/practitioners").then((r) => (r.ok ? r.json() : Promise.reject(r))),
+    ])
+      .then(([s, t]) => {
+        if (cancelled) return;
+        setServices(s.services ?? []);
+        setTeam(t.practitioners ?? []);
+      })
+      .catch(() => !cancelled && setMetaError("We couldn't load our treatments."))
+      .finally(() => !cancelled && setLoadingMeta(false));
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const loadSlots = useCallback(async (chosen: Service, day: string) => {
-    setLoadingSlots(true);
-    setSlots(null);
-    setSlot(null);
-    try {
-      const res = await fetch(
-        `/api/account/slots?date=${day}&treatment=${encodeURIComponent(chosen.name)}`,
-      );
-      const json = await res.json();
-      setSlots(json.slots ?? []);
-    } catch {
-      setSlots([]);
-    } finally {
-      setLoadingSlots(false);
+  const practitioner = team.find((p) => p.id === practitionerId) ?? null;
+
+  // Only treatments this practitioner is qualified for — the same rule the admin form applies.
+  // "Any practitioner" leaves the whole bookable menu open and lets the engine match someone.
+  const qualifiedServices = useMemo(
+    () =>
+      practitioner ? services.filter((s) => practitioner.qualifications.includes(s.id)) : services,
+    [services, practitioner],
+  );
+
+  useEffect(() => {
+    if (qualifiedServices.length === 0) {
+      setTreatment("");
+      return;
     }
-  }, []);
+    if (!qualifiedServices.some((s) => s.name === treatment)) {
+      setTreatment(qualifiedServices[0].name);
+    }
+  }, [qualifiedServices, treatment]);
+
+  const selectedService = qualifiedServices.find((s) => s.name === treatment);
+
+  // Available slots for the chosen day, treatment and (optionally) practitioner.
+  useEffect(() => {
+    if (!date || !treatment) {
+      setSlots([]);
+      return;
+    }
+    let cancelled = false;
+    setLoadingSlots(true);
+    setSlotStart("");
+    const params = new URLSearchParams({ date, treatment });
+    if (practitioner) params.set("practitioner", practitioner.name);
+    fetch(`/api/account/slots?${params}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((json) => {
+        if (cancelled) return;
+        const list: Slot[] = json.slots ?? [];
+        setSlots(list);
+        if (list.length > 0) setSlotStart(list[0].startTime);
+      })
+      .catch(() => !cancelled && setSlots([]))
+      .finally(() => !cancelled && setLoadingSlots(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [date, treatment, practitioner, refreshSlots]);
+
+  const selectedSlot = slots.find((s) => s.startTime === slotStart);
 
   const confirm = async () => {
-    if (!service || !slot) return;
-    setBooking(true);
     setError(null);
+    if (!treatment) return setError("Pick a treatment first.");
+    if (!clientName.trim()) return setError("Please enter your name.");
+    if (!clientPhone.trim()) return setError("Phone number is required.");
+    if (!clientEmail.trim() || !clientEmail.includes("@"))
+      return setError("A valid email is required for your confirmation.");
+    if (!birthday) return setError("Birthday is required.");
+    if (!selectedSlot) return setError("Select an available time slot.");
+
+    setSaving(true);
     try {
       const res = await fetch("/api/account/book", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          treatment: service.name,
-          startTime: slot.startTime,
-          endTime: slot.endTime,
-          practitionerName: slot.practitioner ?? undefined,
+          treatment,
+          startTime: selectedSlot.startTime,
+          endTime: selectedSlot.endTime,
+          practitionerName: practitioner?.name ?? selectedSlot.practitioner ?? undefined,
+          notes: notes.trim() || undefined,
+          clientName: clientName.trim(),
+          clientPhone: clientPhone.trim(),
+          clientEmail: clientEmail.trim(),
+          birthday,
         }),
       });
       const json = await res.json().catch(() => null);
@@ -114,27 +219,28 @@ export default function AccountBookPage() {
         treatment: json.appointment.treatment,
         startTime: json.appointment.startTime,
         requiresApproval: json.appointment.requiresApproval,
+        emailedTo: json.emailedTo ?? null,
       });
     } catch (err) {
-      // Usually "that slot just went" — send them back to a fresh list rather than a dead end.
+      // Usually "that slot just went" — refresh the list rather than leave a dead end.
       setError(err instanceof Error ? err.message : "We couldn't book that time.");
-      if (service && date) void loadSlots(service, date);
+      setRefreshSlots((n) => n + 1);
     } finally {
-      setBooking(false);
+      setSaving(false);
     }
   };
 
   if (booked) {
     return (
       <div>
-        <PageHeader title="You're booked" />
-        <AccountCard className="p-6 text-center space-y-3">
-          <div className="mx-auto h-11 w-11 rounded-full bg-success/10 flex items-center justify-center">
-            <Check className="h-5 w-5 text-success" />
+        <PageHeader eyebrow="All set" title="You're booked" />
+        <AccountCard className="mx-auto max-w-lg space-y-4 p-8 text-center">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-success/10 ring-8 ring-success/5">
+            <Check className="h-6 w-6 text-success" />
           </div>
           <div>
-            <div className="font-semibold text-lumiere-navy">{booked.treatment}</div>
-            <div className="text-sm text-lumiere-muted mt-0.5">
+            <div className="font-serif text-xl font-medium text-foreground">{booked.treatment}</div>
+            <div className="mt-0.5 text-sm text-muted-foreground">
               {new Date(booked.startTime).toLocaleString(undefined, {
                 weekday: "long",
                 month: "long",
@@ -144,10 +250,13 @@ export default function AccountBookPage() {
               })}
             </div>
           </div>
-          <p className="text-sm text-lumiere-muted">
+          <p className="text-sm text-muted-foreground">
             {booked.requiresApproval
-              ? "Our head practitioner will review this booking, and we'll be in touch. Check your email for anything we need from you beforehand."
-              : "Check your email for your confirmation, and anything we need from you beforehand."}
+              ? "Our head practitioner will review this booking, and we'll be in touch."
+              : "Your booking is confirmed."}{" "}
+            {booked.emailedTo
+              ? `We've emailed a confirmation to ${booked.emailedTo} — check it for anything we need from you beforehand.`
+              : "Check your account for anything we need from you beforehand."}
           </p>
           <div className="flex justify-center gap-2 pt-1">
             <PrimaryButton onClick={() => router.push("/account/appointments")}>
@@ -159,11 +268,12 @@ export default function AccountBookPage() {
     );
   }
 
-  if (loadingServices) return <AccountLoading rows={3} />;
+  if (loadingMeta || profileResult.loading) return <AccountLoading rows={3} />;
+  if (metaError) return <AccountError message={metaError} />;
   if (services.length === 0) {
     return (
       <div>
-        <PageHeader title="Book" />
+        <PageHeader eyebrow="Book" title="Book an appointment" />
         <AccountEmpty
           title="Nothing bookable online yet"
           body="Please contact the clinic and we'll find you a time."
@@ -175,123 +285,198 @@ export default function AccountBookPage() {
   return (
     <div>
       <PageHeader
+        eyebrow="Book"
         title="Book an appointment"
-        subtitle={service ? `${service.name}${date ? ` · ${date}` : ""}` : "Choose a treatment"}
+        subtitle="Choose a treatment, a day and a time — we check the real calendar."
       />
 
-      {error && (
-        <div className="mb-4">
-          <AccountError message={error} />
-        </div>
-      )}
+      <AccountCard className="max-w-2xl p-5 sm:p-7">
+        <div className="space-y-4 text-sm">
+          <div>
+            <Label className="mb-1.5 block text-xs text-muted-foreground">Full name *</Label>
+            <Input
+              value={clientName}
+              onChange={(e) => setClientName(e.target.value)}
+              placeholder="Jane Smith"
+              readOnly={!!profile?.name}
+              className={`h-9 ${profile?.name ? LOCKED : ""}`}
+            />
+          </div>
 
-      {!service && (
-        <div className="space-y-2">
-          {services.map((s) => (
-            <button key={s.id} onClick={() => setService(s)} className="w-full text-left">
-              <AccountCard className="px-4 py-3 flex items-center justify-between gap-3 hover:border-lumiere-rose transition-colors">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium text-lumiere-navy break-words">{s.name}</div>
-                  <div className="text-xs text-lumiere-muted mt-0.5">
-                    {s.durationMinutes} min
-                    {s.price != null ? ` · $${s.price}` : ""}
-                    {s.requiresConsultation ? " · consultation first" : ""}
-                  </div>
-                </div>
-              </AccountCard>
-            </button>
-          ))}
-        </div>
-      )}
-
-      {service && (
-        <div className="space-y-5">
-          <SecondaryButton
-            onClick={() => {
-              setService(null);
-              setDate(null);
-              setSlots(null);
-              setSlot(null);
-            }}
-          >
-            <ArrowLeft className="h-3.5 w-3.5 mr-1.5" /> Change treatment
-          </SecondaryButton>
-
-          <section>
-            <SectionLabel>Pick a day</SectionLabel>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-              {nextDays(14).map((day) => (
-                <button
-                  key={day.value}
-                  onClick={() => {
-                    setDate(day.value);
-                    void loadSlots(service, day.value);
-                  }}
-                  className={`rounded-lg border px-3 py-2 text-xs whitespace-nowrap transition-colors ${
-                    date === day.value
-                      ? "bg-lumiere-navy text-white border-lumiere-navy"
-                      : "bg-white border-lumiere-ivory text-lumiere-navy"
-                  }`}
-                >
-                  {day.label}
-                </button>
-              ))}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1.5 block text-xs text-muted-foreground">Phone *</Label>
+              <Input
+                value={clientPhone}
+                onChange={(e) => setClientPhone(e.target.value)}
+                placeholder="(512) 555-0199"
+                inputMode="tel"
+                readOnly={!!profile?.phone}
+                className={`h-9 ${profile?.phone ? LOCKED : ""}`}
+              />
             </div>
-          </section>
+            <div>
+              <Label className="mb-1.5 block text-xs text-muted-foreground">Email *</Label>
+              <Input
+                type="email"
+                value={clientEmail}
+                onChange={(e) => setClientEmail(e.target.value)}
+                placeholder="you@email.com"
+                readOnly={!!profile?.email}
+                className={`h-9 ${profile?.email ? LOCKED : ""}`}
+              />
+            </div>
+          </div>
 
-          {date && (
-            <section>
-              <SectionLabel>Pick a time</SectionLabel>
-              {loadingSlots ? (
-                <AccountLoading rows={1} />
-              ) : slots && slots.length > 0 ? (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                  {slots.map((s) => (
-                    <button
-                      key={s.startTime}
-                      onClick={() => setSlot(s)}
-                      className={`rounded-lg border px-2 py-2.5 text-sm transition-colors ${
-                        slot?.startTime === s.startTime
-                          ? "bg-lumiere-navy text-white border-lumiere-navy"
-                          : "bg-white border-lumiere-ivory text-lumiere-navy hover:border-lumiere-rose"
-                      }`}
-                    >
-                      {new Date(s.startTime).toLocaleTimeString(undefined, {
-                        hour: "numeric",
-                        minute: "2-digit",
-                      })}
-                    </button>
+          <div>
+            <Label className="mb-1.5 block text-xs text-muted-foreground">Birthday *</Label>
+            <Input
+              type="date"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
+              readOnly={!!profile?.birthday}
+              className={`h-9 ${profile?.birthday ? LOCKED : ""}`}
+            />
+          </div>
+
+          {(profile?.name || profile?.phone || profile?.email || profile?.birthday) && (
+            <p className="-mt-1 text-xs text-muted-foreground">
+              Details already on file are locked here. To change them, update your{" "}
+              <Link href="/account/profile" className="text-primary underline">
+                profile
+              </Link>{" "}
+              — it updates your calendar bookings too.
+            </p>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1.5 block text-xs text-muted-foreground">Treatment</Label>
+              <Select
+                value={treatment || undefined}
+                onValueChange={setTreatment}
+                disabled={qualifiedServices.length === 0}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue
+                    placeholder={
+                      qualifiedServices.length === 0
+                        ? "No treatments for this practitioner"
+                        : "Select treatment"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {qualifiedServices.map((s) => (
+                    <SelectItem key={s.id} value={s.name}>
+                      {s.name} · {s.durationMinutes} min
+                      {s.price != null ? ` · $${s.price}` : ""}
+                    </SelectItem>
                   ))}
-                </div>
-              ) : (
-                <AccountCard className="px-4 py-6 text-center text-sm text-lumiere-muted">
-                  No times left that day — try another.
-                </AccountCard>
+                </SelectContent>
+              </Select>
+              {selectedService?.requiresConsultation && (
+                <p className="mt-1 text-xs text-muted-foreground">Consultation first.</p>
               )}
-            </section>
-          )}
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-xs text-muted-foreground">Practitioner</Label>
+              <Select value={practitionerId} onValueChange={setPractitionerId}>
+                <SelectTrigger className="h-9">
+                  <SelectValue placeholder="Select practitioner" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ANY}>Any available</SelectItem>
+                  {team.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="h-2 w-2 rounded-full"
+                          style={{ backgroundColor: p.color }}
+                        />
+                        {p.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
 
-          {slot && (
-            <AccountCard className="p-4 space-y-3">
-              <div className="text-sm text-lumiere-navy">
-                <span className="font-semibold">{service.name}</span> on{" "}
-                {new Date(slot.startTime).toLocaleString(undefined, {
-                  weekday: "long",
-                  month: "long",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
-                {slot.practitioner ? ` with ${slot.practitioner}` : ""}
-              </div>
-              <PrimaryButton onClick={confirm} disabled={booking} className="w-full">
-                {booking && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-                Confirm booking
-              </PrimaryButton>
-            </AccountCard>
-          )}
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <Label className="mb-1.5 block text-xs text-muted-foreground">Date</Label>
+              <Input
+                type="date"
+                value={date}
+                min={toDateInput(new Date())}
+                onChange={(e) => setDate(e.target.value)}
+                className="h-9"
+              />
+            </div>
+            <div>
+              <Label className="mb-1.5 block text-xs text-muted-foreground">
+                Available slot{" "}
+                {loadingSlots && <span className="text-xs text-muted-foreground">checking…</span>}
+              </Label>
+              <Select
+                value={slotStart || undefined}
+                onValueChange={setSlotStart}
+                disabled={loadingSlots || slots.length === 0}
+              >
+                <SelectTrigger className="h-9">
+                  <SelectValue
+                    placeholder={
+                      loadingSlots
+                        ? "Loading slots…"
+                        : slots.length === 0
+                          ? "No slots available"
+                          : "Select a time"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {slots.map((slot) => (
+                    <SelectItem key={slot.startTime} value={slot.startTime}>
+                      {fmtTime(slot.startTime)}
+                      {!practitioner && slot.practitioner ? ` · ${slot.practitioner}` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {!loadingSlots && slots.length === 0 && treatment && (
+                <p className="mt-1 text-xs text-destructive">
+                  No open slots for this date and treatment — try another day.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <Label className="mb-1.5 block text-xs text-muted-foreground">Notes</Label>
+            <Textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Anything we should know beforehand? (optional)"
+              maxLength={500}
+              rows={3}
+            />
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            {clientEmail.includes("@")
+              ? `A confirmation email will be sent to ${clientEmail}.`
+              : "Add your email to receive a confirmation."}
+          </p>
+
+          {error && <AccountError message={error} />}
+
+          <PrimaryButton onClick={confirm} disabled={saving || !selectedSlot} className="w-full">
+            {saving && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+            {saving ? "Booking…" : "Book appointment"}
+          </PrimaryButton>
         </div>
-      )}
+      </AccountCard>
     </div>
   );
 }

@@ -56,7 +56,10 @@ export default function ChatWidget({
   }, []);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Scroll the message list itself — scrollIntoView would also scroll the *page* to bring the
+    // widget into view, yanking a visitor down the homepage a few seconds after it loads.
+    const list = bottomRef.current?.parentElement;
+    list?.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
 
   const sendMessage = useCallback(async () => {
@@ -137,7 +140,7 @@ export default function ChatWidget({
   };
 
   return (
-    <div className="relative flex flex-col h-full bg-lumiere-cream">
+    <div className="relative flex flex-col h-full bg-background">
       {voiceActive && (
         <VoiceCall
           sessionId={sessionId}
@@ -156,17 +159,17 @@ export default function ChatWidget({
           }}
         />
       )}
-      <div className="bg-lumiere-navy px-5 py-4 flex items-center gap-3 flex-shrink-0">
-        <div className="w-9 h-9 rounded-full bg-lumiere-rose flex items-center justify-center">
-          <span className="font-serif font-bold text-white text-sm">L</span>
+      <div className="bg-panel px-5 py-4 flex items-center gap-3 flex-shrink-0">
+        <div className="w-9 h-9 rounded-full bg-primary flex items-center justify-center">
+          <span className="font-serif font-bold text-primary-foreground text-sm">L</span>
         </div>
         <div>
-          <p className="text-white font-semibold text-sm leading-tight">{clinicName}</p>
-          <p className="text-lumiere-rose text-xs">AI Front Desk • {location}</p>
+          <p className="text-panel-foreground font-semibold text-sm leading-tight">{clinicName}</p>
+          <p className="text-primary text-xs">AI Front Desk • {location}</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
-          <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-          <span className="text-green-400 text-xs">Online</span>
+          <span className="w-2 h-2 bg-success rounded-full animate-pulse" />
+          <span className="text-success text-xs">Online</span>
         </div>
       </div>
 
@@ -182,14 +185,14 @@ export default function ChatWidget({
 
         {loading && (
           <div className="flex justify-start animate-fade-in">
-            <div className="w-7 h-7 rounded-full bg-lumiere-navy flex items-center justify-center text-xs text-lumiere-cream font-serif font-bold mr-2 mt-1 flex-shrink-0">
+            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs text-primary-foreground font-serif font-bold mr-2 mt-1 flex-shrink-0">
               L
             </div>
-            <div className="bg-white rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border border-lumiere-ivory flex items-center gap-1">
+            <div className="bg-card rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border flex items-center gap-1">
               {[0, 1, 2].map((i) => (
                 <span
                   key={i}
-                  className="w-1.5 h-1.5 bg-lumiere-rose rounded-full inline-block animate-pulse-dot"
+                  className="w-1.5 h-1.5 bg-primary rounded-full inline-block animate-pulse-dot"
                   style={{ animationDelay: `${i * 0.2}s` }}
                 />
               ))}
@@ -199,7 +202,7 @@ export default function ChatWidget({
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-lumiere-ivory bg-white px-4 py-3 flex-shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="border-t bg-card px-4 py-3 flex-shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
         {composerReady ? (
           <div className="flex items-end gap-2">
             <textarea
@@ -209,18 +212,18 @@ export default function ChatWidget({
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={`Message ${clinicName}...`}
-              className="flex-1 resize-none bg-lumiere-cream rounded-xl px-4 py-2.5 text-sm text-lumiere-navy placeholder-lumiere-muted focus:outline-none focus:ring-2 focus:ring-lumiere-rose transition-all max-h-32 overflow-y-auto"
+              className="flex-1 resize-none bg-muted rounded-xl px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all max-h-32 overflow-y-auto"
               style={{ minHeight: "40px" }}
             />
             <button
               onClick={() => setVoiceActive(true)}
               disabled={loading || voiceActive}
-              className="w-10 h-10 rounded-xl bg-lumiere-rose flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 transition-all hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label="Start voice call"
               title={`Talk to ${clinicName}`}
             >
               <svg
-                className="w-4 h-4 text-white"
+                className="w-4 h-4 text-primary-foreground"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -236,11 +239,11 @@ export default function ChatWidget({
             <button
               onClick={sendMessage}
               disabled={loading || !input.trim()}
-              className="w-10 h-10 rounded-xl bg-lumiere-navy flex items-center justify-center flex-shrink-0 transition-all hover:bg-lumiere-navy-light disabled:opacity-40 disabled:cursor-not-allowed"
+              className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center flex-shrink-0 transition-all hover:bg-primary/90 disabled:opacity-40 disabled:cursor-not-allowed"
               aria-label="Send message"
             >
               <svg
-                className="w-4 h-4 text-white rotate-90"
+                className="w-4 h-4 text-primary-foreground rotate-90"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -256,13 +259,13 @@ export default function ChatWidget({
           </div>
         ) : (
           <div className="flex items-end gap-2" aria-hidden>
-            <div className="flex-1 h-10 rounded-xl bg-lumiere-cream" />
-            <div className="w-10 h-10 rounded-xl bg-lumiere-rose/30" />
-            <div className="w-10 h-10 rounded-xl bg-lumiere-navy/30" />
+            <div className="flex-1 h-10 rounded-xl bg-muted" />
+            <div className="w-10 h-10 rounded-xl bg-primary/30" />
+            <div className="w-10 h-10 rounded-xl bg-primary/30" />
           </div>
         )}
         {(businessHours || address) && (
-          <p className="text-lumiere-muted text-[10px] text-center mt-2">
+          <p className="text-muted-foreground text-[10px] text-center mt-2">
             {[businessHours, address].filter(Boolean).join(" · ")}
           </p>
         )}

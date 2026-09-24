@@ -17,30 +17,37 @@ export function PractitionerHeroMark() {
       className="pointer-events-none absolute -left-6 bottom-6 hidden h-[70%] w-auto lg:block"
     >
       {/* A soft halo, echoing the botanical accent used elsewhere in the hero. */}
-      <circle cx="150" cy="140" r="118" fill="#f5e6da" opacity="0.55" />
+      <circle cx="150" cy="140" r="118" fill="var(--color-accent)" opacity="0.55" />
 
       {/* Head-and-shoulders bust — no facial detail, deliberately abstract. */}
       <g opacity="0.9">
         <path
           d="M60 320 C 60 230, 96 190, 150 190 C 204 190, 240 230, 240 320 Z"
-          fill="#f5efe6"
-          stroke="#1b2a4a"
+          fill="var(--color-muted)"
+          stroke="var(--color-foreground)"
           strokeWidth="1.5"
           opacity="0.85"
         />
-        <circle cx="150" cy="128" r="52" fill="#f5efe6" stroke="#1b2a4a" strokeWidth="1.5" />
+        <circle
+          cx="150"
+          cy="128"
+          r="52"
+          fill="var(--color-muted)"
+          stroke="var(--color-foreground)"
+          strokeWidth="1.5"
+        />
         {/* Coat collar */}
         <path
           d="M118 210 L 150 240 L 182 210"
           fill="none"
-          stroke="#1b2a4a"
+          stroke="var(--color-foreground)"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
           opacity="0.8"
         />
         {/* A small pin — the one point of colour, standing in for a badge or a pinned flower. */}
-        <circle cx="182" cy="214" r="4" fill="#c4a882" />
+        <circle cx="182" cy="214" r="4" fill="var(--color-primary)" />
       </g>
     </svg>
   );

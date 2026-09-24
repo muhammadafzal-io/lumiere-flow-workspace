@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { findClientByAuthUser, getAccountSession, linkAccount } from "@/lib/account/auth";
+import { getAvatarVersion } from "@/lib/account/avatar";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export async function GET() {
       return NextResponse.json({
         status: "linked",
         profile: publicProfile(linked),
+        avatarVersion: await getAvatarVersion(linked.id),
         session: safeSession(session),
       });
     }
@@ -26,6 +28,7 @@ export async function GET() {
       return NextResponse.json({
         status: "linked",
         profile: publicProfile(outcome.customer),
+        avatarVersion: await getAvatarVersion(outcome.customer.id),
         session: safeSession(session),
       });
     }

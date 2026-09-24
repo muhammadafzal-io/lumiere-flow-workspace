@@ -13,7 +13,7 @@ export function HeroAccentMark() {
       <path
         d="M10 132 C 90 128, 150 104, 190 60 C 214 34, 250 20, 300 18"
         fill="none"
-        stroke="#c4a882"
+        stroke="var(--color-primary)"
         strokeWidth="1.5"
         strokeLinecap="round"
         opacity="0.6"
@@ -22,7 +22,7 @@ export function HeroAccentMark() {
       <path
         d="M96 118 C 110 96, 132 84, 158 80"
         fill="none"
-        stroke="#c4a882"
+        stroke="var(--color-primary)"
         strokeWidth="1.5"
         strokeLinecap="round"
         opacity="0.45"
@@ -32,7 +32,7 @@ export function HeroAccentMark() {
       <path
         d="M232 40 C 246 22, 268 12, 296 10"
         fill="none"
-        stroke="#c4a882"
+        stroke="var(--color-primary)"
         strokeWidth="1.5"
         strokeLinecap="round"
         opacity="0.45"
@@ -53,8 +53,8 @@ export function HeroAccentMark() {
           cy={leaf.cy}
           rx={leaf.r}
           ry={leaf.r * 0.5}
-          fill="#f5e6da"
-          stroke="#1b2a4a"
+          fill="var(--color-accent)"
+          stroke="var(--color-foreground)"
           strokeWidth="1"
           opacity="0.7"
           transform={`rotate(${leaf.rot} ${leaf.cx} ${leaf.cy})`}
@@ -63,12 +63,19 @@ export function HeroAccentMark() {
         />
       ))}
 
-      <circle cx="10" cy="132" r="3.5" fill="#1b2a4a" opacity="0.7" className="animate-badge-pop" />
+      <circle
+        cx="10"
+        cy="132"
+        r="3.5"
+        fill="var(--color-foreground)"
+        opacity="0.7"
+        className="animate-badge-pop"
+      />
       <circle
         cx="158"
         cy="80"
         r="3"
-        fill="#c4a882"
+        fill="var(--color-primary)"
         className="animate-badge-pop"
         style={{ animationDelay: "540ms" }}
       />
@@ -76,7 +83,7 @@ export function HeroAccentMark() {
         cx="300"
         cy="18"
         r="4"
-        fill="#c4a882"
+        fill="var(--color-primary)"
         className="animate-badge-pop"
         style={{ animationDelay: "620ms" }}
       />
@@ -84,7 +91,7 @@ export function HeroAccentMark() {
         cx="296"
         cy="10"
         r="3"
-        fill="#1b2a4a"
+        fill="var(--color-foreground)"
         opacity="0.6"
         className="animate-badge-pop"
         style={{ animationDelay: "680ms" }}

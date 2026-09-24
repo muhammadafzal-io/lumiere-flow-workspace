@@ -104,9 +104,23 @@ export async function getCustomerAppointments(
   return { upcoming: shape(history.upcoming), past: shape(history.past) };
 }
 
+/** What the public team page already shows about a practitioner — nothing internal (no email,
+ * calendar ID or working hours). */
+export interface PractitionerDetails {
+  id: string;
+  role: string | null;
+  specialty: string | null;
+  bio: string | null;
+}
+
 export interface CustomerHistory {
   treatments: { name: string; visitCount: number; lastDate: string | null }[];
-  practitioners: { name: string; visitCount: number; lastDate: string | null }[];
+  practitioners: {
+    name: string;
+    visitCount: number;
+    lastDate: string | null;
+    details: PractitionerDetails | null;
+  }[];
   totalVisits: number;
   firstVisit: string | null;
 }
@@ -120,6 +134,25 @@ export async function getCustomerHistory(customer: Customer): Promise<CustomerHi
 
   const treatments = groupTreatments(history, []).filter((t) => t.visitCount > 0);
   const practitioners = groupPractitioners(history);
+
+  // Attach each practitioner's public description, matched by name (trimmed, case-insensitive —
+  // the calendar stores the name as typed). One query for the whole team.
+  const { data: team } = await getSupabase()
+    .from("Practitioners")
+    .select("id, Name, Role, Specialty, Bio");
+  const byName = new Map(
+    (team ?? []).map((r: Record<string, unknown>) => [
+      String(r["Name"] ?? "")
+        .trim()
+        .toLowerCase(),
+      {
+        id: String(r.id),
+        role: (r["Role"] as string) || null,
+        specialty: (r["Specialty"] as string) || null,
+        bio: (r["Bio"] as string) || null,
+      } satisfies PractitionerDetails,
+    ]),
+  );
   const oldest = history.past[history.past.length - 1];
 
   return {
@@ -128,7 +161,10 @@ export async function getCustomerHistory(customer: Customer): Promise<CustomerHi
       visitCount,
       lastDate,
     })),
-    practitioners,
+    practitioners: practitioners.map((p) => ({
+      ...p,
+      details: byName.get(p.name.trim().toLowerCase()) ?? null,
+    })),
     totalVisits: history.past.length || splitAppointmentField(customer.appointments).length,
     firstVisit: oldest?.startTime ?? null,
   };

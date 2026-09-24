@@ -20,10 +20,16 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const availability = await checkAvailability({ date, treatment });
+    // Optional: narrow to one practitioner, as the admin form does once one is chosen.
+    const practitioner = req.nextUrl.searchParams.get("practitioner")?.trim();
+    const availability = await checkAvailability({
+      date,
+      treatment,
+      ...(practitioner ? { practitionerName: practitioner } : {}),
+    });
     return NextResponse.json({
       date: availability.date,
-      slots: availability.slots.slice(0, 12).map((s) => ({
+      slots: availability.slots.slice(0, 40).map((s) => ({
         startTime: s.startTime,
         endTime: s.endTime,
         practitioner: s.availablePractitioners?.[0] ?? null,

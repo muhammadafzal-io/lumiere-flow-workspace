@@ -1,3 +1,4 @@
+import { syncClientDetailsToCalendar } from "@/lib/integrations/google-calendar";
 import { NextRequest, NextResponse } from "next/server";
 import { mapCustomerRow } from "@/lib/customers/map-row";
 import { normalizeBirthdayForStorage } from "@/lib/birthday";
@@ -120,6 +121,14 @@ export async function PATCH(req: Request) {
     if (appointments !== undefined) fields["Appointments"] = appointments;
     if (lastVisit !== undefined) fields["Last Visit"] = lastVisit;
 
+    // What the client looked like before this edit — needed to find their existing calendar
+    // bookings, which may match by the old name or phone.
+    const { data: before } = await sb
+      .from(TABLE)
+      .select("Name, Phone, Email")
+      .eq("id", recordId)
+      .maybeSingle();
+
     const { data, error } = await sb
       .from(TABLE)
       .update(fields)
@@ -127,6 +136,24 @@ export async function PATCH(req: Request) {
       .select()
       .single();
     if (error) throw new Error(error.message);
+
+    // A name, phone or email changed here must show on the calendar too.
+    const changed = {
+      name: fields["Name"] !== undefined && fields["Name"] !== before?.Name,
+      phone: fields["Phone"] !== undefined && fields["Phone"] !== before?.Phone,
+      email: fields["Email"] !== undefined && fields["Email"] !== before?.Email,
+    };
+    if (changed.name || changed.phone || changed.email) {
+      await syncClientDetailsToCalendar({
+        clientId: String(recordId),
+        previous: { name: before?.Name ?? undefined, phone: before?.Phone ?? undefined },
+        next: {
+          name: changed.name ? String(fields["Name"]) : undefined,
+          phone: changed.phone ? String(fields["Phone"]) : undefined,
+          email: changed.email && fields["Email"] ? String(fields["Email"]) : undefined,
+        },
+      }).catch((err) => console.error("PATCH /api/customers calendar sync failed:", err));
+    }
     return NextResponse.json({ customer: mapRow(data) });
   } catch (error) {
     console.error("PATCH /api/customers error:", error);

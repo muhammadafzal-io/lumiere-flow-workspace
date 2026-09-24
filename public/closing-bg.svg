@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 800" preserveAspectRatio="xMaxYMid slice">
+  <defs>
+    <linearGradient id="tube1" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5eead4" stop-opacity="0.95"/>
+      <stop offset="0.5" stop-color="#0f9d8a"/>
+      <stop offset="1" stop-color="#053b34"/>
+    </linearGradient>
+    <linearGradient id="tube2" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#99f6e4" stop-opacity="0.9"/>
+      <stop offset="0.45" stop-color="#127a6c"/>
+      <stop offset="1" stop-color="#04231e"/>
+    </linearGradient>
+    <linearGradient id="tube3" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#042b25"/>
+      <stop offset="0.6" stop-color="#14b8a6"/>
+      <stop offset="1" stop-color="#ccfbf1" stop-opacity="0.9"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.62" cy="0.5" r="0.6">
+      <stop offset="0" stop-color="#14b8a6" stop-opacity="0.55"/>
+      <stop offset="0.6" stop-color="#0f766e" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#0f766e" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="14"/></filter>
+    <filter id="soft2" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="3"/></filter>
+  </defs>
+  <rect width="1200" height="800" fill="url(#glow)"/>
+  <!-- Blurred underlayer: the shadow the ribbons cast on each other -->
+  <g fill="none" stroke-linecap="round" filter="url(#soft)" opacity="0.7">
+    <ellipse cx="800" cy="410" rx="430" ry="230" transform="rotate(-28 800 410)" stroke="#021a16" stroke-width="150" stroke-dasharray="1000 1900"/>
+    <ellipse cx="780" cy="400" rx="330" ry="170" transform="rotate(18 780 400)" stroke="#021a16" stroke-width="130" stroke-dasharray="800 1500"/>
+  </g>
+  <!-- Ribbons -->
+  <g fill="none" stroke-linecap="round">
+    <ellipse cx="800" cy="410" rx="430" ry="230" transform="rotate(-28 800 410)" stroke="url(#tube1)" stroke-width="110" stroke-dasharray="1000 1900" stroke-dashoffset="-120"/>
+    <ellipse cx="780" cy="400" rx="330" ry="170" transform="rotate(18 780 400)" stroke="url(#tube2)" stroke-width="96" stroke-dasharray="820 1500" stroke-dashoffset="-260"/>
+    <ellipse cx="820" cy="390" rx="250" ry="330" transform="rotate(-60 820 390)" stroke="url(#tube3)" stroke-width="84" stroke-dasharray="700 1700" stroke-dashoffset="-40"/>
+    <ellipse cx="770" cy="420" rx="500" ry="300" transform="rotate(8 770 420)" stroke="url(#tube2)" stroke-width="60" stroke-dasharray="520 2200" stroke-dashoffset="-700" opacity="0.8"/>
+  </g>
+  <!-- Specular edges: thin light lines riding the top of each ribbon -->
+  <g fill="none" stroke-linecap="round" filter="url(#soft2)" stroke="#ecfeff" opacity="0.55">
+    <ellipse cx="800" cy="410" rx="430" ry="230" transform="rotate(-28 800 410)" stroke-width="5" stroke-dasharray="620 2280" stroke-dashoffset="-160"/>
+    <ellipse cx="780" cy="400" rx="330" ry="170" transform="rotate(18 780 400)" stroke-width="4" stroke-dasharray="480 2000" stroke-dashoffset="-300"/>
+    <ellipse cx="820" cy="390" rx="250" ry="330" transform="rotate(-60 820 390)" stroke-width="4" stroke-dasharray="400 2100" stroke-dashoffset="-70"/>
+  </g>
+</svg>
