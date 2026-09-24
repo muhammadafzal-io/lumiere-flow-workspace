@@ -83,7 +83,7 @@ export function AppointmentActions({
           type="button"
           variant="outline"
           size="sm"
-          className="rounded-full"
+          className="h-10 rounded-full sm:h-8"
           onClick={() => setRescheduleOpen(true)}
         >
           <CalendarClock className="mr-1.5 h-3.5 w-3.5" />
@@ -93,7 +93,7 @@ export function AppointmentActions({
           type="button"
           variant="ghost"
           size="sm"
-          className="rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive"
+          className="h-10 rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive sm:h-8"
           onClick={() => setCancelOpen(true)}
         >
           <X className="mr-1.5 h-3.5 w-3.5" />

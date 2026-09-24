@@ -53,7 +53,7 @@ export function BookingBand({ treatmentNames = [], ...props }: ClinicProps) {
 
       <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-8 sm:px-6 sm:pb-16 sm:pt-10">
         <div className="grid items-center gap-10 lg:grid-cols-12 lg:gap-14">
-          <div className="lg:col-span-5">
+          <div className="min-w-0 lg:col-span-5">
             <Reveal>
               <div className="text-[11px] uppercase tracking-[0.2em] text-primary">Booking</div>
               <h2 className="mt-4 font-serif text-4xl font-medium leading-[1.08] tracking-[-0.03em] text-panel-foreground sm:text-5xl">
@@ -71,7 +71,7 @@ export function BookingBand({ treatmentNames = [], ...props }: ClinicProps) {
               {STEPS.map((step, i) => (
                 <Reveal key={step.title} delay={120 + i * 100}>
                   <li className="flex gap-4 pt-5">
-                    <span className="font-serif text-lg font-medium text-primary">
+                    <span className="w-7 flex-shrink-0 font-serif text-lg font-medium text-primary">
                       {String(i + 1).padStart(2, "0")}
                     </span>
                     <div>
@@ -84,7 +84,7 @@ export function BookingBand({ treatmentNames = [], ...props }: ClinicProps) {
             </ol>
           </div>
 
-          <Reveal delay={160} className="relative lg:col-span-7">
+          <Reveal delay={160} className="relative min-w-0 lg:col-span-7">
             {/* The calendar mark, peeking out top-right at a slight tilt — a second card in the
                 stack, not the main event. Hidden below lg: there isn't room for two cards to read
                 as layered rather than just cramped once the column narrows. */}

@@ -80,7 +80,7 @@ export function Timeline({ items }: { items: TimelineItem[] }) {
               setVisible(PAGE);
             }}
             className={cn(
-              "rounded-full border px-4 py-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "rounded-full border px-4 py-2 text-xs transition-colors sm:py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               filter === k
                 ? "border-primary bg-primary text-primary-foreground"
                 : "bg-card text-foreground hover:border-primary/40",

@@ -62,6 +62,9 @@ export default function ChatWidget({
   useEffect(() => {
     // Scroll the message list itself — scrollIntoView would also scroll the *page* to bring the
     // widget into view, yanking a visitor down the homepage a few seconds after it loads.
+    // Nothing to follow until the visitor has actually said something — otherwise the long
+    // greeting opens scrolled past its own first line on a short screen.
+    if (messages.length <= 1 && !loading) return;
     const list = bottomRef.current?.parentElement;
     list?.scrollTo({ top: list.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
@@ -165,9 +168,11 @@ export default function ChatWidget({
       )}
       <div className="bg-panel px-5 py-4 flex items-center gap-3 flex-shrink-0">
         <BotAvatar className="h-10 w-10 flex-shrink-0 ring-2 ring-white/30" />
-        <div>
-          <p className="text-panel-foreground font-semibold text-sm leading-tight">{clinicName}</p>
-          <p className="text-primary text-xs">AI Front Desk • {location}</p>
+        <div className="min-w-0">
+          <p className="truncate text-panel-foreground font-semibold text-sm leading-tight">
+            {clinicName}
+          </p>
+          <p className="truncate text-primary text-xs">AI Front Desk • {location}</p>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <span className="w-2 h-2 bg-success rounded-full animate-pulse" />
@@ -211,7 +216,7 @@ export default function ChatWidget({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={`Message ${clinicName}...`}
+              placeholder="Type your message…"
               className="flex-1 resize-none bg-muted rounded-xl px-4 py-2.5 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition-all max-h-32 overflow-y-auto"
               style={{ minHeight: "40px" }}
             />

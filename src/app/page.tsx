@@ -163,17 +163,17 @@ export default async function HomePage() {
                 </Reveal>
 
                 <Reveal delay={220}>
-                  <div className="mt-7 flex flex-wrap justify-center gap-3 lg:justify-start">
+                  <div className="mt-7 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center lg:justify-start">
                     <a
                       href="#book"
-                      className="group inline-flex items-center gap-1.5 rounded-full bg-white px-7 py-3.5 text-sm font-medium text-primary transition-all duration-300 hover:shadow-[0_10px_40px_-10px_rgba(255,255,255,0.5)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-panel motion-reduce:transition-none"
+                      className="group inline-flex items-center justify-center gap-1.5 rounded-full bg-white px-7 py-3.5 text-sm font-medium text-primary transition-all duration-300 hover:shadow-[0_10px_40px_-10px_rgba(255,255,255,0.5)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-panel motion-reduce:transition-none"
                     >
                       Book an appointment
                       <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-0.5 motion-reduce:transition-none" />
                     </a>
                     <a
                       href="#treatments"
-                      className="rounded-full border border-white/25 px-7 py-3.5 text-sm font-medium text-panel-foreground transition-colors duration-300 hover:bg-white/10 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
+                      className="rounded-full border border-white/25 px-7 py-3.5 text-center text-sm font-medium text-panel-foreground transition-colors duration-300 hover:bg-white/10 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-panel"
                     >
                       Treatments
                     </a>
@@ -297,10 +297,10 @@ export default async function HomePage() {
                   Pick a treatment and a time — we&apos;ll check the calendar and confirm straight
                   away.
                 </p>
-                <div className="mt-10 flex flex-wrap gap-3">
+                <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:flex-wrap">
                   <a
                     href="#book"
-                    className="group inline-flex items-center gap-2 rounded-full bg-white px-9 py-4.5 text-base font-medium text-primary transition-all duration-300 hover:shadow-[0_12px_40px_-10px_rgba(255,255,255,0.55)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-primary motion-reduce:transition-none"
+                    className="group inline-flex items-center justify-center gap-2 rounded-full bg-white px-9 py-4.5 text-base font-medium text-primary transition-all duration-300 hover:shadow-[0_12px_40px_-10px_rgba(255,255,255,0.55)] active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-primary motion-reduce:transition-none"
                   >
                     Book an appointment
                     <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-0.5 motion-reduce:transition-none" />
@@ -309,7 +309,7 @@ export default async function HomePage() {
                     href="/account"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-full border border-white/40 px-9 py-4.5 text-base font-medium text-primary-foreground transition-colors duration-300 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-primary motion-reduce:transition-none"
+                    className="rounded-full border border-white/40 px-9 py-4.5 text-center text-base font-medium text-primary-foreground transition-colors duration-300 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-primary motion-reduce:transition-none"
                   >
                     My account login
                   </Link>

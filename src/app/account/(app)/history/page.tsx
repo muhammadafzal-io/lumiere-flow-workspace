@@ -105,12 +105,12 @@ export default function AccountHistoryPage() {
             ].map((stat) => (
               <AccountCard
                 key={stat.label}
-                className="min-w-[6rem] flex-[1_1_6rem] bg-primary/[0.07] px-2 py-5 text-center ring-1 ring-primary/20 sm:px-4 sm:py-6"
+                className="min-w-[5rem] flex-[1_1_5rem] bg-primary/[0.07] px-2 py-5 text-center ring-1 ring-primary/20 sm:px-4 sm:py-6"
               >
                 <div className="font-serif text-4xl font-medium tracking-[-0.02em] text-foreground sm:text-5xl">
                   {stat.value}
                 </div>
-                <div className="mt-1 text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                <div className="mt-1 text-[9px] uppercase tracking-[0.08em] text-muted-foreground sm:text-[11px] sm:tracking-[0.14em]">
                   {stat.label}
                 </div>
               </AccountCard>
@@ -193,7 +193,7 @@ export default function AccountHistoryPage() {
                 return (
                   <div
                     key={t.name}
-                    className="flex min-w-[10rem] flex-[1_1_12rem] sm:max-w-[calc(33.333%-0.7rem)]"
+                    className="flex w-[calc(50%-0.5rem)] sm:w-[calc(33.333%-0.7rem)]"
                   >
                     <div
                       className="door-card"

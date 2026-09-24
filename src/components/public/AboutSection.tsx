@@ -70,7 +70,7 @@ export function AboutSection({ clinicName, location }: { clinicName: string; loc
             <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
               <a
                 href="#team"
-                className="group inline-flex items-center gap-1.5 rounded-full bg-primary px-7 py-3.5 text-sm font-medium text-primary-foreground transition-all duration-300 hover:bg-primary/90 hover:shadow-lg active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none"
+                className="group inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-primary px-7 py-3.5 sm:w-auto text-sm font-medium text-primary-foreground transition-all duration-300 hover:bg-primary/90 hover:shadow-lg active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 motion-reduce:transition-none"
               >
                 Meet the team
                 <ArrowRight className="h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-0.5 motion-reduce:transition-none" />
