@@ -98,7 +98,9 @@ const OPENAI_TIMEOUT_MS = 20_000;
  * a 429 from a rate limit, say — burned ~40s before throwing, which is most of the function's
  * budget spent on a request that was never going to succeed. One retry covers a transient blip
  * without eating the whole window. */
-const OPENAI_MAX_RETRIES = 1;
+const OPENAI_MAX_RETRIES = 0; // retries are handled by createCompletionPatiently, which knows about
+// rate limits — the SDK's own retry sleeps for however long OpenAI's retry-after header says (measured
+// at 20–30s on a busy minute) inside a single call, invisible to the code that wants to fall back.
 
 function getOpenAI() {
   const apiKey = getOpenAIApiKey();
@@ -110,6 +112,31 @@ function getOpenAI() {
     timeout: OPENAI_TIMEOUT_MS,
     maxRetries: OPENAI_MAX_RETRIES,
   });
+}
+
+/** Tool results (slot lists, service menus) are the bulk of a long conversation's history and are
+ * re-sent on every turn. Anything older than the last 16 messages is long past the booking step it
+ * served, so its text is cut short; recent results — the ones a booking might still need an exact
+ * time or id from — are left whole. */
+const KEEP_RECENT_MESSAGES = 16;
+const OLD_TOOL_RESULT_MAX_CHARS = 700;
+
+export function shortenOldToolResults(
+  history: ChatCompletionMessageParam[],
+): ChatCompletionMessageParam[] {
+  const cutoff = history.length - KEEP_RECENT_MESSAGES;
+  if (cutoff <= 0) return history;
+  return history.map((m, i) =>
+    i < cutoff &&
+    m.role === "tool" &&
+    typeof m.content === "string" &&
+    m.content.length > OLD_TOOL_RESULT_MAX_CHARS
+      ? {
+          ...m,
+          content: `${m.content.slice(0, OLD_TOOL_RESULT_MAX_CHARS)}…[older result shortened]`,
+        }
+      : m,
+  );
 }
 
 const MAX_TOOL_ROUNDS = 8;
@@ -140,30 +167,55 @@ function retryDelayMs(err: unknown): number {
 async function createCompletionPatiently(
   params: Parameters<OpenAI["chat"]["completions"]["create"]>[0] & { stream?: false },
   deadline: number,
+  onText?: (delta: string) => void,
 ) {
-  // A second 429 in a row switches this call to a smaller model. Rate limits are counted per model,
-  // so the fallback draws on a different, much larger tokens-per-minute pool — a slightly plainer
-  // reply beats "I'm having trouble". Set OPENAI_FALLBACK_MODEL to another model, or to "off".
+  // Rate limits are counted per model, so on a 429 the fastest cure is a different model: a smaller
+  // one draws on a separate, much larger tokens-per-minute pool and answers in about a second, where
+  // waiting for the big model's window to clear can cost 10–30s. A brief hint (≤ 2.5s) is worth one
+  // patient retry of the original model first; anything longer goes straight to the fallback.
+  // Set OPENAI_FALLBACK_MODEL to another model, or to "off" to only ever wait.
   const fallbackModel = (process.env.OPENAI_FALLBACK_MODEL ?? "gpt-4o-mini").trim();
+  const canFallback = !!fallbackModel && fallbackModel !== "off";
   let current = params;
+  let transientRetried = false;
   for (let attempt = 0; ; attempt++) {
     try {
+      if (onText) {
+        // Streamed: text reaches the caller as the model writes it, and the finished completion has
+        // exactly the shape of a non-streamed one, so the loop below is unchanged. A 429 is raised
+        // before any token is produced, so retrying never repeats text already shown.
+        const stream = getOpenAI().beta.chat.completions.stream({
+          ...(current as object),
+          stream_options: { include_usage: true },
+        } as Parameters<OpenAI["beta"]["chat"]["completions"]["stream"]>[0]);
+        stream.on("content", (delta) => onText(delta));
+        return await stream.finalChatCompletion();
+      }
       return (await getOpenAI().chat.completions.create(current)) as OpenAI.Chat.ChatCompletion;
     } catch (err) {
-      const wait = retryDelayMs(err);
-      if (!isRateLimitError(err) || attempt >= 3 || Date.now() + wait + 4000 > deadline) throw err;
-      if (
-        attempt >= 1 &&
-        fallbackModel &&
-        fallbackModel !== "off" &&
-        current.model !== fallbackModel
-      ) {
-        console.warn(`[agent] still rate limited — falling back to ${fallbackModel} for this call`);
-        current = { ...params, model: fallbackModel };
-      } else {
+      if (isRateLimitError(err)) {
+        const wait = retryDelayMs(err);
+        const onFallback = current.model === fallbackModel;
+        if (attempt >= 3 || Date.now() + 4000 > deadline) throw err;
+        if (canFallback && !onFallback && (attempt >= 1 || wait > 2900)) {
+          console.warn(`[agent] rate limited (wait ${wait}ms) — falling back to ${fallbackModel}`);
+          current = { ...params, model: fallbackModel };
+          continue;
+        }
+        if (Date.now() + wait + 4000 > deadline) throw err;
         console.warn(`[agent] rate limited by OpenAI — waiting ${wait}ms (retry ${attempt + 1}/3)`);
         await new Promise((resolve) => setTimeout(resolve, wait));
+        continue;
       }
+      // One quick retry for a dropped connection or a 5xx — what the SDK's own retry used to cover.
+      const status = (err as { status?: number } | null)?.status;
+      const transient = status === undefined || status >= 500;
+      if (transient && !transientRetried && Date.now() + 6000 < deadline) {
+        transientRetried = true;
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        continue;
+      }
+      throw err;
     }
   }
 }
@@ -277,7 +329,44 @@ async function resolveAddonDurationBoost(
   return resolveSelectedAddons(candidateAddons, rawSelectedAddons);
 }
 
+/**
+ * Catalogue lookups the model makes on almost every conversation — the service menu with prices,
+ * the practitioner list, a service's add-ons. They change rarely (an admin edits a service), yet
+ * each call cost a database round trip of roughly a second. Remembering the answer briefly, per
+ * server instance, makes repeat calls instant; a new booking flow never needs data fresher than
+ * this. Only successful answers are kept, and only these read-only tools — anything that reads
+ * live availability or writes (bookings, clients, waitlist) always runs for real.
+ */
+const CATALOGUE_TOOLS = new Set(["get_services", "get_practitioners", "get_addons"]);
+const CATALOGUE_TTL_MS = 60_000;
+const catalogueCache = new Map<string, { at: number; value: { result: unknown } }>();
+
+function looksLikeFailure(result: unknown): boolean {
+  if (!result || typeof result !== "object") return false;
+  const r = result as Record<string, unknown>;
+  return "error" in r || (typeof r.note === "string" && /unavailable/i.test(r.note));
+}
+
 export async function executeTool(
+  toolName: string,
+  input: Record<string, unknown>,
+  context: { platform: string; chatId: string },
+): Promise<{ result: unknown; escalated?: boolean; booked?: boolean }> {
+  if (!CATALOGUE_TOOLS.has(toolName)) return executeToolUncached(toolName, input, context);
+
+  const key = `${toolName}:${JSON.stringify(input)}`;
+  const hit = catalogueCache.get(key);
+  if (hit && Date.now() - hit.at < CATALOGUE_TTL_MS) return hit.value;
+
+  const value = await executeToolUncached(toolName, input, context);
+  if (!looksLikeFailure(value.result)) {
+    if (catalogueCache.size > 50) catalogueCache.clear();
+    catalogueCache.set(key, { at: Date.now(), value });
+  }
+  return value;
+}
+
+async function executeToolUncached(
   toolName: string,
   input: Record<string, unknown>,
   context: { platform: string; chatId: string },
@@ -1633,12 +1722,17 @@ export async function runAgent(opts: {
   history: ChatCompletionMessageParam[];
   platform: string;
   chatId: string;
+  /** Streaming hooks (widget chat): text as the model writes it, tagged with the model round it
+   * belongs to, and the name of each tool as it starts — so the UI can show progress instead of
+   * a blank wait. Omit both and the agent behaves exactly as before. */
+  onText?: (delta: string, round: number) => void;
+  onTool?: (toolName: string) => void;
 }): Promise<AgentResult> {
-  const { userMessage, history, platform, chatId } = opts;
+  const { userMessage, history, platform, chatId, onText, onTool } = opts;
 
   const messages: ChatCompletionMessageParam[] = [
     { role: "system", content: await getSystemPrompt() },
-    ...history,
+    ...shortenOldToolResults(history),
     { role: "user", content: userMessage },
   ];
 
@@ -1647,6 +1741,7 @@ export async function runAgent(opts: {
   const deadline = Date.now() + RUN_BUDGET_MS;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+    const modelStart = Date.now();
     const response = await createCompletionPatiently(
       {
         model: "gpt-4o",
@@ -1655,10 +1750,9 @@ export async function runAgent(opts: {
         messages,
       },
       deadline,
+      onText ? (delta) => onText(delta, round) : undefined,
     );
-
     const choice = response.choices[0];
-
     if (choice.finish_reason === "stop") {
       const text = choice.message.content ?? "";
 
@@ -1697,6 +1791,7 @@ export async function runAgent(opts: {
           };
         }
 
+        onTool?.(toolName);
         try {
           const {
             result,

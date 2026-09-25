@@ -21,6 +21,77 @@ function getSessionId(): string {
   return sessionId;
 }
 
+const TOOL_STATUS: Record<string, string> = {
+  get_services: "Looking up our treatments…",
+  get_practitioners: "Checking our team…",
+  get_addons: "Checking add-ons…",
+  check_availability: "Checking the calendar…",
+  find_earliest_availability: "Finding the earliest times…",
+  book_appointment: "Booking your appointment…",
+  check_reschedule_availability: "Checking new times…",
+  reschedule_appointment: "Rescheduling…",
+  cancel_appointment: "Cancelling…",
+  find_upcoming_appointment: "Finding your appointment…",
+  lookup_client: "Looking up your details…",
+  upsert_client: "Saving your details…",
+  add_to_waitlist: "Adding you to the waitlist…",
+};
+
+/** Reads the server's event stream, reporting tool progress and the reply as it grows, and returns
+ * the final result ("done" event). Text from an earlier model round is discarded when a later round
+ * starts, so a "let me check…" lead-in never lingers in front of the real answer. */
+async function readChatStream(
+  body: ReadableStream<Uint8Array>,
+  cb: { onTool: (tool: string) => void; onPartial: (text: string) => void },
+): Promise<{
+  reply?: string;
+  error?: string;
+  escalated?: boolean;
+  booked?: boolean;
+  history?: ConversationMessages;
+}> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let partial = "";
+  let round = -1;
+  let done: ReturnType<typeof JSON.parse> | null = null;
+
+  const handle = (event: string, raw: string) => {
+    let data: any;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      return;
+    }
+    if (event === "tool") cb.onTool(String(data.tool));
+    else if (event === "delta") {
+      if (data.round !== round) {
+        round = data.round;
+        partial = "";
+      }
+      partial += String(data.delta ?? "");
+      cb.onPartial(partial);
+    } else if (event === "done") done = data;
+  };
+
+  for (;;) {
+    const { value, done: finished } = await reader.read();
+    if (value) buffer += decoder.decode(value, { stream: !finished });
+    let sep: number;
+    while ((sep = buffer.indexOf("\n\n")) !== -1) {
+      const block = buffer.slice(0, sep);
+      buffer = buffer.slice(sep + 2);
+      const event = /^event: (.*)$/m.exec(block)?.[1] ?? "message";
+      const dataLine = /^data: (.*)$/m.exec(block)?.[1];
+      if (dataLine) handle(event, dataLine);
+    }
+    if (finished) break;
+  }
+  if (!done) throw new Error("stream_ended");
+  return done;
+}
+
 function welcomeMessage(clinicName: string): Message {
   return {
     role: "assistant",
@@ -48,6 +119,9 @@ export default function ChatWidget({
   const [agentHistory, setAgentHistory] = useState<ConversationMessages>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // Live progress while a reply is being produced: what the assistant is doing, then its words.
+  const [statusLabel, setStatusLabel] = useState<string | null>(null);
+  const [streamingText, setStreamingText] = useState<string | null>(null);
   const [voiceActive, setVoiceActive] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [composerReady, setComposerReady] = useState(false);
@@ -81,7 +155,7 @@ export default function ChatWidget({
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, message: text, history: agentHistory }),
+        body: JSON.stringify({ sessionId, message: text, history: agentHistory, stream: true }),
       });
 
       // A non-2xx here (most often a gateway timeout on a slow turn — several tool calls in a
@@ -102,13 +176,31 @@ export default function ChatWidget({
 
       if (!res.ok) throw new Error(`http_${res.status}`);
 
-      const data: {
+      type ChatResult = {
         reply?: string;
         error?: string;
         escalated?: boolean;
         booked?: boolean;
         history?: ConversationMessages;
-      } = await res.json();
+      };
+
+      // The server streams progress and the reply as it is written (see api/chat/route.ts). A
+      // response that isn't an event stream (an older server, a proxy that buffered it) is plain
+      // JSON, handled below exactly as before.
+      let data: ChatResult;
+      if (res.headers.get("content-type")?.includes("text/event-stream") && res.body) {
+        data = await readChatStream(res.body, {
+          onTool: (tool) => setStatusLabel(TOOL_STATUS[tool] ?? "Working on it…"),
+          onPartial: (partial) => {
+            setStatusLabel(null);
+            setStreamingText(partial);
+          },
+        });
+        setStreamingText(null);
+        setStatusLabel(null);
+      } else {
+        data = await res.json();
+      }
 
       const reply = data.reply ?? "Sorry, I couldn't process that. Please try again.";
       setMessages((prev) => [...prev, { role: "assistant", text: reply }]);
@@ -135,6 +227,8 @@ export default function ChatWidget({
       ]);
     } finally {
       setLoading(false);
+      setStreamingText(null);
+      setStatusLabel(null);
       textareaRef.current?.focus();
     }
   }, [input, loading, sessionId, agentHistory]);
@@ -190,19 +284,28 @@ export default function ChatWidget({
           <ChatMessage key={i} role={m.role} text={m.text} />
         ))}
 
-        {loading && (
-          <div className="flex justify-start animate-fade-in">
-            <BotAvatar className="mr-2 mt-1 h-8 w-8 flex-shrink-0" />
-            <div className="bg-card rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border flex items-center gap-1">
-              {[0, 1, 2].map((i) => (
-                <span
-                  key={i}
-                  className="w-1.5 h-1.5 bg-primary rounded-full inline-block animate-pulse-dot"
-                  style={{ animationDelay: `${i * 0.2}s` }}
-                />
-              ))}
+        {loading && streamingText?.trim() ? (
+          <ChatMessage role="assistant" text={streamingText} />
+        ) : (
+          loading && (
+            <div className="flex justify-start animate-fade-in">
+              <BotAvatar className="mr-2 mt-1 h-8 w-8 flex-shrink-0" />
+              <div className="bg-card rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm border flex items-center gap-2">
+                <span className="flex items-center gap-1">
+                  {[0, 1, 2].map((i) => (
+                    <span
+                      key={i}
+                      className="w-1.5 h-1.5 bg-primary rounded-full inline-block animate-pulse-dot"
+                      style={{ animationDelay: `${i * 0.2}s` }}
+                    />
+                  ))}
+                </span>
+                {statusLabel && (
+                  <span className="text-xs text-muted-foreground">{statusLabel}</span>
+                )}
+              </div>
             </div>
-          </div>
+          )
         )}
         <div ref={bottomRef} />
       </div>

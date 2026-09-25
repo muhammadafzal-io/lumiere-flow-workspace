@@ -11,7 +11,7 @@ import {
 export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
-  let body: { sessionId?: string; message?: string; history?: any };
+  let body: { sessionId?: string; message?: string; history?: any; stream?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -47,6 +47,59 @@ export async function POST(req: NextRequest) {
   }
 
   const startedAt = Date.now();
+
+  // Streaming (the website widget): a text/event-stream the page reads as it arrives — progress
+  // ("Checking the calendar…") and then the reply word by word — instead of nothing for many
+  // seconds and then everything at once. The final "done" event carries exactly what the plain JSON
+  // response carries (reply, flags, history), so the client's state handling is identical.
+  if (body.stream === true) {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const send = (event: string, data: unknown) =>
+          controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+        try {
+          const result = await runAgent({
+            userMessage: message,
+            history,
+            platform: "widget",
+            chatId: sessionId,
+            onText: (delta, round) => send("delta", { delta, round }),
+            onTool: (tool) => send("tool", { tool }),
+          });
+          send("done", {
+            reply: result.text,
+            escalated: result.escalated,
+            booked: result.booked,
+            history: result.messages,
+          });
+        } catch (err) {
+          console.error("[api/chat] runAgent failed", {
+            sessionId,
+            elapsedMs: Date.now() - startedAt,
+            historyLength: Array.isArray(history) ? history.length : 0,
+            error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+          });
+          send("done", {
+            reply: isRateLimitError(err)
+              ? "I'm handling a lot of requests at the moment. Please send that again in a few seconds."
+              : "I'm having trouble right now. Please try again later.",
+          });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream; charset=utf-8",
+        "Cache-Control": "no-cache, no-transform",
+        Connection: "keep-alive",
+        "X-Accel-Buffering": "no",
+      },
+    });
+  }
+
   try {
     const result = await runAgent({
       userMessage: message,
