@@ -114,6 +114,60 @@ function getOpenAI() {
 
 const MAX_TOOL_ROUNDS = 8;
 
+/** The route's function budget is 60s (maxDuration in api/chat/route.ts); stop waiting on the model
+ * well before it so a real reply, or a clear error, still gets back to the client. */
+const RUN_BUDGET_MS = 52_000;
+
+export function isRateLimitError(err: unknown): boolean {
+  return (err as { status?: number } | null)?.status === 429;
+}
+
+/** How long OpenAI says to wait: "Please try again in 1.364s" or "…in 850ms". Falls back to 2s. */
+function retryDelayMs(err: unknown): number {
+  const message = err instanceof Error ? err.message : "";
+  const m = message.match(/try again in ([\d.]+)\s*(ms|s)\b/i);
+  const parsed = m ? parseFloat(m[1]) * (m[2].toLowerCase() === "ms" ? 1 : 1000) : 2000;
+  return Math.min(Math.max(parsed, 500) + 400, 8000);
+}
+
+/**
+ * chat.completions.create, but patient about rate limits. A tokens-per-minute 429 usually clears
+ * within a second or two, yet the SDK retries only once and immediately — and an agent turn makes
+ * several model calls in a row (each carrying the whole system prompt), so a busy minute is common.
+ * On a 429 this waits the time OpenAI asks for and tries again, up to three extra times, as long as
+ * the run still has budget. Anything else, or a 429 that outlasts the budget, is thrown unchanged.
+ */
+async function createCompletionPatiently(
+  params: Parameters<OpenAI["chat"]["completions"]["create"]>[0] & { stream?: false },
+  deadline: number,
+) {
+  // A second 429 in a row switches this call to a smaller model. Rate limits are counted per model,
+  // so the fallback draws on a different, much larger tokens-per-minute pool — a slightly plainer
+  // reply beats "I'm having trouble". Set OPENAI_FALLBACK_MODEL to another model, or to "off".
+  const fallbackModel = (process.env.OPENAI_FALLBACK_MODEL ?? "gpt-4o-mini").trim();
+  let current = params;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return (await getOpenAI().chat.completions.create(current)) as OpenAI.Chat.ChatCompletion;
+    } catch (err) {
+      const wait = retryDelayMs(err);
+      if (!isRateLimitError(err) || attempt >= 3 || Date.now() + wait + 4000 > deadline) throw err;
+      if (
+        attempt >= 1 &&
+        fallbackModel &&
+        fallbackModel !== "off" &&
+        current.model !== fallbackModel
+      ) {
+        console.warn(`[agent] still rate limited — falling back to ${fallbackModel} for this call`);
+        current = { ...params, model: fallbackModel };
+      } else {
+        console.warn(`[agent] rate limited by OpenAI — waiting ${wait}ms (retry ${attempt + 1}/3)`);
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
+    }
+  }
+}
+
 /** Tools safe to run concurrently when the model calls several of them in the same round — pure
  * lookups, no writes, no ordering dependency on each other or on anything else in the round.
  * Deliberately conservative: anything with a write or a side effect (bookings, client upserts,
@@ -1590,14 +1644,18 @@ export async function runAgent(opts: {
 
   let escalated = false;
   let booked = false;
+  const deadline = Date.now() + RUN_BUDGET_MS;
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const response = await getOpenAI().chat.completions.create({
-      model: "gpt-4o",
-      max_tokens: 1024,
-      tools: TOOLS,
-      messages,
-    });
+    const response = await createCompletionPatiently(
+      {
+        model: "gpt-4o",
+        max_tokens: 1024,
+        tools: TOOLS,
+        messages,
+      },
+      deadline,
+    );
 
     const choice = response.choices[0];
 

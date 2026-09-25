@@ -1,6 +1,37 @@
 "use client";
 
 import { BotAvatar } from "@/components/BotAvatar";
+/**
+ * The visitor's own message, thrown into the conversation word by word: each word flies in from
+ * the direction of the input box (lower left), spinning slightly and sharpening as it lands, on a
+ * short stagger. The delay is capped so even a long message finishes in about three and a half seconds.
+ * Spaces and line breaks are kept exactly as typed. Reduced-motion visitors get the text at once
+ * (the global reduced-motion rule collapses the animation to instant).
+ */
+function ThrownText({ text }: { text: string }) {
+  const parts = text.split(/(\s+)/);
+  const words = parts.filter((p) => p && !/^\s+$/.test(p)).length;
+  const step = Math.min(160, 3200 / Math.max(words, 1));
+  let n = 0;
+  return (
+    <p className="whitespace-pre-wrap">
+      {parts.map((part, i) =>
+        !part || /^\s+$/.test(part) ? (
+          part
+        ) : (
+          <span
+            key={i}
+            className="chat-word-throw inline-block"
+            style={{ animationDelay: `${300 + n++ * step}ms` }}
+          >
+            {part}
+          </span>
+        ),
+      )}
+    </p>
+  );
+}
+
 interface ChatMessageProps {
   role: "user" | "assistant";
   text: string;
@@ -10,7 +41,9 @@ export default function ChatMessage({ role, text }: ChatMessageProps) {
   const isUser = role === "user";
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} animate-slide-up`}>
+    <div
+      className={`flex ${isUser ? "justify-end" : "justify-start"} ${isUser ? "chat-bubble-throw" : "animate-slide-up"}`}
+    >
       {!isUser && <BotAvatar className="mr-2 mt-1 h-8 w-8 flex-shrink-0" />}
       <div
         className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
@@ -20,7 +53,7 @@ export default function ChatMessage({ role, text }: ChatMessageProps) {
         }`}
       >
         {isUser ? (
-          <p className="whitespace-pre-wrap">{text}</p>
+          <ThrownText text={text} />
         ) : (
           <div
             className="chat-html whitespace-pre-wrap"

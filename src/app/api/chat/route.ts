@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runAgent } from "@/lib/agent";
+import { runAgent, isRateLimitError } from "@/lib/agent";
 import {
   MESSAGE_TOO_LONG_CODE,
   MESSAGE_TOO_LONG_TEXT,
@@ -74,8 +74,14 @@ export async function POST(req: NextRequest) {
       error: err instanceof Error ? `${err.name}: ${err.message}` : String(err),
       stack: err instanceof Error ? err.stack : undefined,
     });
+    // A rate limit is not "something is broken" — say so, and tell the visitor what to do.
+    const busy = isRateLimitError(err);
     return NextResponse.json(
-      { reply: "I'm having trouble right now. Please try again later." },
+      {
+        reply: busy
+          ? "I'm handling a lot of requests at the moment. Please send that again in a few seconds."
+          : "I'm having trouble right now. Please try again later.",
+      },
       { status: 200 },
     );
   }
